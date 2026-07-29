@@ -36,7 +36,10 @@ socket.addEventListener("message", (event) => {
     else entry.resolve(message.result);
   }
   if (message.method === "Runtime.exceptionThrown") browserErrors.push(message.params.exceptionDetails.text);
-  if (message.method === "Log.entryAdded" && message.params.entry.level === "error") browserErrors.push(message.params.entry.text);
+  if (message.method === "Log.entryAdded" && (
+    message.params.entry.level === "error"
+    || message.params.entry.text.includes("AudioContext was not allowed to start")
+  )) browserErrors.push(message.params.entry.text);
 });
 
 function send(method, params = {}) {
@@ -148,6 +151,17 @@ for (const viewport of selectedViewports) {
     };
   })()`);
   const homeAudio = await evaluate(`import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus())`);
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await wait(80);
+  const reducedMotion = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll(".home-rain-card")];
+    return {
+      matches: matchMedia("(prefers-reduced-motion: reduce)").matches,
+      visible_cards: cards.filter((card) => getComputedStyle(card).animationDuration !== "0.001s").length,
+      duration: cards[0] ? parseFloat(getComputedStyle(cards[0]).animationDuration) : 0,
+    };
+  })()`);
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
 
   await evaluate(`localStorage.setItem("cardeater.run-history.v1", JSON.stringify([{ outcome: "victory", score: 500 }]))`);
   await send("Page.reload", { ignoreCache: true });
@@ -427,7 +441,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, home, home_audio: homeAudio, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_detail: catalogDetail, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, home, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_detail: catalogDetail, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -447,7 +461,8 @@ const failures = [
     entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
     entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
-    entry.home_audio.bgm_playing && entry.home_audio.layers >= 5 ? null : `${entry.viewport.name}: BGM did not initialize on page open`,
+    entry.home_audio.context_state === "uninitialized" && entry.home_audio.bgm_requested && !entry.home_audio.bgm_playing ? null : `${entry.viewport.name}: audio should wait silently for a user gesture`,
+    entry.reduced_motion.matches && entry.reduced_motion.visible_cards >= 24 && entry.reduced_motion.duration > 1 ? null : `${entry.viewport.name}: animations disappear when reduced motion is enabled`,
     entry.dealing.real_stack_cards >= 4 && entry.dealing.visible_stack_cards === entry.dealing.real_stack_cards ? null : `${entry.viewport.name}: full real-stack shuffle is missing`,
     entry.dealing.visible_prompt_count === 0 && entry.dealing.message === "" ? null : `${entry.viewport.name}: shuffle still shows a top-left prompt`,
     entry.dealing.shuffle_directions === 2 && entry.dealing.card_animation_names.includes("riffleShuffleCard") ? null : `${entry.viewport.name}: cards do not split and riffle`,
@@ -458,7 +473,7 @@ const failures = [
     entry.playing.phase === "出牌中" && entry.playing.active_cards === 1 ? null : `${entry.viewport.name}: did not enter play`,
     entry.playing.delete_markers === "1" ? null : `${entry.viewport.name}: new game did not start with one delete marker`,
     entry.playing.inventory_below_hud ? null : `${entry.viewport.name}: item tray is not below the HUD`,
-    entry.playing.audio.context_state === "running" && entry.playing.audio.bgm_playing ? null : `${entry.viewport.name}: BGM did not unlock after first interaction`,
+    entry.playing.audio.context_state === "running" && entry.playing.audio.bgm_playing && entry.playing.audio.groove_alignment === "kick-bass-melody-even-grid" ? null : `${entry.viewport.name}: BGM did not unlock or align after first interaction`,
     entry.playing.visible_stack_cards === Math.min(3, entry.dealing.real_stack_cards) ? null : `${entry.viewport.name}: deep shuffle cards remain visible during play`,
     entry.playing.card_copy_size >= 12 && entry.playing.hud_label_size >= 11 ? null : `${entry.viewport.name}: gameplay text remains too small`,
     entry.playing.text_size_adjust === "100%" && entry.playing.card_within_viewport && entry.playing.card_head_inside ? null : `${entry.viewport.name}: mobile text autosizing or card width is unsafe`,

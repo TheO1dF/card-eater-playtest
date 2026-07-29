@@ -1445,5 +1445,5 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
 @keyframes essenceSpark { 50% { transform: rotate(90deg) scale(1.4); } }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  html { scroll-behavior: auto; }
 }
