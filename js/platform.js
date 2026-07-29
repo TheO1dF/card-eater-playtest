@@ -84,7 +84,28 @@ export function migrateRunState(state) {
       state.round.item_fruit_chain ??= 0;
     }
   }
-  return state.schema_version === 21 ? state : null;
+  if (state.schema_version === 21) {
+    state.schema_version = 22;
+    state.items = [];
+    state.item_history = [];
+    state.pending_item_ids = [];
+    state.pending_item_resolution = null;
+    state.exiled_cards = [];
+    if (state.round) {
+      state.round.best_wrong_edibility_streak ??= 0;
+      state.round.last_item_action ??= null;
+      state.round.item_alternation_count ??= 0;
+      state.round.item_destroy_protected ??= false;
+      state.round.item_generation_copied ??= false;
+      state.round.pending_item_messages ??= [];
+    }
+  }
+  if (state.schema_version === 22) {
+    state.schema_version = 23;
+    state.free_rerolls ??= 1;
+    state.reroll_tokens ??= 0;
+  }
+  return state.schema_version === 23 ? state : null;
 }
 
 function loadRun() {

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#17121b" />
     <title>CardEater · 构筑你的餐盘</title>
     <link rel="icon" href="./assets/favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=28" />
+    <link rel="stylesheet" href="./styles.css?v=31" />
   </head>
   <body>
     <main class="app" id="app">
@@ -23,7 +23,7 @@
         <section class="hud" aria-label="本局数据">
           <div class="hud-cell"><span>轮次</span><strong id="roundValue">1/15</strong></div>
           <div class="hud-cell"><span id="scoreLabel">总分</span><strong id="scoreValue">0</strong><small id="scoreDelta" hidden>本轮 +0</small></div>
-          <div class="hud-cell token-cell"><span>删牌 token</span><strong id="tokenValue">0</strong><small>轮末使用</small></div>
+          <div class="hud-cell token-cell"><span>删牌标记</span><strong id="tokenValue">1</strong><small>轮末使用</small></div>
           <div class="hud-cell"><span id="remainingLabel">餐盘</span><strong id="remainingValue">7/7</strong></div>
         </section>
 
@@ -93,9 +93,9 @@
               <li><b>吃与弃</b><span>可食用牌通常适合吃，不可食用牌通常适合弃；错误食性仍按牌面和效果结算。</span></li>
               <li><b>后置</b><span>把当前牌移到餐盘末尾，不结算、不占用行动；每轮每张实体牌限一次。</span></li>
               <li><b>轮末选牌</b><span>本轮结束后从三张随机卡中选一张加入永久牌组，也可以跳过。</span></li>
-              <li><b>刷新</b><span>消耗刷新 token 更换本轮三张选牌；每 3 轮免费获得 1 枚。</span></li>
-              <li><b>培养道具</b><span>每 3 轮三选一。行动会积累培养进度，精华突破后改写规则；部分道具可以无限升级。</span></li>
-              <li><b>删牌 token</b><span>轮末选牌阶段可点击牌组，消耗 1 枚 token 删除 1 张实体牌；至少保留 1 张。</span></li>
+              <li><b>刷新</b><span>每轮可免费更换一次三张候选；之后每次刷新消耗 1 枚刷新标记。</span></li>
+              <li><b>道具赠礼</b><span>每 3 轮三选一。道具有普通、罕见、稀有与传奇四档；一次性道具会立即使用。</span></li>
+              <li><b>删牌标记</b><span>轮末选牌阶段可点击牌组，消耗 1 枚删牌标记删除 1 张实体牌；至少保留 1 张。</span></li>
               <li><b>餐盘扩容</b><span>成功完成第 5、10、15 轮时，餐盘上限永久 +1。</span></li>
               <li><b>自动保存</b><span>操作、结算和选择后自动保存，可从主界面继续。</span></li>
             </ul></details>
@@ -126,14 +126,22 @@
         </div>
 
         <div class="overlay item-draft-overlay" id="itemDraft" role="dialog" aria-modal="true" aria-labelledby="itemDraftTitle">
-          <section class="modal-panel item-draft-panel"><div class="eyebrow" id="itemDraftRound">第 3 轮赠礼</div><h1 id="itemDraftTitle">选择一件培养道具</h1><p class="modal-lead">第一件贴合当前牌组，第二件连接体系，第三件改写规则。达成条件后会精华突破。</p><div class="item-draft-grid" id="itemDraftList"></div></section>
+          <section class="modal-panel item-draft-panel"><div class="eyebrow" id="itemDraftRound">第 3 轮赠礼</div><h1 id="itemDraftTitle">选择一件道具</h1><p class="modal-lead">道具拥有稀有度。永久道具持续生效；标有“一次性”的道具会在选择后立即使用。</p><div class="item-draft-grid" id="itemDraftList"></div></section>
+        </div>
+
+        <div class="overlay item-choice-overlay" id="itemCardChoice" role="dialog" aria-modal="true" aria-labelledby="itemCardChoiceTitle">
+          <section class="modal-panel shop-panel-inner item-choice-panel"><div class="eyebrow" id="itemCardChoiceEyebrow">一次性道具</div><h1 id="itemCardChoiceTitle">从专属卡池选择一张牌</h1><p class="modal-lead" id="itemCardChoiceLead">选择后立即加入永久牌组。</p><div class="shop-grid draft-reward-grid" id="itemCardChoiceList"></div></section>
+        </div>
+
+        <div class="overlay item-choice-overlay" id="itemCategoryChoice" role="dialog" aria-modal="true" aria-labelledby="itemCategoryChoiceTitle">
+          <section class="modal-panel item-category-panel"><div class="eyebrow">一次性道具</div><h1 id="itemCategoryChoiceTitle">选择下一轮强化类别</h1><p class="modal-lead" id="itemCategoryChoiceLead">该类别所有牌结算时额外 +4 分。</p><div class="item-category-grid" id="itemCategoryChoiceList"></div></section>
         </div>
 
         <div class="overlay delete-confirm-overlay" id="deleteConfirm" role="alertdialog" aria-modal="true" aria-labelledby="deleteConfirmTitle">
-          <section class="modal-panel delete-confirm-panel"><div class="eyebrow">SPEND ONE TOKEN</div><h1 id="deleteConfirmTitle">确认删除这张牌？</h1><div class="delete-confirm-card" id="deleteConfirmCard"></div><p id="deleteConfirmWarning">删除不可撤销。</p><div class="delete-confirm-actions"><button class="shop-reroll-button" id="deleteConfirmCancel" type="button">取消</button><button class="primary-button danger-action" id="deleteConfirmAccept" type="button">确认删除</button></div></section>
+          <section class="modal-panel delete-confirm-panel"><div class="eyebrow">使用一枚删牌标记</div><h1 id="deleteConfirmTitle">确认删除这张牌？</h1><div class="delete-confirm-card" id="deleteConfirmCard"></div><p id="deleteConfirmWarning">删除不可撤销。</p><div class="delete-confirm-actions"><button class="shop-reroll-button" id="deleteConfirmCancel" type="button">取消</button><button class="primary-button danger-action" id="deleteConfirmAccept" type="button">确认删除</button></div></section>
         </div>
       </section>
     </main>
-    <script type="module" src="./js/main.js?v=28"></script>
+    <script type="module" src="./js/main.js?v=31"></script>
   </body>
 </html>

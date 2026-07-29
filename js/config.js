@@ -1,9 +1,8 @@
 export const GAME_CONFIG = Object.freeze({
-  schema_version: 21,
+  schema_version: 23,
   total_rounds: 15,
   draft_size: 3,
   item_draft_interval: 3,
-  reroll_grant_interval: 3,
   plate_upgrade_interval: 5,
   milestone_targets: Object.freeze({
     5: 100,

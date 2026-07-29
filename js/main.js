@@ -8,8 +8,18 @@ import { browserPlatform } from "./platform.js";
 import { initAudio, playSound, toggleBGM } from "./audio.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "./plate.js";
 import { activateReshuffle, getReshuffleStatus } from "./reshuffle.js";
-import { getCardById } from "./data.js";
-import { applyRoundItemSetup, chooseItem, getItemById, getPostponeLimit, hydrateOwnedItems, randomDraftItems } from "./items.js";
+import { CARD_TYPES, getCardById } from "./data.js";
+import {
+  activateCategoryRoundItem,
+  applyRoundItemDrawSetup,
+  applyRoundItemSetup,
+  chooseItem,
+  getItemById,
+  getItemCardOffers,
+  getPostponeLimit,
+  hydrateOwnedItems,
+  randomDraftItems,
+} from "./items.js";
 
 let state = createInitialPlayerState({ create_id: browserPlatform.create_id });
 const engine = createRoundEngine({ random: browserPlatform.random });
@@ -102,8 +112,8 @@ function renderTutorial() {
   ui.showStoryGuide({
     step: "complete",
     chapter: "EPILOGUE · 每轮都在构筑",
-    message: "轮末可以选牌、刷新或跳过；每 3 轮再从三件培养道具中挑选一件。",
-    objective: "使用对应行动积累进度，道具会精华突破，部分可以无限升级。",
+    message: "轮末可以选牌、刷新或跳过；每 3 轮再从三件不同稀有度的道具中挑选一件。",
+    objective: "永久道具会持续改写规则；一次性道具会立即结算并离开道具栏。",
     progress,
     can_continue: true,
     continue_label: "完成教学",
@@ -141,14 +151,67 @@ function presentItemEvents(events = []) {
 function finishRoundCycle() {
   ui.closeCardDraft();
   ui.closeItemDraft();
+  ui.closeItemCardChoice();
+  ui.closeItemCategoryChoice();
   transitionPhase(state, GAME_PHASES.NEXT_ROUND, { round: state.current_round });
   state.current_round += 1;
   state.pending_draft_ids = [];
   state.pending_item_ids = [];
+  state.pending_item_resolution = null;
   state.draft_resolved = false;
   state.item_draft_resolved = false;
   saveGame();
   prepareRound();
+}
+
+function completeItemReward(message) {
+  state.item_draft_resolved = true;
+  state.pending_item_resolution = null;
+  ui.closeItemDraft();
+  ui.closeItemCardChoice();
+  ui.closeItemCategoryChoice();
+  if (effectsEnabled) playSound("item", 1);
+  ui.showPickBurst(message, "item");
+  itemBuffer = [];
+  saveGame();
+  window.setTimeout(finishRoundCycle, 740);
+}
+
+function presentPendingItemResolution() {
+  const pending = state.pending_item_resolution;
+  if (!pending) return false;
+  const item = getItemById(pending.item_id);
+  if (!item) {
+    state.pending_item_resolution = null;
+    return false;
+  }
+  if (pending.kind === "card_choice") {
+    let cards = (pending.card_ids ?? []).map(getCardById).filter(Boolean);
+    if (cards.length === 0) {
+      cards = getItemCardOffers(pending.card_type, 3, browserPlatform.random);
+      pending.card_ids = cards.map((card) => card.id);
+      saveGame();
+    }
+    ui.closeItemDraft();
+    ui.openItemCardChoice(item, cards, (card) => {
+      if (state.phase !== GAME_PHASES.ITEM_DRAFT || state.item_draft_resolved) return;
+      const added = draftService.addCard(state, card);
+      if (!added) return;
+      completeItemReward(`${item.name}：选择「${card.name}」加入牌组`);
+    });
+    return true;
+  }
+  if (pending.kind === "category_choice") {
+    ui.closeItemDraft();
+    ui.openItemCategoryChoice(item, Object.values(CARD_TYPES), (type) => {
+      if (state.phase !== GAME_PHASES.ITEM_DRAFT || state.item_draft_resolved) return;
+      const result = activateCategoryRoundItem(state, item.id, type);
+      if (!result.success) return;
+      completeItemReward(result.message);
+    });
+    return true;
+  }
+  return false;
 }
 
 function enterItemDraft() {
@@ -157,6 +220,7 @@ function enterItemDraft() {
     finishRoundCycle();
     return;
   }
+  if (presentPendingItemResolution()) return;
   if (itemBuffer.length === 0) {
     itemBuffer = (state.pending_item_ids ?? []).map(getItemById).filter(Boolean);
     if (itemBuffer.length === 0) itemBuffer = randomDraftItems(state, 3, browserPlatform.random);
@@ -171,13 +235,25 @@ function enterItemDraft() {
     if (state.phase !== GAME_PHASES.ITEM_DRAFT || state.item_draft_resolved) return;
     const result = chooseItem(state, entry);
     if (!result.success) return;
-    state.item_draft_resolved = true;
-    ui.closeItemDraft();
-    if (effectsEnabled) playSound("item", 1);
-    ui.showPickBurst(result.message, "item");
-    itemBuffer = [];
-    saveGame();
-    window.setTimeout(finishRoundCycle, 740);
+    if (result.resolution === "card_choice") {
+      const offers = getItemCardOffers(result.card_type, 3, browserPlatform.random);
+      state.pending_item_resolution = {
+        kind: "card_choice",
+        item_id: entry.id,
+        card_type: result.card_type,
+        card_ids: offers.map((card) => card.id),
+      };
+      saveGame();
+      presentPendingItemResolution();
+      return;
+    }
+    if (result.resolution === "category_choice") {
+      state.pending_item_resolution = { kind: "category_choice", item_id: entry.id };
+      saveGame();
+      presentPendingItemResolution();
+      return;
+    }
+    completeItemReward(result.message);
   });
 }
 
@@ -269,6 +345,7 @@ function completeRound() {
   actionLocked = true;
   transitionPhase(state, GAME_PHASES.SCORING, { round: state.current_round });
   renderTutorial();
+  if (state.round.started_at_ms) state.round.elapsed_ms = Math.max(1, browserPlatform.now() - state.round.started_at_ms);
   const result = engine.finalizeRound(state);
   refreshTable();
   const milestone = engine.levelProgressCheck(state);
@@ -280,12 +357,6 @@ function completeRound() {
     result.plate_upgrade = true;
     result.breakdown.splice(-1, 0, { label: "五轮赠礼", text: `餐盘上限永久 +1 · 当前 ${state.plate_capacity}`, kind: "bonus" });
   }
-  if (!failed && state.current_round % GAME_CONFIG.reroll_grant_interval === 0) {
-    state.reroll_tokens += 1;
-    result.reroll_grant = true;
-    result.breakdown.splice(-1, 0, { label: "三轮补给", text: `刷新 token +1 · 当前 ${state.reroll_tokens}`, kind: "bonus" });
-  }
-
   const won = !failed && state.mode !== GAME_MODES.ENDLESS && state.current_round >= engine.getFinalRound(state);
   const outcome = failed ? "defeat" : won ? "victory" : null;
   if (outcome) {
@@ -450,6 +521,7 @@ const gesture = createGestureController({
 
 function prepareRound() {
   resetRoundState(state);
+  state.free_rerolls = 1;
   const roundStartMessages = [
     ...applyRoundItemSetup(state, { create_id: browserPlatform.create_id }),
     ...engine.applyRoundStartEffects(state),
@@ -459,11 +531,14 @@ function prepareRound() {
     effect: card.effect ? { ...card.effect, keywords: [...(card.effect.keywords ?? [])] } : null,
   })));
   Object.assign(state.round, takeRoundDrawPile(shuffledDeck, state.plate_capacity));
+  roundStartMessages.push(...applyRoundItemDrawSetup(state, browserPlatform.random));
   streak = { action: null, count: 0 };
   actionLocked = true;
   refreshTable();
   if (effectsEnabled) playSound("deal", state.round.draw_pile.length);
   ui.playDealAnimation(state.round.draw_pile.length, () => {
+    state.round.started_at_ms = browserPlatform.now();
+    state.round.elapsed_ms = 0;
     transitionPhase(state, GAME_PHASES.PLAYING, { round: state.current_round });
     actionLocked = false;
     saveGame();
@@ -480,9 +555,12 @@ function restoreRun(saved) {
   state.item_history ??= [];
   state.pending_draft_ids ??= [];
   state.pending_item_ids ??= [];
+  state.pending_item_resolution ??= null;
+  state.exiled_cards ??= [];
   state.draft_resolved ??= false;
   state.item_draft_resolved ??= false;
   state.reroll_tokens ??= 0;
+  state.free_rerolls ??= 1;
   draftBuffer = state.pending_draft_ids.map(getCardById).filter(Boolean);
   itemBuffer = state.pending_item_ids.map(getItemById).filter(Boolean);
   ui.hideWelcome();
@@ -569,6 +647,17 @@ window.addEventListener("pagehide", () => {
 
 ui.applyFontSize(settings.font_size);
 ui.renderSettings(settings);
+if (musicEnabled) {
+  startSound();
+  const unlockAudio = () => {
+    initAudio();
+    toggleBGM(true);
+    bgmStarted = true;
+  };
+  window.addEventListener("pointerdown", unlockAudio, { once: true, capture: true });
+  window.addEventListener("keydown", unlockAudio, { once: true, capture: true });
+  window.addEventListener("touchstart", unlockAudio, { once: true, capture: true });
+}
 ui.openWelcome({
   onNew: (mode) => {
     startSound();

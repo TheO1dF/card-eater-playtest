@@ -1,11 +1,17 @@
 import { GAME_CONFIG, getEffectiveMilestoneRound, getFinalRound, getMilestoneTarget, getNextMilestone } from "./config.js";
 import { createShopCardPool, getCardById } from "./data.js";
 import {
+  drainPendingItemMessages,
+  getBananaGenerationCardId,
+  getItemActionOverrides,
   getItemFinalMultipliers,
   getItemRoundEndEffects,
+  maybeDuplicateGeneratedCard,
+  protectFirstDestruction,
   resolveItemActionEffects,
   resolveItemAfterActionEffects,
   resolveItemPostponeEffects,
+  shouldEchoDrinkEffect,
 } from "./items.js";
 import { formatScore, safeAdd, safeMultiply, safeProduct } from "./numbers.js";
 
@@ -44,6 +50,21 @@ function getDeckReductionTotal(state) {
       Math.max(0, eatBase - (card.eat_points ?? 0))
       + Math.max(0, discardBase - (card.discard_points ?? 0)));
   }, 0);
+}
+
+function getDeckReductionSnapshot(state) {
+  const snapshot = new Map();
+  for (const card of state.deck ?? []) {
+    for (const stat of ["eat_points", "discard_points"]) {
+      const baseStat = stat === "eat_points" ? "base_eat_points" : "base_discard_points";
+      snapshot.set(`${card.uuid}:${stat}`, {
+        card_uuid: card.uuid,
+        stat,
+        amount: Math.max(0, (card[baseStat] ?? card[stat] ?? 0) - (card[stat] ?? 0)),
+      });
+    }
+  }
+  return snapshot;
 }
 
 function getRuleFlatBonus(state, action, card) {
@@ -123,6 +144,7 @@ function consumeOncePerRound(state, card, effect) {
 function removePermanentCard(state, cardUuid) {
   const index = state.deck.findIndex((item) => item.uuid === cardUuid);
   if (index < 0) return null;
+  if (protectFirstDestruction(state, cardUuid)) return null;
   const removed = state.deck.splice(index, 1)[0];
   state.round.destroyed_count = (state.round.destroyed_count ?? 0) + 1;
   return removed;
@@ -166,7 +188,8 @@ function growPermanentCard(state, card, stat, amount) {
 }
 
 function changePermanentCard(state, card, stat, amount, limits = {}) {
-  const delta = Number(amount ?? 0);
+  const pointChangeMultiplier = state.round.double_point_change_uuids?.includes(card.uuid) ? 2 : 1;
+  const delta = Number(amount ?? 0) * pointChangeMultiplier;
   if (!Number.isFinite(delta) || delta === 0) return 0;
   const permanentCard = state.deck.find((item) => item.uuid === card.uuid);
   if (!permanentCard) return 0;
@@ -300,6 +323,7 @@ function createGeneratedCard(state, sourceCard, template, options = {}) {
     generated.base_discard_points = options.discard_points;
   }
   state.deck.push(generated);
+  maybeDuplicateGeneratedCard(state, generated);
   return generated;
 }
 
@@ -350,11 +374,12 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "gain_delete_token_destroy" && action === effect.trigger_action) {
     const removed = state.deck.length > 1 ? removePermanentCard(state, card.uuid) : null;
-    if (removed) {
+    const echoedDestruction = Boolean(entry.item_drink_echo && entry.destroyed_self);
+    if (removed || echoedDestruction) {
       const tokens = Math.max(1, effect.tokens ?? 1);
       state.delete_tokens = safeAdd(state.delete_tokens ?? 0, tokens);
-      entry.destroyed_self = true;
-      markEffect(entry, card, `${card.name}：摧毁自身，删牌 token +${tokens}`);
+      if (removed) entry.destroyed_self = true;
+      markEffect(entry, card, `${card.name}：${removed ? "摧毁自身，" : "双层吸管复现效果，"}删牌标记 +${tokens}`);
     } else {
       markEffect(entry, card, `${card.name}：最后一张牌不会摧毁，也不会获得 token`);
     }
@@ -371,7 +396,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
         const tokens = Math.max(1, effect.tokens ?? 1);
         state.delete_tokens = safeAdd(state.delete_tokens ?? 0, tokens);
         entry.destroyed_self = true;
-        markEffect(entry, card, `${card.name}：摧毁自身，删牌 token +${tokens}`);
+        markEffect(entry, card, `${card.name}：摧毁自身，删牌标记 +${tokens}`);
       }
     }
   }
@@ -437,22 +462,39 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     }
   }
 
-  if (effect.kind === "bidirectional_anorexia") {
+  if (effect.kind === "sour_takeout") {
     if (action === ACTIONS.EAT) {
-      const change = changePermanentCard(state, card, "eat_points", effect.eat_growth ?? 2);
-      entry.permanent_change = { stat: "eat_points", amount: change };
-      markEffect(entry, card, `${card.name}：吃分永久 +${change}`);
-    } else if (action === ACTIONS.DISCARD) {
-      const change = changePermanentCard(state, card, "eat_points", -(effect.discard_eat_loss ?? 2));
-      entry.effect_bonus = safeAdd(entry.effect_bonus, effect.discard_bonus ?? 0);
-      entry.permanent_change = { stat: "eat_points", amount: change };
-      markEffect(entry, card, `${card.name}：额外 +${effect.discard_bonus ?? 0} 分，吃分永久 ${change}`);
+      const eatChange = changePermanentCard(state, card, "eat_points", -(effect.eat_loss ?? 1), { min: -5 });
+      const discardChange = changePermanentCard(state, card, "discard_points", effect.discard_gain ?? 1, { max: 12 });
+      entry.permanent_change = { eat: eatChange, discard: discardChange };
+      markEffect(entry, card, `${card.name}：吃分 ${eatChange} / 弃分 +${discardChange}`);
+    } else if ((card.discard_points ?? 0) < (effect.generate_if_discard_below ?? 0)) {
+      const generated = createGeneratedCard(state, card, getCardById("K005"));
+      markEffect(entry, card, `${card.name}：弃分仍小于 0，${generated ? "生成 1 张发馊外卖" : "牌组已满，无法生成"}`);
     }
   }
 
-  if (effect.kind === "double_anorexia") {
-    state.round.double_fast_food_anorexia = true;
-    markEffect(entry, card, `${card.name}：本轮其他快餐的【厌食】变为双倍`);
+  if (effect.kind === "spoiled_chicken_bucket") {
+    if (action === ACTIONS.EAT) {
+      const eatChange = changePermanentCard(state, card, "eat_points", -(effect.eat_loss ?? 1), { min: -5 });
+      const discardChange = changePermanentCard(state, card, "discard_points", effect.discard_gain ?? 1, { max: 12 });
+      entry.permanent_change = { eat: eatChange, discard: discardChange };
+      markEffect(entry, card, `${card.name}：吃分 ${eatChange} / 弃分 +${discardChange}`);
+    } else if ((card.discard_points ?? 0) < (effect.force_type_if_discard_below ?? 0)) {
+      state.next_draft_forced_type = effect.forced_type ?? "快餐";
+      markEffect(entry, card, `${card.name}：下次选牌必有 1 张${state.next_draft_forced_type}`);
+    }
+  }
+
+  if (effect.kind === "sandwich_anorexia") {
+    if (action === ACTIONS.EAT) {
+      const eatChange = changePermanentCard(state, card, "eat_points", -(effect.eat_loss ?? 2), { min: -5 });
+      const discardChange = changePermanentCard(state, card, "discard_points", effect.discard_gain ?? 2, { max: 12 });
+      entry.permanent_change = { eat: eatChange, discard: discardChange };
+    }
+    const doubled = state.round.draw_pile.slice(0, -1).filter((remaining) => remaining.type === "快餐").map((remaining) => remaining.uuid);
+    state.round.double_point_change_uuids = [...new Set([...(state.round.double_point_change_uuids ?? []), ...doubled])];
+    markEffect(entry, card, `${card.name}：本轮剩余 ${doubled.length} 张快餐的点数变动值翻倍`);
   }
 
   if (effect.kind === "fast_food_anorexia_or_positive_count") {
@@ -820,7 +862,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
     const generationReady = combo >= (effect.generate_at ?? Number.POSITIVE_INFINITY);
     if (generationReady && consumeOncePerRound(state, card, effect)) {
-      let template = effect.generate_card_id ? getCardById(effect.generate_card_id) : null;
+      let template = effect.generate_card_id ? getCardById(getBananaGenerationCardId(state, effect.generate_card_id)) : null;
       if (!template && effect.generate_random_type) {
         const candidates = createShopCardPool().filter((candidate) => candidate.type === effect.generate_random_type);
         template = candidates[Math.floor(random() * candidates.length)] ?? null;
@@ -869,7 +911,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     markEffect(entry, card, `${card.name}：本轮水果连击不会中断${removed ? "，摧毁自身" : ""}`);
   }
 
-  if (["anorexia", "anorexia_postpone_drain", "double_anorexia"].includes(effect.kind)) {
+  if (["anorexia", "anorexia_postpone_drain"].includes(effect.kind)) {
     if (action === ACTIONS.EAT) {
       const requestedGold = Math.max(0, effect.eat_gold_cost ?? 0);
       const paidGold = Math.min(state.gold, requestedGold);
@@ -942,7 +984,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
         const removed = state.deck.length > 1 ? removePermanentCard(state, card.uuid) : null;
         if (removed) entry.destroyed_self = true;
       }
-      markEffect(entry, card, `${card.name}：留存爆发 ×${multiplier}${burstBonus ? `，额外 +${burstBonus}` : ""}${effect.burst_delete_tokens ? `，删牌 token +${effect.burst_delete_tokens}` : ""}${effect.destroy_after_burst ? "，摧毁自身" : effect.reset_after_eat ? "，牌面重置" : ""}`);
+      markEffect(entry, card, `${card.name}：留存爆发 ×${multiplier}${burstBonus ? `，额外 +${burstBonus}` : ""}${effect.burst_delete_tokens ? `，删牌标记 +${effect.burst_delete_tokens}` : ""}${effect.destroy_after_burst ? "，摧毁自身" : effect.reset_after_eat ? "，牌面重置" : ""}`);
     }
   }
 
@@ -2186,6 +2228,7 @@ export function createRoundEngine(options = {}) {
 
     const lockAfterResolution = (state.round.lock_next_stats_charges ?? 0) > 0;
     const reductionBefore = getDeckReductionTotal(state);
+    const reductionSnapshotBefore = getDeckReductionSnapshot(state);
     const destroyedBefore = state.round.destroyed_count ?? 0;
     for (const sourceUuid of Object.keys(state.round.nebula_postpone_counts ?? {})) {
       if (sourceUuid !== card.uuid) {
@@ -2208,11 +2251,14 @@ export function createRoundEngine(options = {}) {
 
     const ruleBonus = getRuleFlatBonus(state, action, card);
     const buffs = consumeActionBuffs(state, action, card);
+    const itemOverrides = getItemActionOverrides(state, action, card);
     const actionPrintedPoints = action === ACTIONS.EAT ? card.eat_points ?? 0 : card.discard_points ?? 0;
     let printedPoints = buffs.use_opposite_side
       ? (action === ACTIONS.EAT ? card.discard_points ?? 0 : card.eat_points ?? 0)
       : actionPrintedPoints;
     if (buffs.use_best_side) printedPoints = Math.max(card.eat_points ?? 0, card.discard_points ?? 0);
+    if (itemOverrides.use_best_side) printedPoints = Math.max(card.eat_points ?? 0, card.discard_points ?? 0);
+    printedPoints = itemOverrides.force_zero ? 0 : safeMultiply(printedPoints, itemOverrides.printed_multiplier);
     const itemEffects = resolveItemActionEffects(state, action, card);
     const questModifier = [
       state.round.quest_flat_modifier ?? 0,
@@ -2250,6 +2296,7 @@ export function createRoundEngine(options = {}) {
     if (entry.wrong_edibility) {
       state.round.wrong_edibility_count = safeAdd(state.round.wrong_edibility_count ?? 0, 1);
       state.round.wrong_edibility_streak = safeAdd(state.round.wrong_edibility_streak ?? 0, 1);
+      state.round.best_wrong_edibility_streak = Math.max(state.round.best_wrong_edibility_streak ?? 0, state.round.wrong_edibility_streak);
     } else {
       state.round.wrong_edibility_streak = 0;
     }
@@ -2291,6 +2338,18 @@ export function createRoundEngine(options = {}) {
 
     // Effects are applied after consuming existing buffs, so newly created buffs affect future cards only.
     applyCardEffect(state, action, card, entry, random);
+    if (shouldEchoDrinkEffect(state, card)) {
+      entry.item_drink_echo = true;
+      const echoedCard = { ...card, effect: { ...card.effect, once_per_round: false } };
+      applyCardEffect(state, action, echoedCard, entry, random);
+      markEffect(entry, card, "双层吸管：饮料效果额外生效一次");
+      entry.item_drink_echo = false;
+    }
+    const pendingItemMessages = drainPendingItemMessages(state);
+    if (pendingItemMessages.length > 0) {
+      const message = pendingItemMessages.join(" · ");
+      entry.effect_triggered = entry.effect_triggered ? `${entry.effect_triggered} · ${message}` : message;
+    }
     if (lockAfterResolution) {
       state.round.lock_next_stats_charges = Math.max(0, (state.round.lock_next_stats_charges ?? 0) - 1);
       const locked = lockPermanentCardStats(state, card);
@@ -2306,21 +2365,31 @@ export function createRoundEngine(options = {}) {
         ? `${entry.effect_triggered} · ${shieldMessage}`
         : shieldMessage;
     }
-    if (card.weakened && state.deck.some((owned) => owned.uuid === card.uuid)) {
-      const removed = state.deck.length > 1 ? removePermanentCard(state, card.uuid) : null;
+    if ((card.weakened || card.temporary) && state.deck.some((owned) => owned.uuid === card.uuid)) {
+      const index = state.deck.findIndex((owned) => owned.uuid === card.uuid);
+      const removed = card.temporary
+        ? (index >= 0 ? state.deck.splice(index, 1)[0] : null)
+        : state.deck.length > 1 ? removePermanentCard(state, card.uuid) : null;
       if (removed) {
         entry.destroyed_self = true;
         entry.effect_triggered = entry.effect_triggered
-          ? `${entry.effect_triggered} · 【弱化】结算后摧毁自身`
-          : `${card.name}：【弱化】结算后摧毁自身`;
+          ? `${entry.effect_triggered} · ${card.temporary ? "【临时】" : "【弱化】"}结算后自毁`
+          : `${card.name}：${card.temporary ? "【临时】" : "【弱化】"}结算后自毁`;
       }
     }
     const reductionAfter = getDeckReductionTotal(state);
+    const reductionSnapshotAfter = getDeckReductionSnapshot(state);
+    const restoredStats = [...reductionSnapshotBefore.entries()].flatMap(([key, before]) => {
+      const after = reductionSnapshotAfter.get(key);
+      const restored = after ? Math.max(0, before.amount - after.amount) : 0;
+      return restored > 0 ? [{ card_uuid: before.card_uuid, stat: before.stat, amount: restored }] : [];
+    });
     entry.restored_points = Math.max(0, reductionBefore - reductionAfter);
     entry.reduced_points = Math.max(0, reductionAfter - reductionBefore);
     entry.destroyed_count = Math.max(0, (state.round.destroyed_count ?? 0) - destroyedBefore);
     const itemAfterEffects = resolveItemAfterActionEffects(state, action, card, entry, {
       restored_points: entry.restored_points,
+      restored_stats: restoredStats,
       reduced_points: entry.reduced_points,
       destroyed_count: entry.destroyed_count,
     });
@@ -2353,7 +2422,7 @@ export function createRoundEngine(options = {}) {
 
   function finalizeRound(state) {
     const roundEndEffects = applyRoundEndCardEffects(state);
-    const itemRoundEndEffects = getItemRoundEndEffects(state);
+    const itemRoundEndEffects = getItemRoundEndEffects(state, random);
     const actionScore = state.round.actions.reduce((sum, item) => safeAdd(sum, item.points), 0);
     const postponeScore = state.round.postpone_bonus_score ?? 0;
     const cardScore = [actionScore, postponeScore, roundEndEffects.score_bonus, itemRoundEndEffects.score_bonus]

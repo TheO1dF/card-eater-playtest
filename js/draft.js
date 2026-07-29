@@ -27,6 +27,15 @@ export function createDraftService(options = {}) {
       pool = createCardPool().filter((card) => (card.min_draft_round ?? 1) <= state.current_round);
     }
     const offers = [];
+    const forcedType = state.next_draft_forced_type;
+    if (forcedType && count > 0) {
+      const forcedPool = pool.filter((card) => card.type === forcedType);
+      if (forcedPool.length > 0) {
+        const chosen = forcedPool[weightedIndex(forcedPool, random)];
+        offers.push(chosen);
+        pool = pool.filter((card) => card.id !== chosen.id);
+      }
+    }
     while (offers.length < count && pool.length > 0) {
       const [chosen] = pool.splice(weightedIndex(pool, random), 1);
       offers.push(chosen);
@@ -44,19 +53,23 @@ export function createDraftService(options = {}) {
     };
     state.deck.push(owned);
     state.draft_history.push({ round: state.current_round, card_id: card.id, skipped: false });
+    state.next_draft_forced_type = null;
     return owned;
   }
 
   function skip(state) {
     state.draft_history.push({ round: state.current_round, card_id: null, skipped: true });
+    state.next_draft_forced_type = null;
   }
 
   function reroll(state, cards = []) {
     if (state.phase !== "CardDraft") return { success: false, reason: "wrong_phase" };
-    if ((state.reroll_tokens ?? 0) < 1) return { success: false, reason: "no_token" };
-    state.reroll_tokens -= 1;
+    const hasFreeReroll = (state.free_rerolls ?? 0) > 0;
+    if (!hasFreeReroll && (state.reroll_tokens ?? 0) < 1) return { success: false, reason: "no_token" };
+    if (hasFreeReroll) state.free_rerolls -= 1;
+    else state.reroll_tokens -= 1;
     const offers = getOffers(state, GAME_CONFIG.draft_size, cards.map((card) => card.id));
-    return { success: true, offers, tokens: state.reroll_tokens };
+    return { success: true, offers, used_free: hasFreeReroll, free_rerolls: state.free_rerolls, tokens: state.reroll_tokens };
   }
 
   function removeCard(state, cardUuid) {

@@ -1,12 +1,9 @@
 import { GAME_CONFIG, GAME_MODES, MODE_LABELS, getFinalRound, getNextMilestone } from "./config.js";
 import {
   getCurrentItemDescription,
-  getCultivationTarget,
   getItemById,
   getItemLevelLabel,
-  getItemProgressText,
   getPostponeLimit,
-  isCultivationComplete,
 } from "./items.js";
 import { formatScore } from "./numbers.js";
 import { getQuestRequirement, getQuestTarget } from "./quests.js";
@@ -138,12 +135,9 @@ function metaStyle(entry) {
 
 function itemElement(entry) {
   const node = document.createElement("span");
-  const target = getCultivationTarget(entry);
-  const progress = isCultivationComplete(entry) ? 100 : Math.min(100, (entry.cultivation_progress ?? 0) / target * 100);
-  node.className = `item-chip${(entry.level ?? 0) > 0 ? " is-essence" : ""}`;
-  node.style.setProperty("--item-progress", `${progress}%`);
-  node.title = `${entry.name} · ${getItemLevelLabel(entry)}：${getCurrentItemDescription(entry)}（${getItemProgressText(entry)}）`;
-  node.innerHTML = `<span class="meta-sprite" style="${metaStyle(entry)}"></span><i>${entry.level ?? 0}</i>`;
+  node.className = `item-chip item-rarity-${RARITY_CLASS[entry.rarity] ?? "common"}`;
+  node.title = `${entry.name} · ${getItemLevelLabel(entry)}：${getCurrentItemDescription(entry)}`;
+  node.innerHTML = `<span class="meta-sprite" style="${metaStyle(entry)}"></span><i>◆</i>`;
   return node;
 }
 
@@ -229,12 +223,10 @@ function selectedRuleElement(rule, index) {
 
 function ownedItemElement(entry) {
   const article = document.createElement("article");
-  const target = getCultivationTarget(entry);
-  const progress = isCultivationComplete(entry) ? 100 : Math.min(100, (entry.cultivation_progress ?? 0) / target * 100);
-  article.className = `collection-status-card item-status-card${(entry.level ?? 0) > 0 ? " is-essence" : ""}`;
+  article.className = `collection-status-card item-status-card item-rarity-${RARITY_CLASS[entry.rarity] ?? "common"}`;
   article.innerHTML = `
     <span class="collection-item-icon meta-sprite" style="${metaStyle(entry)}"></span>
-    <span><small>${getItemLevelLabel(entry)} · ${entry.role}</small><strong>${entry.name}</strong><em>${getCurrentItemDescription(entry)}</em><span class="item-progress"><i style="width:${progress}%"></i></span><b class="item-progress-copy">${getItemProgressText(entry)} · ${entry.essence_description}</b></span>
+    <span><small>${entry.rarity} · ${entry.role}</small><strong>${entry.name}</strong><em>${getCurrentItemDescription(entry)}</em></span>
   `;
   return article;
 }
@@ -271,13 +263,13 @@ function draftCardElement(card, onChoose) {
 
 function itemDraftElement(entry, onChoose) {
   const button = document.createElement("button");
-  button.className = `item-draft-card${entry.consumable ? " is-consumable" : ""}`;
+  button.className = `item-draft-card item-rarity-${RARITY_CLASS[entry.rarity] ?? "common"}${entry.consumable ? " is-consumable" : ""}`;
   button.type = "button";
   button.dataset.itemId = entry.id;
   button.dataset.itemSlot = entry.wild ? "wild" : entry.bridge ? "bridge" : "relevant";
   button.innerHTML = `
     <span class="item-draft-icon meta-sprite" style="${metaStyle(entry)}"></span>
-    <span class="item-draft-copy"><small>${entry.rarity} · ${entry.role}</small><strong>${entry.name}</strong><em>${entry.description}</em><span class="item-essence-preview"><b>精华</b>${entry.essence_description}</span></span>
+    <span class="item-draft-copy"><small>${entry.rarity} · ${entry.role}</small><strong>${entry.name}</strong><em>${entry.description}</em></span>
     <span class="draft-pick-label">领取</span>
   `;
   button.addEventListener("click", () => onChoose(entry), { once: true });
@@ -331,7 +323,7 @@ function deckStatusCardElement(card, quantity, onRemove = null, onInspect = null
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "deck-remove-token";
-    remove.textContent = "删除 · 1 token";
+    remove.textContent = "删除 · 1 枚标记";
     remove.addEventListener("click", () => onRemove(card));
     article.appendChild(remove);
   }
@@ -351,6 +343,8 @@ export function createUI(root) {
     shop: get("#shopPanel"), shopOffers: get("#shopOfferList"), shopThemeOffers: get("#shopThemeOfferList"), shopItems: get("#shopItemOfferList"), shopDeck: get("#shopDeckList"), welcome: get("#welcomeOverlay"),
     cardDraft: get("#cardDraft"), cardDraftList: get("#cardDraftList"),
     itemDraft: get("#itemDraft"), itemDraftList: get("#itemDraftList"),
+    itemCardChoice: get("#itemCardChoice"), itemCardChoiceList: get("#itemCardChoiceList"),
+    itemCategoryChoice: get("#itemCategoryChoice"), itemCategoryChoiceList: get("#itemCategoryChoiceList"),
     deleteConfirm: get("#deleteConfirm"),
     questStatus: get("#questStatus"), questInfoButton: get("#questInfoButton"),
     deckStatus: get("#deckStatus"), deckInfoButton: get("#deckInfoButton"),
@@ -514,9 +508,9 @@ export function createUI(root) {
         <em>吃 ${signed(card.eat_points)} / 弃 ${signed(card.discard_points)}<br />${card.effect?.description ?? "无额外效果"}</em>
       </span>
     `;
-    setText(get("#deleteConfirmWarning"), `确认消耗 1 枚删牌 token 删除「${card.name}」？此操作不可撤销。`);
+    setText(get("#deleteConfirmWarning"), `确认消耗 1 枚删牌标记删除「${card.name}」？此操作不可撤销。`);
     const accept = get("#deleteConfirmAccept");
-    accept.textContent = "确认删除 · 1 token";
+    accept.textContent = "确认删除 · 1 枚标记";
     accept.onclick = () => {
       closeDeleteConfirmation();
       onRemove(card.uuid);
@@ -571,7 +565,7 @@ export function createUI(root) {
       <div><small>${liveRound ? "本轮登场" : "下轮预计"}</small><b>${actionBudget} / ${state.deck.length}</b><span>${reserveCount > 0 ? `${reserveCount} 张留在牌组` : "全牌组登场"}</span></div>
       <div><small>永久餐盘</small><b>${state.plate_capacity} 张</b><span>每 5 轮免费 +1</span></div>
       <div><small>未登场候选</small><b>${reserveCount} 张</b><span>每轮重新随机抽取</span></div>
-      <div><small>删牌 token</small><b>${state.delete_tokens ?? 0} 枚</b><span>仅轮末选牌阶段可用</span></div>
+      <div><small>删牌标记</small><b>${state.delete_tokens ?? 0} 枚</b><span>仅轮末选牌阶段可用</span></div>
     `;
     const canRemove = state.phase === "CardDraft" && (state.delete_tokens ?? 0) > 0 && state.deck.length > 1 && deckRemovalHandler;
     get("#deckStatusList").replaceChildren(...groups.map(({ card, quantity }) => deckStatusCardElement(
@@ -583,7 +577,7 @@ export function createUI(root) {
       }) : null,
     )));
     setText(get("#deckRemovalHint"), state.phase === "CardDraft"
-      ? (state.delete_tokens > 0 ? `当前有 ${state.delete_tokens} 枚 token；点击卡牌下方按钮即可删除。` : "当前没有删牌 token。你仍可查看牌组后返回选牌。")
+      ? (state.delete_tokens > 0 ? `当前有 ${state.delete_tokens} 枚删牌标记；点击卡牌下方按钮即可删除。` : "当前没有删牌标记。你仍可查看牌组后返回选牌。")
       : "出牌阶段只能查看；轮末三选一时可消耗 token 删除卡牌。");
     nodes.questStatus?.classList.remove("show");
     nodes.ruleStatus?.classList.remove("show");
@@ -630,7 +624,7 @@ export function createUI(root) {
 
   function openItemStatus(state) {
     const items = state.items;
-    get("#itemStatusSummary").innerHTML = `<b>${items.length} 件培养道具</b><span>行动会积累培养进度；精华突破后改变规则，带“无限培养”的道具可持续升级。</span>`;
+    get("#itemStatusSummary").innerHTML = `<b>${items.length} 件永久道具</b><span>普通、罕见、稀有与传奇道具均会直接改变本局规则；一次性道具使用后不会留在此处。</span>`;
     const list = get("#itemStatusList");
     if (items.length === 0) list.innerHTML = '<p class="collection-status-empty">尚未获得永久道具。完成第 3 轮后会出现第一次道具三选一。</p>';
     else list.replaceChildren(...items.map(ownedItemElement));
@@ -707,7 +701,7 @@ export function createUI(root) {
           : reshuffle.charges > 0
             ? `自动重洗 ${reshuffle.charges} 次 · 后置标记不会清除`
             : unlimitedPostpone
-              ? `回转餐车精华 · 同一张牌可无限后置`
+              ? `永动传菜带 · 同一张牌可无限后置`
               : `本轮已后置 ${state.round.postpone_count ?? 0} 次 · 每张最多 ${postponeLimit} 次`));
     }
   }
@@ -1020,6 +1014,7 @@ export function createUI(root) {
     playDealAnimation(cardCount, onComplete) {
       const stage = get(".deck-stage");
       const host = get(".playfield");
+      const inventory = get(".inventory-bar");
       const stack = nodes.stack;
       const cards = [...(stack?.querySelectorAll(".game-card") ?? [])];
       if (!stage || !host || !stack || cards.length === 0) {
@@ -1031,8 +1026,9 @@ export function createUI(root) {
       layer.className = "deal-layer";
       layer.setAttribute("role", "status");
       layer.setAttribute("aria-live", "polite");
-      layer.innerHTML = `<div class="deal-copy"><small>PLATE ${String(cardCount).padStart(2, "0")}</small><strong>洗牌中</strong><span>分堆 · 交错 · 合拢</span></div>`;
+      layer.setAttribute("aria-label", `${cardCount} 张牌洗牌并落入餐盘`);
       stage.classList.add("is-dealing");
+      inventory?.classList.add("is-hidden-for-deal");
       stack.classList.add("is-shuffle-dealing");
       cards.forEach((card) => {
         card.classList.add("is-deal-covered");
@@ -1042,18 +1038,11 @@ export function createUI(root) {
       host.appendChild(layer);
       const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
       const duration = reducedMotion ? 160 : 1660;
-      const showLandingCopy = () => {
-        layer.classList.add("is-stacking");
-        const title = layer.querySelector("strong");
-        const detail = layer.querySelector("span");
-        if (title) title.textContent = "牌堆落位";
-        if (detail) detail.textContent = `${cardCount} 张牌进入本轮餐盘`;
-      };
-      const landingTimer = reducedMotion ? null : window.setTimeout(showLandingCopy, 1260);
-      if (reducedMotion) showLandingCopy();
+      const landingTimer = reducedMotion ? null : window.setTimeout(() => layer.classList.add("is-stacking"), 1260);
       window.setTimeout(() => {
         if (landingTimer !== null) window.clearTimeout(landingTimer);
         stage.classList.remove("is-dealing");
+        inventory?.classList.remove("is-hidden-for-deal");
         stack.classList.remove("is-shuffle-dealing");
         cards.forEach((card) => {
           card.classList.remove("is-deal-covered");
@@ -1112,7 +1101,7 @@ export function createUI(root) {
         title.textContent = "本轮结算";
         const gifts = [
           result.plate_upgrade ? `餐盘上限提升至 ${state.plate_capacity}` : null,
-          result.reroll_grant ? `刷新 token 增至 ${state.reroll_tokens}` : null,
+          result.reroll_grant ? `刷新标记增至 ${state.reroll_tokens}` : null,
         ].filter(Boolean);
         tip.textContent = gifts.length > 0
           ? `${gifts.join("，")}。接下来选择一张牌。`
@@ -1146,20 +1135,24 @@ export function createUI(root) {
       deckRemovalHandler = (cardUuid) => {
         const result = callbacks.onRemove(cardUuid);
         updateTokens();
-        if (result?.success) setText(get("#draftMessage"), `已删除「${result.card.name}」。还剩 ${result.tokens} 枚 token。`);
+        if (result?.success) setText(get("#draftMessage"), `已删除「${result.card.name}」。还剩 ${result.tokens} 枚删牌标记。`);
         return result;
       };
       nodes.cardDraftList.replaceChildren(...cards.map((card) => draftCardElement(card, callbacks.onChoose)));
       setText(get("#draftMessage"), "三选一，也可以刷新或跳过。选牌前可先整理永久牌组。");
       updateTokens();
-      setText(get("#draftRerollValue"), state.reroll_tokens ?? 0);
+      setText(get("#draftRerollValue"), (state.free_rerolls ?? 0) > 0
+        ? `免费 ${state.free_rerolls} · 标记 ${state.reroll_tokens ?? 0}`
+        : `${state.reroll_tokens ?? 0}`);
       get("#draftManageDeck").onclick = () => openDeckStatus(state);
       const reroll = get("#draftReroll");
-      reroll.disabled = (state.reroll_tokens ?? 0) < 1;
-      reroll.textContent = `刷新 · ${state.reroll_tokens ?? 0}`;
+      reroll.disabled = (state.free_rerolls ?? 0) < 1 && (state.reroll_tokens ?? 0) < 1;
+      reroll.textContent = (state.free_rerolls ?? 0) > 0
+        ? `免费刷新 · ${state.free_rerolls}`
+        : `刷新 · ${state.reroll_tokens ?? 0} 枚标记`;
       reroll.onclick = () => {
         const result = callbacks.onReroll();
-        if (!result?.success) setText(get("#draftMessage"), "没有可用的刷新 token。");
+        if (!result?.success) setText(get("#draftMessage"), "本轮免费刷新已使用，且没有刷新标记。");
       };
       get("#draftSkip").onclick = callbacks.onSkip;
       nodes.cardDraft.classList.add("show");
@@ -1177,6 +1170,28 @@ export function createUI(root) {
       nodes.itemDraft?.classList.add("show");
     },
     closeItemDraft() { nodes.itemDraft?.classList.remove("show"); },
+    openItemCardChoice(item, cards, onChoose) {
+      setText(get("#itemCardChoiceEyebrow"), `${item.rarity} · ${item.name}`);
+      setText(get("#itemCardChoiceTitle"), `选择一张${item.effect.card_type}牌`);
+      setText(get("#itemCardChoiceLead"), `${item.name}会立即消耗；选中的卡牌永久加入牌组。`);
+      nodes.itemCardChoiceList?.replaceChildren(...cards.map((card) => draftCardElement(card, onChoose)));
+      nodes.itemCardChoice?.classList.add("show");
+    },
+    closeItemCardChoice() { nodes.itemCardChoice?.classList.remove("show"); },
+    openItemCategoryChoice(item, types, onChoose) {
+      setText(get("#itemCategoryChoiceTitle"), `${item.name}：选择强化类别`);
+      setText(get("#itemCategoryChoiceLead"), `下一轮所选类别的每张牌结算时额外 +${item.effect.bonus ?? 4} 分，随后道具自毁。`);
+      nodes.itemCategoryChoiceList?.replaceChildren(...types.map((type) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "item-category-button";
+        button.innerHTML = `<b>${type}</b><span>下一轮每张 +${item.effect.bonus ?? 4}</span>`;
+        button.addEventListener("click", () => onChoose(type), { once: true });
+        return button;
+      }));
+      nodes.itemCategoryChoice?.classList.add("show");
+    },
+    closeItemCategoryChoice() { nodes.itemCategoryChoice?.classList.remove("show"); },
     openShop(state, cards, themedCards, themeType, itemOffers, onBuy, onBuyItem, onRemove, onPlateUpgrade, onReroll, onLock, onContinue, plateUpgradeStatus, arrivedWithLockedShop = false) {
       renderHud(state);
       const removeCardCost = (state.round.shop_free_removals ?? 0) > 0 || (state.free_card_removals ?? 0) > 0 ? 0 : state.remove_card_cost;

@@ -30,7 +30,8 @@ export function initAudio() {
     const noise = noiseBuffer.getChannelData(0);
     for (let index = 0; index < noise.length; index += 1) noise[index] = Math.random() * 2 - 1;
   }
-  if (audioCtx.state === "suspended") void audioCtx.resume();
+  if (audioCtx.state === "suspended") void audioCtx.resume().catch(() => {});
+  return audioCtx;
 }
 
 function routeWithPan(source, destination, pan = 0) {

@@ -147,6 +147,7 @@ for (const viewport of selectedViewports) {
       horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     };
   })()`);
+  const homeAudio = await evaluate(`import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus())`);
 
   await evaluate(`localStorage.setItem("cardeater.run-history.v1", JSON.stringify([{ outcome: "victory", score: 500 }]))`);
   await send("Page.reload", { ignoreCache: true });
@@ -181,9 +182,11 @@ for (const viewport of selectedViewports) {
       fake_card_backs: document.querySelectorAll(".deal-card-trail i").length,
       outer_rings: document.querySelectorAll(".deal-landing").length,
       message: layer?.textContent?.replace(/\\s+/g, " ").trim() ?? "",
+      visible_prompt_count: document.querySelectorAll(".deal-copy").length,
       shell_transform: shell ? getComputedStyle(shell).transform : "missing",
       animation_name: stack ? getComputedStyle(stack).animationName : "missing",
       covers_table: Boolean(layer && table && layer.getBoundingClientRect().width >= table.getBoundingClientRect().width - 1),
+      inventory_hidden: (() => { const inventory = document.querySelector(".inventory-bar"); const style = getComputedStyle(inventory); return style.visibility === "hidden" && parseFloat(style.opacity) === 0; })(),
     };
   })()`);
   await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中"', 12000);
@@ -194,6 +197,8 @@ for (const viewport of selectedViewports) {
     active_cards: document.querySelectorAll(".game-card.is-active").length,
     plate: document.querySelector("#remainingValue")?.textContent,
     item_tray: Boolean(document.querySelector("#itemTray")),
+    delete_markers: document.querySelector("#tokenValue")?.textContent,
+    inventory_below_hud: (() => { const inventory = document.querySelector(".inventory-bar")?.getBoundingClientRect(); const hud = document.querySelector(".hud")?.getBoundingClientRect(); return Boolean(inventory && hud && inventory.top >= hud.bottom + 4); })(),
     has_gold: Boolean(document.querySelector("#goldValue")),
     has_timer: Boolean(document.querySelector("#timerValue")),
     card_copy_size: parseFloat(getComputedStyle(document.querySelector(".card-effect")).fontSize),
@@ -207,6 +212,7 @@ for (const viewport of selectedViewports) {
     point_line_height_safe: (() => { const value = document.querySelector(".game-card.is-active .card-point-value"); const style = getComputedStyle(value); return parseFloat(style.lineHeight) >= parseFloat(style.fontSize); })(),
     horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
   }))()`);
+  playing.audio = await evaluate(`import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus())`);
   playing.dealt_instances_survive = await evaluate(`(${JSON.stringify(dealing.dealt_uuids)}).every((uuid) => Boolean(document.querySelector('[data-card-uuid="' + uuid + '"][data-deal-instance="true"]')))`);
 
   await clickElement("#menuButton");
@@ -370,14 +376,40 @@ for (const viewport of selectedViewports) {
       equal_cards: Math.max(...widths) - Math.min(...widths) <= 1,
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
       reroll_tokens: document.querySelector("#draftRerollValue")?.textContent,
+      has_consumable: Boolean(document.querySelector(".item-draft-card.is-consumable")),
     };
   })()`);
-  await clickElement(".item-draft-card:not(.is-consumable)");
+  let itemChoice = { shown: false };
+  if (itemDraft.has_consumable) {
+    await clickElement(".item-draft-card.is-consumable");
+    await waitFor('document.querySelector("#itemCardChoice")?.classList.contains("show") && document.querySelectorAll("#itemCardChoice .draft-card").length === 3');
+    await wait(180);
+    await capture(`${viewport.name}-item-card-choice`);
+    itemChoice = await evaluate(`(() => {
+      const panel = document.querySelector(".item-choice-panel")?.getBoundingClientRect();
+      const cards = [...document.querySelectorAll("#itemCardChoice .draft-card")];
+      const widths = cards.map((card) => card.getBoundingClientRect().width);
+      return {
+        shown: true,
+        count: cards.length,
+        equal_cards: Math.max(...widths) - Math.min(...widths) <= 1,
+        inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+        point_rows_horizontal: cards.every((card) => {
+          const points = card.querySelector(".draft-card-points")?.getBoundingClientRect();
+          return Boolean(points && points.width > points.height * 1.3);
+        }),
+      };
+    })()`);
+    await clickElement("#itemCardChoice .draft-card");
+  } else {
+    await clickElement(".item-draft-card:not(.is-consumable)");
+  }
   await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === "4/15"', 12000);
   const nextRound = await evaluate(`(() => ({
     round: document.querySelector("#roundValue")?.textContent,
     owned_items: document.querySelectorAll("#itemTray .item-chip").length,
     save_exists: Boolean(localStorage.getItem("cardeater.active-run.v2")),
+    item_history: JSON.parse(localStorage.getItem("cardeater.active-run.v2") || "{}").item_history?.length || 0,
   }))()`);
 
   const cardArt = await evaluate(`(async () => {
@@ -392,7 +424,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, home, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_detail: catalogDetail, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, home, home_audio: homeAudio, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_detail: catalogDetail, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -412,12 +444,18 @@ const failures = [
     entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
     entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
-    entry.dealing.real_stack_cards >= 4 && entry.dealing.visible_stack_cards === entry.dealing.real_stack_cards && entry.dealing.message.includes("洗牌中") ? null : `${entry.viewport.name}: full real-stack shuffle is missing`,
+    entry.home_audio.bgm_playing && entry.home_audio.layers >= 5 ? null : `${entry.viewport.name}: BGM did not initialize on page open`,
+    entry.dealing.real_stack_cards >= 4 && entry.dealing.visible_stack_cards === entry.dealing.real_stack_cards ? null : `${entry.viewport.name}: full real-stack shuffle is missing`,
+    entry.dealing.visible_prompt_count === 0 && entry.dealing.message === "" ? null : `${entry.viewport.name}: shuffle still shows a top-left prompt`,
     entry.dealing.shuffle_directions === 2 && entry.dealing.card_animation_names.includes("riffleShuffleCard") ? null : `${entry.viewport.name}: cards do not split and riffle`,
     entry.dealing.fake_card_backs === 0 && entry.dealing.outer_rings === 0 && entry.playing.dealt_instances_survive ? null : `${entry.viewport.name}: deal still swaps to fake cards or retains a ring`,
     entry.dealing.shell_transform === "none" ? null : `${entry.viewport.name}: dealing animation moves the game shell`,
     entry.dealing.animation_name === "shuffleDeckSettle" && entry.dealing.covers_table ? null : `${entry.viewport.name}: shuffle animation is not table-wide`,
+    entry.dealing.inventory_hidden ? null : `${entry.viewport.name}: item prompt remains visible during shuffle`,
     entry.playing.phase === "出牌中" && entry.playing.active_cards === 1 ? null : `${entry.viewport.name}: did not enter play`,
+    entry.playing.delete_markers === "1" ? null : `${entry.viewport.name}: new game did not start with one delete marker`,
+    entry.playing.inventory_below_hud ? null : `${entry.viewport.name}: item tray is not below the HUD`,
+    entry.playing.audio.context_state === "running" && entry.playing.audio.bgm_playing ? null : `${entry.viewport.name}: BGM did not unlock after first interaction`,
     entry.playing.visible_stack_cards === Math.min(3, entry.dealing.real_stack_cards) ? null : `${entry.viewport.name}: deep shuffle cards remain visible during play`,
     entry.playing.card_copy_size >= 12 && entry.playing.hud_label_size >= 11 ? null : `${entry.viewport.name}: gameplay text remains too small`,
     entry.playing.point_values_inside && entry.playing.point_line_height_safe ? null : `${entry.viewport.name}: gameplay point glyphs are clipped`,
@@ -434,10 +472,11 @@ const failures = [
     entry.draft.inside_viewport ? null : `${entry.viewport.name}: draft outside viewport`,
     entry.delete_layout.equal_actions ? null : `${entry.viewport.name}: delete buttons are unequal`,
     entry.save_home.continue_enabled && entry.save_home.save_exists ? null : `${entry.viewport.name}: autosave/continue failed`,
-    entry.item_draft.count === 3 && entry.item_draft.equal_cards && entry.item_draft.item_ids.every((id) => id.startsWith("BI")) ? null : `${entry.viewport.name}: item draft invalid`,
+    entry.item_draft.count === 3 && entry.item_draft.equal_cards && entry.item_draft.item_ids.every((id) => /^(A[1-8]|B[1-3]|C(?:[1-9]|1\d|20|30))$/.test(id)) ? null : `${entry.viewport.name}: item draft invalid`,
     JSON.stringify(entry.item_draft.item_slots) === JSON.stringify(["relevant", "bridge", "wild"]) ? null : `${entry.viewport.name}: item draft slots are not relevant/bridge/wild`,
     entry.item_draft.inside_viewport ? null : `${entry.viewport.name}: item draft outside viewport`,
-    entry.next_round.round === "4/15" && entry.next_round.save_exists && entry.next_round.owned_items >= 1 ? null : `${entry.viewport.name}: failed to reach saved round four with an item`,
+    !entry.item_draft.has_consumable || (entry.item_choice.shown && entry.item_choice.count === 3 && entry.item_choice.equal_cards && entry.item_choice.inside_viewport && entry.item_choice.point_rows_horizontal) ? null : `${entry.viewport.name}: consumable item card choice is invalid`,
+    entry.next_round.round === "4/15" && entry.next_round.save_exists && entry.next_round.item_history >= 1 ? null : `${entry.viewport.name}: failed to reach saved round four with an item reward`,
     entry.card_art.failed_ids.length ? `${entry.viewport.name}: card art failed ${entry.card_art.failed_ids.join(",")}` : null,
   ]).filter(Boolean),
 ];
