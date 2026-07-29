@@ -326,6 +326,7 @@ body:has(#welcomeOverlay.show) .game-shell {
   cursor: grab;
 }
 .game-card.is-active:active { cursor: grabbing; }
+.game-card.is-stack-hidden { visibility: hidden; opacity: 0; pointer-events: none; }
 .game-card.card-edible { border-top-color: #448b66; }
 .game-card.card-inedible { border-top-color: #b95d4c; }
 .game-card.rarity-uncommon { background: #e8ddc4; box-shadow: 0 0 0 2px #9a7d62, calc(5px + var(--depth) * 2px) calc(6px + var(--depth) * 3px) 0 #09070d; }
@@ -1340,7 +1341,7 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
   font-size: calc(9px + var(--ui-copy-step));
 }
 
-/* The real play-stack cards enter as a pile; no separate miniature hand is drawn. */
+/* Every dealt card is a real play-stack instance: split, riffle, close, then reveal. */
 .deck-stage.is-dealing .stack-shadow { opacity: .72; filter: brightness(.92); }
 .deal-layer { position: absolute; z-index: 70; inset: 0; overflow: hidden; background: linear-gradient(180deg, rgba(9,7,13,.44), transparent 38%); pointer-events: none; transition: opacity 160ms steps(4, end); }
 .deal-layer.is-leaving { opacity: 0; }
@@ -1348,16 +1349,29 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
 .deal-copy small { color: #cdb7d6; font-size: 8px; letter-spacing: .16em; }
 .deal-copy strong { color: var(--gold); font-size: calc(11px + var(--ui-copy-step)); white-space: nowrap; }
 .deal-copy span { color: #d8cbdc; font-size: calc(7px + var(--ui-copy-step)); white-space: nowrap; }
-.card-stack.is-deal-entering { animation: dealPileStack 940ms cubic-bezier(.2,.72,.2,1.04) both; }
+.deal-layer.is-stacking .deal-copy { border-left-color: var(--eat); }
+.deal-layer.is-stacking .deal-copy strong { color: var(--eat); }
+.card-stack.is-shuffle-dealing { animation: shuffleDeckSettle 1660ms cubic-bezier(.2,.72,.2,1) both; }
+.card-stack.is-shuffle-dealing .game-card { visibility: visible; opacity: 1; animation: riffleShuffleCard 1080ms cubic-bezier(.38,.04,.2,1) var(--shuffle-delay) both; }
 .game-card.is-deal-covered { overflow: hidden; color: var(--gold); border-color: #f5d275; background: repeating-linear-gradient(45deg, #6c457e 0 16px, #382542 16px 32px); box-shadow: 0 0 0 2px #24172c, calc(5px + var(--depth) * 2px) calc(6px + var(--depth) * 3px) 0 #09070d; }
 .game-card.is-deal-covered > * { opacity: 0; }
 .game-card.is-deal-covered::after { content: "CE"; position: absolute; z-index: 5; inset: 18px; display: grid; place-items: center; border: 3px solid rgba(255,226,132,.62); color: var(--gold); background: radial-gradient(circle, rgba(255,209,102,.14), transparent 60%); font-size: clamp(28px, 6vw, 46px); font-weight: 900; text-shadow: 4px 4px 0 #17101d; }
 @keyframes dealCopyIn { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes dealPileStack {
-  0% { opacity: 0; transform: translate3d(30vw, -66vh, 0) rotate(9deg) scale(.94); }
-  64% { opacity: 1; transform: translate3d(12px, -16px, 0) rotate(1.2deg) scale(1.02); }
-  82% { opacity: 1; transform: translate3d(-4px, 6px, 0) rotate(-.45deg) scale(.985); }
+@keyframes shuffleDeckSettle {
+  0% { opacity: 0; transform: translate3d(0, -46vh, 0) rotate(7deg) scale(.9); }
+  13% { opacity: 1; transform: translate3d(0, -18px, 0) rotate(.8deg) scale(.98); }
+  21%, 82% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+  91% { opacity: 1; transform: translate3d(0, -7px, 0) rotate(-.35deg) scale(1.018); }
   100% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+}
+@keyframes riffleShuffleCard {
+  0%, 9% { transform: translate3d(0, calc(var(--depth) * 10px), 0) rotate(0) scale(calc(1 - var(--depth) * .025)); }
+  25% { transform: translate3d(var(--shuffle-x), var(--shuffle-rank-y), 0) rotate(var(--shuffle-tilt)) scale(.78); }
+  41% { transform: translate3d(var(--shuffle-x), var(--shuffle-weave-y), 0) rotate(var(--shuffle-tilt)) scale(.8); }
+  57% { transform: translate3d(var(--shuffle-cross), var(--shuffle-weave-y), 0) rotate(var(--shuffle-counter-tilt)) scale(.84); }
+  71% { transform: translate3d(0, calc(var(--depth) * 6px - 14px), 0) rotate(0) scale(.94); }
+  84% { transform: translate3d(0, calc(var(--depth) * 10px + 4px), 0) rotate(.3deg) scale(calc(1 - var(--depth) * .025)); }
+  100% { transform: translate3d(0, calc(var(--depth) * 10px), 0) rotate(0) scale(calc(1 - var(--depth) * .025)); }
 }
 
 .essence-awakening { position: absolute; z-index: 88; left: 50%; top: 49%; min-width: min(470px, 88%); display: grid; place-items: center; gap: 5px; padding: 18px 22px; overflow: hidden; border: 3px solid #ffe58d; color: #271928; background: linear-gradient(135deg, #fff0a8, #ffbd62 58%, #ff8d69); box-shadow: 9px 10px 0 #09070d; text-align: center; pointer-events: none; animation: essenceAwaken 1650ms steps(12, end) forwards; }

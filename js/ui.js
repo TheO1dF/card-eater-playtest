@@ -715,13 +715,25 @@ export function createUI(root) {
     renderTimer(milliseconds) { setText(nodes.timer, `${(milliseconds / 1000).toFixed(1)}s`); },
     renderStack(cards, gesture, state = null) {
       nodes.stack.replaceChildren();
-      const visible = cards.slice(-3);
-      visible.forEach((card, index) => {
-        const depth = visible.length - 1 - index;
+      const stacked = [...cards];
+      stacked.forEach((card, index) => {
+        const depth = stacked.length - 1 - index;
         const postponeCount = state?.round?.postpone_counts?.[card.uuid] ?? 0;
         const postponeLimit = state ? getPostponeLimit(state) : 1;
         const fogged = Boolean(state.round.hidden_postponed_uuids?.includes(card.uuid));
-        nodes.stack.appendChild(cardElement(card, depth === 0, depth, fogged, postponeCount, postponeLimit));
+        const node = cardElement(card, depth === 0, depth, fogged, postponeCount, postponeLimit);
+        const shuffleSide = depth % 2 === 0 ? -1 : 1;
+        const shuffleRank = Math.floor(depth / 2);
+        node.classList.toggle("is-stack-hidden", depth > 2);
+        if (depth > 2) node.setAttribute("aria-hidden", "true");
+        node.style.setProperty("--shuffle-x", `${shuffleSide * 29}%`);
+        node.style.setProperty("--shuffle-cross", `${shuffleSide * -7}%`);
+        node.style.setProperty("--shuffle-tilt", `${shuffleSide * 5.5}deg`);
+        node.style.setProperty("--shuffle-counter-tilt", `${shuffleSide * -2.5}deg`);
+        node.style.setProperty("--shuffle-rank-y", `${shuffleRank * 5 - 12}px`);
+        node.style.setProperty("--shuffle-weave-y", `${-18 + (depth % 3) * 7}px`);
+        node.style.setProperty("--shuffle-delay", `${180 + Math.min(depth, 12) * 28}ms`);
+        nodes.stack.appendChild(node);
       });
       const activeCard = cards.at(-1);
       const activeElement = nodes.stack.querySelector(".game-card.is-active");
@@ -970,9 +982,9 @@ export function createUI(root) {
       layer.className = "deal-layer";
       layer.setAttribute("role", "status");
       layer.setAttribute("aria-live", "polite");
-      layer.innerHTML = `<div class="deal-copy"><small>PLATE ${String(cardCount).padStart(2, "0")}</small><strong>牌堆落位</strong><span>${cardCount} 张牌进入本轮餐盘</span></div>`;
+      layer.innerHTML = `<div class="deal-copy"><small>PLATE ${String(cardCount).padStart(2, "0")}</small><strong>洗牌中</strong><span>分堆 · 交错 · 合拢</span></div>`;
       stage.classList.add("is-dealing");
-      stack.classList.add("is-deal-entering");
+      stack.classList.add("is-shuffle-dealing");
       cards.forEach((card) => {
         card.classList.add("is-deal-covered");
         card.dataset.dealInstance = "true";
@@ -980,10 +992,20 @@ export function createUI(root) {
       void stack.offsetWidth;
       host.appendChild(layer);
       const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-      const duration = reducedMotion ? 160 : 1120;
+      const duration = reducedMotion ? 160 : 1660;
+      const showLandingCopy = () => {
+        layer.classList.add("is-stacking");
+        const title = layer.querySelector("strong");
+        const detail = layer.querySelector("span");
+        if (title) title.textContent = "牌堆落位";
+        if (detail) detail.textContent = `${cardCount} 张牌进入本轮餐盘`;
+      };
+      const landingTimer = reducedMotion ? null : window.setTimeout(showLandingCopy, 1260);
+      if (reducedMotion) showLandingCopy();
       window.setTimeout(() => {
+        if (landingTimer !== null) window.clearTimeout(landingTimer);
         stage.classList.remove("is-dealing");
-        stack.classList.remove("is-deal-entering");
+        stack.classList.remove("is-shuffle-dealing");
         cards.forEach((card) => {
           card.classList.remove("is-deal-covered");
         });

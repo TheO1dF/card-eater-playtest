@@ -164,7 +164,7 @@ for (const viewport of selectedViewports) {
   await capture(`${viewport.name}-mode-select`);
   await clickElement("#normalModeButton");
   await waitFor('Boolean(document.querySelector(".deal-layer"))');
-  await wait(260);
+  await wait(720);
   await capture(`${viewport.name}-deal`);
   const dealing = await evaluate(`(() => {
     const layer = document.querySelector(".deal-layer");
@@ -174,8 +174,10 @@ for (const viewport of selectedViewports) {
     const table = document.querySelector(".playfield");
     return {
       real_stack_cards: dealtCards.length,
-      visible_stack_cards: dealtCards.filter((card) => parseFloat(getComputedStyle(card).opacity) > .05).length,
+      visible_stack_cards: dealtCards.filter((card) => getComputedStyle(card).visibility !== "hidden" && parseFloat(getComputedStyle(card).opacity) > .05).length,
       dealt_uuids: dealtCards.map((card) => card.dataset.cardUuid),
+      shuffle_directions: new Set(dealtCards.map((card) => card.style.getPropertyValue("--shuffle-x"))).size,
+      card_animation_names: [...new Set(dealtCards.map((card) => getComputedStyle(card).animationName))],
       fake_card_backs: document.querySelectorAll(".deal-card-trail i").length,
       outer_rings: document.querySelectorAll(".deal-landing").length,
       message: layer?.textContent?.replace(/\\s+/g, " ").trim() ?? "",
@@ -196,6 +198,7 @@ for (const viewport of selectedViewports) {
     has_timer: Boolean(document.querySelector("#timerValue")),
     card_copy_size: parseFloat(getComputedStyle(document.querySelector(".card-effect")).fontSize),
     hud_label_size: parseFloat(getComputedStyle(document.querySelector(".hud-cell span")).fontSize),
+    visible_stack_cards: [...document.querySelectorAll("#cardStack .game-card")].filter((card) => getComputedStyle(card).visibility !== "hidden" && parseFloat(getComputedStyle(card).opacity) > .05).length,
     horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
   }))()`);
   playing.dealt_instances_survive = await evaluate(`(${JSON.stringify(dealing.dealt_uuids)}).every((uuid) => Boolean(document.querySelector('[data-card-uuid="' + uuid + '"][data-deal-instance="true"]')))`);
@@ -356,11 +359,13 @@ const failures = [
     entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
     entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
-    entry.dealing.real_stack_cards > 0 && entry.dealing.visible_stack_cards > 0 && entry.dealing.message.includes("牌堆落位") ? null : `${entry.viewport.name}: real-stack dealing animation missing`,
+    entry.dealing.real_stack_cards >= 4 && entry.dealing.visible_stack_cards === entry.dealing.real_stack_cards && entry.dealing.message.includes("洗牌中") ? null : `${entry.viewport.name}: full real-stack shuffle is missing`,
+    entry.dealing.shuffle_directions === 2 && entry.dealing.card_animation_names.includes("riffleShuffleCard") ? null : `${entry.viewport.name}: cards do not split and riffle`,
     entry.dealing.fake_card_backs === 0 && entry.dealing.outer_rings === 0 && entry.playing.dealt_instances_survive ? null : `${entry.viewport.name}: deal still swaps to fake cards or retains a ring`,
     entry.dealing.shell_transform === "none" ? null : `${entry.viewport.name}: dealing animation moves the game shell`,
-    entry.dealing.animation_name === "dealPileStack" && entry.dealing.covers_table ? null : `${entry.viewport.name}: dealing animation is not table-wide`,
+    entry.dealing.animation_name === "shuffleDeckSettle" && entry.dealing.covers_table ? null : `${entry.viewport.name}: shuffle animation is not table-wide`,
     entry.playing.phase === "出牌中" && entry.playing.active_cards === 1 ? null : `${entry.viewport.name}: did not enter play`,
+    entry.playing.visible_stack_cards === Math.min(3, entry.dealing.real_stack_cards) ? null : `${entry.viewport.name}: deep shuffle cards remain visible during play`,
     entry.playing.card_copy_size >= 12 && entry.playing.hud_label_size >= 11 ? null : `${entry.viewport.name}: gameplay text remains too small`,
     entry.playing.has_gold || entry.playing.has_timer ? `${entry.viewport.name}: legacy HUD exists` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
