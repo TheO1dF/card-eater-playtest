@@ -41,23 +41,29 @@ export function getMilestoneTarget(round, mode = GAME_MODES.NORMAL) {
   return mode === GAME_MODES.HARD ? Math.ceil(base * 1.2) : base;
 }
 
-export function getNextMilestone(currentRound, _delays = {}, mode = GAME_MODES.NORMAL) {
-  if (mode === GAME_MODES.ENDLESS && currentRound > GAME_CONFIG.total_rounds) {
-    return { base_round: null, round: null, target: 0, endless: true };
-  }
+export function getEffectiveMilestoneRound(baseRound, delays = {}) {
+  return baseRound + Math.max(0, Number(delays?.[baseRound]) || 0);
+}
+
+export function getNextMilestone(currentRound, delays = {}, mode = GAME_MODES.NORMAL) {
   const rounds = Object.keys(GAME_CONFIG.milestone_targets)
     .map(Number)
     .sort((a, b) => a - b);
-  const baseRound = rounds.find((item) => item >= currentRound);
-  const resolvedRound = baseRound ?? rounds.at(-1);
+  const baseRound = rounds.find((item) => getEffectiveMilestoneRound(item, delays) >= currentRound);
+  if (baseRound === undefined && mode === GAME_MODES.ENDLESS) {
+    return { base_round: null, round: null, target: 0, endless: true };
+  }
+  const resolvedBaseRound = baseRound ?? rounds.at(-1);
   return {
-    base_round: resolvedRound,
-    round: resolvedRound,
-    target: getMilestoneTarget(resolvedRound, mode),
+    base_round: resolvedBaseRound,
+    round: getEffectiveMilestoneRound(resolvedBaseRound, delays),
+    target: getMilestoneTarget(resolvedBaseRound, mode),
     endless: false,
   };
 }
 
-export function getFinalRound(_delays = {}, mode = GAME_MODES.NORMAL) {
-  return mode === GAME_MODES.ENDLESS ? Infinity : GAME_CONFIG.total_rounds;
+export function getFinalRound(delays = {}, mode = GAME_MODES.NORMAL) {
+  return mode === GAME_MODES.ENDLESS
+    ? Infinity
+    : getEffectiveMilestoneRound(GAME_CONFIG.total_rounds, delays);
 }

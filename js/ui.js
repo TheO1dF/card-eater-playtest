@@ -767,21 +767,17 @@ export function createUI(root) {
       floater.addEventListener("animationend", () => floater.remove(), { once: true });
     },
     punchAction(points = 0, streakCount = 1, action = "score") {
-      const shell = get(".game-shell");
       const stage = get(".deck-stage");
-      if (!shell || !stage) return;
+      if (!stage) return;
       const weight = points >= 10 || streakCount >= 5 ? "heavy" : points >= 5 || streakCount >= 3 ? "medium" : "light";
-      shell.classList.remove("impact-light", "impact-medium", "impact-heavy");
       stage.classList.remove("card-punch", "postpone-punch");
-      void shell.offsetWidth;
-      shell.classList.add(`impact-${weight}`);
+      void stage.offsetWidth;
       stage.classList.add(action === "postpone" ? "postpone-punch" : "card-punch");
       const burst = document.createElement("div");
       burst.className = `juice-burst ${weight}`;
       burst.innerHTML = Array.from({ length: weight === "heavy" ? 12 : 7 }, (_, index) => `<i style="--spark:${index}"></i>`).join("");
       stage.appendChild(burst);
       window.setTimeout(() => {
-        shell.classList.remove(`impact-${weight}`);
         stage.classList.remove("card-punch", "postpone-punch");
         burst.remove();
       }, 520);
@@ -855,12 +851,6 @@ export function createUI(root) {
       stage.appendChild(flash);
       flash.addEventListener("animationend", () => flash.remove(), { once: true });
     },
-    triggerShake() {
-      const shell = get(".game-shell");
-      shell?.classList.remove("shake");
-      void shell?.offsetWidth;
-      shell?.classList.add("shake");
-    },
     openRuleDraft(options, state, onChoose) {
       const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode);
       if (milestone.endless) {
@@ -889,22 +879,30 @@ export function createUI(root) {
       nodes.quest.classList.add("show");
     },
     closeQuestDraft() { nodes.quest.classList.remove("show"); },
-    showCountdown(onComplete) {
-      const overlay = get("#countdownOverlay");
-      const text = get("#countdownText");
-      const frames = ["3", "2", "1", "开吃!"];
-      let index = 0;
-      overlay.classList.add("show");
-      const advance = () => {
-        text.classList.remove("pop");
-        void text.offsetWidth;
-        text.textContent = frames[index];
-        text.classList.add("pop");
-        index += 1;
-        if (index < frames.length) setTimeout(advance, 420);
-        else setTimeout(() => { overlay.classList.remove("show"); onComplete(); }, 320);
-      };
-      advance();
+    playDealAnimation(cardCount, onComplete) {
+      const stage = get(".deck-stage");
+      if (!stage) {
+        onComplete();
+        return;
+      }
+      stage.querySelector(".deal-layer")?.remove();
+      const visibleCount = Math.min(10, Math.max(1, Number(cardCount) || 1));
+      const layer = document.createElement("div");
+      layer.className = "deal-layer";
+      layer.setAttribute("role", "status");
+      layer.setAttribute("aria-live", "polite");
+      layer.innerHTML = `<strong>餐盘上菜</strong><span>${cardCount} 张牌已发到餐桌</span><div class="deal-card-trail" aria-hidden="true">${Array.from({ length: visibleCount }, (_, index) => `<i style="--deal-index:${index};--deal-count:${visibleCount}"></i>`).join("")}</div>`;
+      stage.classList.add("is-dealing");
+      stage.appendChild(layer);
+      const duration = 520 + visibleCount * 42;
+      window.setTimeout(() => {
+        stage.classList.remove("is-dealing");
+        layer.classList.add("is-leaving");
+        window.setTimeout(() => {
+          layer.remove();
+          onComplete();
+        }, 150);
+      }, duration);
     },
     showRoundSummary(result, state, outcome, onConfirm) {
       const title = get("#summaryTitle");

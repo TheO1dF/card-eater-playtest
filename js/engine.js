@@ -1,4 +1,4 @@
-import { GAME_CONFIG, getFinalRound, getMilestoneTarget, getNextMilestone } from "./config.js";
+import { GAME_CONFIG, getEffectiveMilestoneRound, getFinalRound, getMilestoneTarget, getNextMilestone } from "./config.js";
 import { createShopCardPool, getCardById } from "./data.js";
 import { getItemFinalMultipliers, resolveItemActionEffects } from "./items.js";
 import { formatScore, safeAdd, safeMultiply, safeProduct } from "./numbers.js";
@@ -2369,7 +2369,7 @@ export function createRoundEngine(options = {}) {
   function levelProgressCheck(state) {
     const milestones = Object.keys(GAME_CONFIG.milestone_targets)
       .map(Number)
-      .filter((baseRound) => baseRound === state.current_round);
+      .filter((baseRound) => getEffectiveMilestoneRound(baseRound, state.milestone_delays) === state.current_round);
     const target = milestones.reduce((highest, baseRound) => Math.max(highest, getMilestoneTarget(baseRound, state.mode)), 0);
     return { passed: target === 0 || state.total_score >= target, target, base_round: milestones.at(-1) ?? null };
   }

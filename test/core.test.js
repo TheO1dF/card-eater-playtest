@@ -8,7 +8,7 @@ import { createDraftService } from "../js/draft.js";
 import { createRoundEngine } from "../js/engine.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "../js/plate.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
-import { applyRoundItemSetup, chooseItem, hasUnlimitedPostpone, randomDraftItems } from "../js/items.js";
+import { applyRoundItemSetup, chooseItem, createItemPool, hasUnlimitedPostpone, randomDraftItems } from "../js/items.js";
 
 let uuidCounter = 0;
 const nextId = (card) => `${card.id}-test-${uuidCounter += 1}`;
@@ -32,13 +32,15 @@ function stateWith(ids) {
   return state;
 }
 
-test("试验版固定为 15 轮，并在第 5/10/15 轮检查 100/300/500", () => {
+test("试验版通常为 15 轮，并在第 5/10/15 轮检查 100/300/500", () => {
   assert.equal(GAME_CONFIG.total_rounds, 15);
   assert.equal(getFinalRound(), 15);
   assert.deepEqual(GAME_CONFIG.milestone_targets, { 5: 100, 10: 300, 15: 500 });
   assert.deepEqual(getNextMilestone(1), { base_round: 5, round: 5, target: 100, endless: false });
   assert.deepEqual(getNextMilestone(6), { base_round: 10, round: 10, target: 300, endless: false });
   assert.deepEqual(getNextMilestone(11), { base_round: 15, round: 15, target: 500, endless: false });
+  assert.deepEqual(getNextMilestone(5, { 5: 1 }), { base_round: 5, round: 6, target: 100, endless: false });
+  assert.equal(getFinalRound({ 15: 2 }), 17);
   assert.equal(isPlateUpgradeRound(5), true);
   assert.equal(isPlateUpgradeRound(10), true);
   assert.equal(isPlateUpgradeRound(15), true);
@@ -177,6 +179,13 @@ test("每三轮道具三选一支持永久、一次性、生成与无限后置",
   assert.equal(messages.length, 1);
 });
 
+test("新道具候选不再奖励牌组尺寸限制或额外餐盘扩容", () => {
+  const pool = createItemPool();
+  assert.ok(pool.length >= 12);
+  assert.ok(pool.every((item) => item.effect.kind !== "deck_multiplier"));
+  assert.ok(pool.every((item) => item.effect.kind !== "grant_plate_capacity"));
+});
+
 test("道具阶段位于卡牌三选一与下一轮之间", () => {
   const state = createInitialPlayerState({ create_id: nextId });
   transitionPhase(state, GAME_PHASES.PLAYING);
@@ -257,7 +266,7 @@ test("轮末结算只有分数，没有合约或限时经济条目", () => {
   assert.ok(result.breakdown.every((line) => !/金币|限时|合约|商店/.test(`${line.label}${line.text}`)));
 });
 
-test("目标只在固定轮次检查，不允许卡牌延后", () => {
+test("目标按有效轮次检查，并允许引力井延后", () => {
   const engine = createRoundEngine();
   const state = createInitialPlayerState({ create_id: nextId });
   state.current_round = 5;
@@ -267,17 +276,39 @@ test("目标只在固定轮次检查，不允许卡牌延后", () => {
   assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 100, base_round: 5 });
   state.current_round = 6;
   assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 0, base_round: null });
+  state.milestone_delays = { 5: 1 };
+  state.current_round = 5;
+  assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 0, base_round: null });
+  state.current_round = 6;
+  state.total_score = 99;
+  assert.deepEqual(engine.levelProgressCheck(state), { passed: false, target: 100, base_round: 5 });
+});
+
+test("引力井弃置后摧毁自身并把下一目标延后一轮", () => {
+  const engine = createRoundEngine();
+  const state = stateWith(["C008", "F001"]);
+  state.current_round = 5;
+  const gravityWell = state.round.draw_pile.find((card) => card.id === "C008");
+  const result = engine.recordAction(state, "discard", gravityWell);
+  assert.equal(state.milestone_delays[5], 1);
+  assert.equal(state.deck.some((card) => card.uuid === gravityWell.uuid), false);
+  assert.equal(result.destroyed_self, true);
+  assert.match(result.effect_triggered, /目标结算延后 1 轮/);
 });
 
 test("菜单与主循环源码不再包含商店、任务选择、金币或计时 UI", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../js/main.js", import.meta.url), "utf8");
+  const ui = await readFile(new URL("../js/ui.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.doesNotMatch(html, /id="shopPanel"|id="ruleDraft"|id="questDraft"|id="goldValue"|id="timerValue"/);
   assert.doesNotMatch(main, /createShopService|randomDraftRules|randomDraftQuests|tickTimer/);
   assert.match(html, /id="cardDraft"/);
   assert.match(html, /id="tokenValue"/);
   assert.match(html, /id="newGameButton"/);
   assert.match(html, /id="continueGameButton"/);
+  assert.match(main, /playDealAnimation/);
+  assert.doesNotMatch(`${main}\n${ui}\n${styles}`, /triggerShake|shellShake|impact-heavy/);
   assert.match(html, /id="itemDraft"/);
   assert.match(main, /saveGame\(\)/);
 });

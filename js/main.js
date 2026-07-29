@@ -282,7 +282,7 @@ function completeRound() {
     result.breakdown.splice(-1, 0, { label: "三轮补给", text: `刷新 token +1 · 当前 ${state.reroll_tokens}`, kind: "bonus" });
   }
 
-  const won = !failed && state.mode !== GAME_MODES.ENDLESS && state.current_round >= GAME_CONFIG.total_rounds;
+  const won = !failed && state.mode !== GAME_MODES.ENDLESS && state.current_round >= engine.getFinalRound(state);
   const outcome = failed ? "defeat" : won ? "victory" : null;
   if (outcome) {
     state.outcome = outcome;
@@ -384,7 +384,6 @@ function handleAction(action, card) {
   }
   browserPlatform.vibrate(entry.points < 0 ? [18, 22, 18] : entry.points >= 10 ? [10, 18, 22] : entry.points >= 5 ? [8, 12, 10] : 6);
   if (entry.points < 0) {
-    ui.triggerShake();
     if (effectsEnabled) playSound("error", 1);
   }
   if (state.round.actions.length >= GAME_CONFIG.max_actions_per_round) {
@@ -457,7 +456,8 @@ function prepareRound() {
   streak = { action: null, count: 0 };
   actionLocked = true;
   refreshTable();
-  ui.showCountdown(() => {
+  if (effectsEnabled) playSound("deal", state.round.draw_pile.length);
+  ui.playDealAnimation(state.round.draw_pile.length, () => {
     transitionPhase(state, GAME_PHASES.PLAYING, { round: state.current_round });
     actionLocked = false;
     saveGame();

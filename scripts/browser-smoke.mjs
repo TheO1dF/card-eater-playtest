@@ -155,6 +155,13 @@ for (const viewport of selectedViewports) {
   await waitFor('!document.querySelector("#modeChooser")?.hidden');
   await capture(`${viewport.name}-mode-select`);
   await clickElement("#normalModeButton");
+  await waitFor('Boolean(document.querySelector(".deal-layer"))');
+  await capture(`${viewport.name}-deal`);
+  const dealing = await evaluate(`(() => ({
+    card_backs: document.querySelectorAll(".deal-card-trail i").length,
+    message: document.querySelector(".deal-layer")?.textContent?.replace(/\\s+/g, " ").trim(),
+    shell_transform: getComputedStyle(document.querySelector(".game-shell")).transform,
+  }))()`);
   await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中"', 12000);
   await capture(`${viewport.name}-round-1`);
   const playing = await evaluate(`(() => ({
@@ -165,6 +172,8 @@ for (const viewport of selectedViewports) {
     item_tray: Boolean(document.querySelector("#itemTray")),
     has_gold: Boolean(document.querySelector("#goldValue")),
     has_timer: Boolean(document.querySelector("#timerValue")),
+    card_copy_size: parseFloat(getComputedStyle(document.querySelector(".card-effect")).fontSize),
+    hud_label_size: parseFloat(getComputedStyle(document.querySelector(".hud-cell span")).fontSize),
     horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
   }))()`);
 
@@ -269,7 +278,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, home, unlock, playing, menu, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, home, unlock, dealing, playing, menu, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -287,7 +296,10 @@ const failures = [
     entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
     entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
+    entry.dealing.card_backs > 0 && entry.dealing.message.includes("餐盘上菜") ? null : `${entry.viewport.name}: dealing animation missing`,
+    entry.dealing.shell_transform === "none" ? null : `${entry.viewport.name}: dealing animation moves the game shell`,
     entry.playing.phase === "出牌中" && entry.playing.active_cards === 1 ? null : `${entry.viewport.name}: did not enter play`,
+    entry.playing.card_copy_size >= 11 && entry.playing.hud_label_size >= 10 ? null : `${entry.viewport.name}: gameplay text remains too small`,
     entry.playing.has_gold || entry.playing.has_timer ? `${entry.viewport.name}: legacy HUD exists` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
     entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule ? null : `${entry.viewport.name}: menu rules incomplete`,

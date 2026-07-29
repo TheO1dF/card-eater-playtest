@@ -1035,9 +1035,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .catalog-grid .deck-status-card { min-height: 110px; grid-template-columns: 58px minmax(0, 1fr); }
 .catalog-grid .deck-status-art { width: 54px; height: 54px; }
 
-html { --ui-copy-step: 0px; }
-html[data-font-size="small"] { --ui-copy-step: -1px; }
-html[data-font-size="large"] { --ui-copy-step: 2px; }
+html { --ui-copy-step: 3px; }
+html[data-font-size="small"] { --ui-copy-step: 1px; }
+html[data-font-size="large"] { --ui-copy-step: 5px; }
 :is(.modal-lead, .card-effect, .shop-card-copy em, .shop-card-copy i, .shop-item-card em, .deck-status-copy i, .collection-status-card em, .quest-block span, .quest-reward, .story-dialog > p) { font-size: max(6px, calc(8px + var(--ui-copy-step))); }
 :is(.primary-button, .secondary-button, .shop-reroll-button, .shop-lock-button, .setting-toggle, .menu-wide-button, .mode-button) { font-size: max(8px, calc(10px + var(--ui-copy-step))); }
 
@@ -1068,9 +1068,6 @@ html[data-font-size="large"] { --ui-copy-step: 2px; }
 .point-mutation-burst .up { color: #72ff99; }
 .point-mutation-burst .down { color: #ff5f76; }
 @keyframes mutationBurst { 0% { opacity: 0; transform: translateX(18px) scale(.78); } 18%, 72% { opacity: 1; transform: translateX(0) scale(1); } 100% { opacity: 0; transform: translateY(-28px) scale(.96); } }
-.shake { animation: shellShake 260ms steps(5, end); }
-@keyframes shellShake { 20% { transform: translateX(-5px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(3px); } }
-
 .home-panel { width: min(760px, 100%); padding: clamp(18px, 4vw, 34px); }
 .home-hero { position: relative; isolation: isolate; min-height: 315px; display: grid; place-items: center; overflow: hidden; border: 2px solid #493a58; background: radial-gradient(circle at 50% 48%, #42304f 0 24%, #201827 62%, #17111d 100%); }
 .home-hero::after { content: ""; position: absolute; z-index: -1; inset: 0; opacity: .18; background: repeating-linear-gradient(0deg, transparent 0 5px, #f8edcf 6px); }
@@ -1109,9 +1106,6 @@ html[data-font-size="large"] { --ui-copy-step: 2px; }
 .item-draft-copy strong { color: var(--paper); font-size: 17px; }
 .item-draft-copy em { color: #c7b9cd; font-size: 9px; font-style: normal; line-height: 1.65; }
 
-.impact-light { animation: impactLight 180ms steps(3, end); }
-.impact-medium { animation: impactMedium 260ms steps(5, end); }
-.impact-heavy { animation: impactHeavy 360ms steps(7, end); }
 .deck-stage.card-punch { animation: cardPunch 260ms steps(5, end); }
 .deck-stage.postpone-punch { animation: postponePunch 260ms steps(5, end); }
 .juice-burst { position: absolute; z-index: 49; inset: 50%; pointer-events: none; }
@@ -1121,9 +1115,6 @@ html[data-font-size="large"] { --ui-copy-step: 2px; }
 .pick-burst.item { border-color: #80e0b4; background: #80e0b4; }
 .pick-burst small { font-size: 7px; letter-spacing: .22em; }
 .pick-burst b { font-size: 15px; }
-@keyframes impactLight { 50% { filter: brightness(1.08); } }
-@keyframes impactMedium { 25% { filter: brightness(1.2) saturate(1.12); } 55% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
-@keyframes impactHeavy { 18% { filter: brightness(1.42) saturate(1.3); transform: translate(-3px, 2px); } 36% { transform: translate(3px, -2px); } 54% { transform: translate(-2px, 1px); } }
 @keyframes cardPunch { 35% { transform: scale(1.035); } 70% { transform: scale(.99); } }
 @keyframes postponePunch { 40% { transform: rotate(1.5deg) scale(1.015); } 75% { transform: rotate(-1deg); } }
 @keyframes juiceSpark { 0% { opacity: 0; transform: rotate(var(--angle)) translateX(10px) scale(.3); } 30% { opacity: 1; } 100% { opacity: 0; transform: rotate(var(--angle)) translateX(105px) scale(1); } }
@@ -1303,6 +1294,34 @@ html[data-font-size="large"] { --ui-copy-step: 2px; }
   .deck-capacity-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .option-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .rule-card { min-height: 140px; display: grid; grid-template-columns: auto; grid-template-rows: auto 1fr auto; }
+}
+
+/* Readability baseline: even “small” keeps gameplay copy legible on phones. */
+:is(.brand small, .hud-cell span, .hud-cell small, .action-zone small, .card-scores i small, .card-point-delta, .effect-flash small, .point-mutation-burst small, .home-actions small, .home-footer, .mode-button small, .item-draft-copy small, .font-size-setting small, .menu-wide-button small, .menu-rules li, .catalog-tools label, .catalog-tools span) {
+  font-size: calc(7px + var(--ui-copy-step));
+}
+:is(.home-hero p, .item-draft-copy em, .effect-flash em, .deck-status-copy small, .deck-capacity-summary small, .deck-capacity-summary span, .keyword-glossary span, .story-dialog > em, .story-actions button) {
+  font-size: calc(8px + var(--ui-copy-step));
+}
+:is(.action-zone b, .reshuffle-button, .deck-remove-token, .menu-objective, .target-banner span, .target-banner small) {
+  font-size: calc(9px + var(--ui-copy-step));
+}
+
+/* A short, table-local dealing flourish explains what the plate contains. */
+.deck-stage.is-dealing .card-stack { opacity: .14; transform: scale(.96); }
+.deal-layer { position: absolute; z-index: 64; inset: -16px; display: grid; place-items: center; overflow: visible; border: 2px dashed rgba(255,209,102,.58); background: radial-gradient(circle, rgba(35,27,44,.82), rgba(18,15,28,.3) 58%, transparent 76%); pointer-events: none; transition: opacity 140ms steps(3, end); }
+.deal-layer.is-leaving { opacity: 0; }
+.deal-layer > strong, .deal-layer > span { position: absolute; z-index: 4; left: 50%; padding: 4px 7px; color: #211726; background: var(--gold); box-shadow: 3px 3px 0 #0b0911; transform: translateX(-50%); white-space: nowrap; }
+.deal-layer > strong { top: 12%; font-size: calc(13px + var(--ui-copy-step)); }
+.deal-layer > span { top: calc(12% + 29px); color: var(--paper); background: #30243a; font-size: calc(8px + var(--ui-copy-step)); }
+.deal-card-trail { position: absolute; inset: 0; }
+.deal-card-trail i { position: absolute; left: calc(50% - 34px); top: calc(50% - 48px); width: 68px; height: 96px; opacity: 0; border: 3px solid #f2c65e; border-radius: 4px; background: repeating-linear-gradient(45deg, #5e3c70 0 8px, #35243f 8px 16px); box-shadow: 5px 5px 0 #09070d, inset 0 0 0 3px #211528; animation: dealToPlate 360ms steps(7, end) forwards; animation-delay: calc(var(--deal-index) * 42ms); }
+.deal-card-trail i::after { content: "CE"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--gold); font-size: 17px; font-style: normal; font-weight: 900; text-shadow: 2px 2px 0 #17101d; }
+@keyframes dealToPlate {
+  0% { opacity: 0; transform: translate(150px, -155px) rotate(20deg) scale(.72); }
+  22% { opacity: 1; }
+  72% { opacity: 1; transform: translate(calc((var(--deal-index) - 5) * 3px), calc((var(--deal-index) - 5) * -2px)) rotate(calc((var(--deal-index) - 5) * 1deg)) scale(1); }
+  100% { opacity: 0; transform: translate(calc((var(--deal-index) - 5) * 3px), 8px) rotate(0) scale(.96); }
 }
 
 @media (prefers-reduced-motion: reduce) {

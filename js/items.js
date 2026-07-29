@@ -20,15 +20,12 @@ export const ITEM_LIBRARY = Object.freeze([
   defineItem({ id: "IT006", name: "铁胃调料", role: "逆向", description: "不按食性处理卡牌时 +3 分。", effect: { kind: "wrong_edibility_bonus", bonus: 3 } }, 5),
   defineItem({ id: "IT007", name: "双面餐叉", role: "交替", description: "吃与弃交替时 +2 分。", effect: { kind: "alternating_bonus", bonus: 2 } }, 6),
   defineItem({ id: "IT008", name: "尾盘礼花", role: "位置", description: "餐盘最后一张牌按正确食性处理时 +6 分。", effect: { kind: "last_correct_bonus", bonus: 6 } }, 7),
-  defineItem({ id: "IT009", name: "袖珍食谱", role: "小牌组", description: "牌组不超过 10 张时，本轮最终得分 ×1.15。", effect: { kind: "deck_multiplier", maximum: 10, multiplier: 1.15 } }, 8),
-  defineItem({ id: "IT010", name: "大胃围裙", role: "大牌组", description: "牌组达到 14 张时，本轮最终得分 ×1.12。", effect: { kind: "deck_multiplier", minimum: 14, multiplier: 1.12 } }, 9),
   defineItem({ id: "IT011", name: "永动传送带", role: "排牌", description: "同一张牌每轮可以无限次后置。", effect: { kind: "unlimited_postpone" } }, 10),
   defineItem({ id: "IT012", name: "纸梨篮", role: "生成", description: "每轮开始时，若没有它生成的牌，则生成 1 张弱化梨子。", effect: { kind: "round_generate_weakened", card_id: "F009" } }, 11),
   defineItem({ id: "IT013", name: "三拍节奏器", role: "节奏", description: "每轮第 3、6、9…次行动额外 +4 分。", effect: { kind: "every_action_bonus", every: 3, bonus: 4 } }, 12),
   defineItem({ id: "IT014", name: "碎屑压分机", role: "摧毁", description: "本轮摧毁过卡牌时，最终得分 ×1.2。", effect: { kind: "destroyed_multiplier", minimum: 1, multiplier: 1.2 } }, 13),
   defineItem({ id: "IT101", name: "裁卡钳", role: "整理", consumable: true, description: "立即获得 2 枚删牌 token。", effect: { kind: "grant_delete_tokens", amount: 2 } }, 14),
   defineItem({ id: "IT102", name: "换菜单", role: "刷新", consumable: true, description: "立即获得 2 枚选牌刷新 token。", effect: { kind: "grant_reroll_tokens", amount: 2 } }, 15),
-  defineItem({ id: "IT103", name: "加长桌布", role: "扩容", consumable: true, description: "立即令餐盘上限永久 +1。", effect: { kind: "grant_plate_capacity", amount: 1 } }, 7),
 ]);
 
 const ITEM_BY_ID = Object.freeze(Object.fromEntries(ITEM_LIBRARY.map((entry) => [entry.id, entry])));
@@ -85,7 +82,6 @@ export function chooseItem(state, selection) {
   }
   if (entry.effect.kind === "grant_delete_tokens") state.delete_tokens = safeAdd(state.delete_tokens ?? 0, entry.effect.amount);
   if (entry.effect.kind === "grant_reroll_tokens") state.reroll_tokens = safeAdd(state.reroll_tokens ?? 0, entry.effect.amount);
-  if (entry.effect.kind === "grant_plate_capacity") state.plate_capacity = safeAdd(state.plate_capacity ?? 1, entry.effect.amount);
   return { success: true, item: entry, consumed: true, message: `${entry.name} 已使用：${entry.description}` };
 }
 
