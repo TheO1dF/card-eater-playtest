@@ -462,7 +462,7 @@ body:has(#welcomeOverlay.show) .game-shell {
 .card-scores i { min-width: 0; align-self: center; display: grid; gap: 4px; overflow: hidden; padding-left: 1px; font-size: 8px; font-style: normal; letter-spacing: .04em; line-height: 1.05; white-space: nowrap; }
 .card-scores i small { overflow: hidden; color: #d9cbb8; font-size: 7px; letter-spacing: .08em; text-overflow: clip; }
 .card-point-wrap { justify-self: stretch; width: 100%; display: grid; justify-items: end; align-content: center; gap: 4px; min-width: 0; color: #fff8e8; }
-.card-point-value { max-width: 100%; overflow: hidden; font-family: "Fusion Pixel 12px Monospaced zh_hans", "Sarasa Mono SC", "Lucida Console", monospace; font-size: clamp(24px, 28cqi, 34px); font-weight: 900; line-height: .88; letter-spacing: -.07em; color: #fff8e8; text-shadow: 2px 2px 0 rgba(67,43,47,.72); white-space: nowrap; }
+.card-point-value { display: block; max-width: 100%; overflow: visible; padding: 3px 0 1px; font-family: "Fusion Pixel 12px Monospaced zh_hans", "Sarasa Mono SC", "Lucida Console", monospace; font-size: clamp(24px, 28cqi, 34px); font-weight: 900; line-height: 1.05; letter-spacing: -.07em; color: #fff8e8; text-shadow: 2px 2px 0 rgba(67,43,47,.72); white-space: nowrap; }
 .card-point-wrap.is-wide .card-point-value { font-size: clamp(20px, 23cqi, 28px); }
 .card-point-wrap.is-very-wide .card-point-value { font-size: clamp(17px, 19cqi, 23px); letter-spacing: -.1em; }
 .card-point-delta { position: relative; max-width: 100%; display: grid; justify-items: end; gap: 1px; overflow: hidden; padding: 2px 3px; border: 1px solid currentColor; color: inherit; background: #67504a; box-shadow: 1px 1px 0 rgba(66,45,43,.35); font-size: 8px; line-height: .92; letter-spacing: 0; white-space: nowrap; }
@@ -472,8 +472,8 @@ body:has(#welcomeOverlay.show) .game-shell {
 .card-point-wrap.point-decreased { color: #ff5d75; }
 .card-point-wrap.point-increased .card-point-value { color: #78ff9f !important; text-shadow: 3px 3px 0 #0b351f, 0 0 6px rgba(117,255,155,.58); }
 .card-point-wrap.point-decreased .card-point-value { color: #ff5d75 !important; text-shadow: 3px 3px 0 #4b1022, 0 0 6px rgba(255,83,109,.58); }
-.shop-card-copy .card-point-wrap, .deck-chip .card-point-wrap, .deck-status-card .card-point-wrap { display: inline-flex; min-width: 0; padding-right: 0; vertical-align: middle; }
-.shop-card-copy .card-point-value, .deck-chip .card-point-value, .deck-status-card .card-point-value { display: inline; font-size: 1.2em; letter-spacing: 0; text-shadow: 1px 1px 0 #09070d; }
+.shop-card-copy .card-point-wrap, .deck-chip .card-point-wrap, .deck-status-card .card-point-wrap { width: auto; flex: 0 0 auto; justify-self: auto; display: inline-flex; min-width: 0; padding-right: 0; vertical-align: middle; }
+.shop-card-copy .card-point-value, .deck-chip .card-point-value, .deck-status-card .card-point-value { display: inline; padding: 0; font-size: 1.2em; line-height: 1.15; letter-spacing: 0; text-shadow: 1px 1px 0 #09070d; }
 .shop-card-copy .card-point-delta, .deck-chip .card-point-delta, .deck-status-card .card-point-delta { display: none; }
 .discard-score { color: #ffcf9c; background: linear-gradient(135deg, #865d50, #70504d 72%); box-shadow: inset 3px 0 0 #e58b58; }
 .eat-score { color: #c4efd5; background: linear-gradient(225deg, #587460, #526457 72%); box-shadow: inset -3px 0 0 #67c58d; }
@@ -860,6 +860,7 @@ body:has(#welcomeOverlay.show) .game-shell {
 .deck-status-head b { color: var(--gold); font-size: 10px; }
 .deck-status-copy small { color: #9a88a4; font-size: 7px; line-height: 1.4; }
 .deck-status-copy em { color: var(--paper); font-size: 9px; font-style: normal; }
+.deck-status-copy > em { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
 .deck-status-copy i { margin-top: 3px; color: #c8bad2; font-size: 8px; font-style: normal; line-height: 1.55; }
 .keyword-glossary { max-height: 132px; margin-top: 10px; overflow: hidden auto; border: 1px solid #554662; background: #17121f; }
 .keyword-glossary summary { padding: 10px 12px; color: var(--gold); font-size: 9px; cursor: pointer; }
@@ -1000,6 +1001,12 @@ body:has(#welcomeOverlay.show) .game-shell {
 .draft-reward-panel { width: min(820px, 100%); }
 .draft-reward-grid { margin-top: 14px; }
 .draft-card { padding-bottom: 31px; }
+.draft-card-points { min-width: 0; display: flex; align-items: baseline; gap: 7px; margin-top: 8px; color: #d8cadf; line-height: 1; white-space: nowrap; }
+.draft-card-points > span:not(.draft-point-separator) { display: inline-flex; align-items: baseline; gap: 5px; }
+.draft-card-points b { font-size: 17px; line-height: 1; }
+.draft-eat-point b { color: var(--eat); }
+.draft-discard-point b { color: var(--discard); }
+.draft-point-separator { color: #75667f; font-size: 13px; }
 .draft-pick-label { position: absolute; right: 8px; bottom: 7px; padding: 4px 8px; color: #17121f; background: var(--shop-rarity); font-size: 8px; font-weight: 900; }
 .draft-wallets { display: flex; gap: 7px; }
 .draft-wallets .shop-wallet { min-width: 76px; }
@@ -1049,9 +1056,32 @@ body:has(#welcomeOverlay.show) .game-shell {
 .catalog-tools label, .catalog-tools span { color: #b9a8c3; font-size: 8px; }
 .catalog-tools span { margin-left: auto; color: var(--gold); font-weight: 900; }
 .catalog-tools select { min-height: 32px; padding: 5px 28px 5px 8px; border: 1px solid #796487; color: var(--paper); background: #2a2234; }
-.catalog-grid { min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 8px; padding: 3px 6px 14px 3px; overflow: auto; }
-.catalog-grid .deck-status-card { min-height: 110px; grid-template-columns: 58px minmax(0, 1fr); }
+.catalog-grid { min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(176px, auto); align-content: start; gap: 10px; padding: 3px 6px 14px 3px; overflow: auto; }
+.catalog-grid .deck-status-card { min-height: 176px; grid-template-columns: 58px minmax(0, 1fr); align-content: start; overflow: hidden; cursor: pointer; }
 .catalog-grid .deck-status-art { width: 54px; height: 54px; }
+.catalog-grid .deck-status-copy { height: 100%; }
+.catalog-grid .deck-status-head b { display: none; }
+.catalog-grid .deck-status-copy i { min-height: 3.1em; display: -webkit-box; overflow: hidden; color: #ded2e5; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.catalog-grid .deck-status-card.is-inspectable:hover, .catalog-grid .deck-status-card.is-inspectable:focus-visible { border-color: var(--gold); outline: 0; background: #352b42; }
+.catalog-inspect-hint { margin-top: auto; padding-top: 6px; border-top: 1px dashed #554662; color: var(--gold); font-size: 8px; font-weight: 900; }
+.catalog-detail-overlay { z-index: 165; background: rgba(8,6,12,.92); }
+.catalog-detail-panel { width: min(850px, 100%); max-height: min(820px, 100%); overflow: auto; }
+.catalog-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+.catalog-detail-layout { display: grid; grid-template-columns: var(--card-width) minmax(0, 1fr); align-items: center; gap: clamp(22px, 5vw, 54px); }
+.catalog-card-preview { position: relative; width: var(--card-width); height: var(--card-height); margin: 0 auto; }
+.catalog-preview-game-card { cursor: default; }
+.catalog-detail-copy { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.catalog-detail-copy > small { color: var(--rare); font-size: 10px; }
+.catalog-detail-copy > strong { color: var(--paper); font-size: clamp(24px, 4vw, 38px); }
+.catalog-detail-points { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.catalog-detail-points > span { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 2px solid; background: #201927; }
+.catalog-detail-points small { font-size: 9px; }
+.catalog-detail-points b { font-size: 24px; }
+.catalog-detail-points .eat { border-color: var(--eat-dark); color: var(--eat); }
+.catalog-detail-points .discard { border-color: var(--discard-dark); color: var(--discard); }
+.catalog-detail-copy section { padding: 14px; border-left: 4px solid var(--gold); background: #17121f; }
+.catalog-detail-copy section small { color: var(--gold); font-size: 8px; letter-spacing: .12em; }
+.catalog-detail-copy section p { margin: 9px 0 0; color: #e2d6e7; font-size: calc(10px + var(--ui-copy-step)); line-height: 1.65; }
 
 html { --ui-copy-step: 4px; }
 html[data-font-size="small"] { --ui-copy-step: 2px; }
@@ -1295,8 +1325,15 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
   .catalog-panel { width: 100%; height: 100%; padding: 12px 10px; }
   .catalog-heading .shop-reroll-button { min-width: 96px; }
   .catalog-grid { grid-template-columns: 1fr; }
+  .catalog-grid { grid-auto-rows: minmax(154px, auto); }
+  .catalog-grid .deck-status-card { min-height: 154px; }
   .catalog-tools { flex-wrap: wrap; }
   .catalog-tools span { width: 100%; margin-left: 0; }
+  .catalog-detail-panel { width: 100%; height: 100%; padding: 12px 10px; }
+  .catalog-detail-heading { margin-bottom: 12px; }
+  .catalog-detail-heading .shop-reroll-button { min-width: 96px; }
+  .catalog-detail-layout { grid-template-columns: 1fr; align-items: start; gap: 18px; }
+  .catalog-detail-copy { width: min(100%, var(--card-width)); margin: 0 auto; }
   .shop-plate-summary { align-items: flex-start; flex-direction: column; gap: 4px; }
   .delete-confirm-card { grid-template-columns: 58px 1fr; }
   .delete-confirm-card .game-sprite { width: 54px; height: 54px; }

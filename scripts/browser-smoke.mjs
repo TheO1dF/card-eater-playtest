@@ -199,6 +199,12 @@ for (const viewport of selectedViewports) {
     card_copy_size: parseFloat(getComputedStyle(document.querySelector(".card-effect")).fontSize),
     hud_label_size: parseFloat(getComputedStyle(document.querySelector(".hud-cell span")).fontSize),
     visible_stack_cards: [...document.querySelectorAll("#cardStack .game-card")].filter((card) => getComputedStyle(card).visibility !== "hidden" && parseFloat(getComputedStyle(card).opacity) > .05).length,
+    point_values_inside: [...document.querySelectorAll(".game-card.is-active .card-point-value")].every((value) => {
+      const cell = value.closest(".card-scores > span")?.getBoundingClientRect();
+      const rect = value.getBoundingClientRect();
+      return Boolean(cell && rect.top >= cell.top + 1 && rect.bottom <= cell.bottom - 1);
+    }),
+    point_line_height_safe: (() => { const value = document.querySelector(".game-card.is-active .card-point-value"); const style = getComputedStyle(value); return parseFloat(style.lineHeight) >= parseFloat(style.fontSize); })(),
     horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
   }))()`);
   playing.dealt_instances_survive = await evaluate(`(${JSON.stringify(dealing.dealt_uuids)}).every((uuid) => Boolean(document.querySelector('[data-card-uuid="' + uuid + '"][data-deal-instance="true"]')))`);
@@ -218,6 +224,48 @@ for (const viewport of selectedViewports) {
       forbidden_terms: ["金币", "商店", "限时经济", "任务选择"].filter((term) => text.includes(term)),
     };
   })()`);
+
+  await clickElement("#cardCatalogButton");
+  await waitFor('document.querySelector("#cardCatalog")?.classList.contains("show") && document.querySelectorAll("#catalogList .deck-status-card").length === 89');
+  await wait(220);
+  await capture(`${viewport.name}-catalog`);
+  const catalog = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll("#catalogList .deck-status-card")];
+    const checked = cards.slice(0, 12);
+    const inside = (parent, child) => {
+      const outer = parent.getBoundingClientRect();
+      const inner = child.getBoundingClientRect();
+      return inner.top >= outer.top - 1 && inner.bottom <= outer.bottom + 1;
+    };
+    return {
+      count: cards.length,
+      effects_present: checked.every((card) => (card.querySelector(".deck-status-copy i")?.textContent?.trim()?.length ?? 0) > 0),
+      effects_inside: checked.every((card) => inside(card, card.querySelector(".deck-status-copy i"))),
+      inspectable: checked.every((card) => card.getAttribute("role") === "button" && card.tabIndex === 0),
+      point_rows_horizontal: checked.every((card) => {
+        const points = [...card.querySelectorAll(".deck-status-copy em .card-point-wrap")];
+        return points.length === 2 && Math.abs(points[0].getBoundingClientRect().top - points[1].getBoundingClientRect().top) <= 2;
+      }),
+    };
+  })()`);
+  await clickElement("#catalogList .deck-status-card");
+  await waitFor('document.querySelector("#catalogCardDetail")?.classList.contains("show") && Boolean(document.querySelector("#catalogCardPreview .game-card"))');
+  await wait(220);
+  await capture(`${viewport.name}-catalog-detail`);
+  const catalogDetail = await evaluate(`(() => {
+    const panel = document.querySelector(".catalog-detail-panel")?.getBoundingClientRect();
+    const effect = document.querySelector("#catalogCardDetailCopy section p")?.textContent?.trim() ?? "";
+    const preview = document.querySelector("#catalogCardPreview .game-card")?.getBoundingClientRect();
+    return {
+      effect_visible: effect.length > 0,
+      preview_visible: Boolean(preview && preview.width > 200 && preview.height > 260),
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+    };
+  })()`);
+  await clickElement("#catalogCardDetailClose");
+  await waitFor('document.querySelector("#cardCatalog")?.classList.contains("show") && !document.querySelector("#catalogCardDetail")?.classList.contains("show")');
+  await clickElement("#cardCatalogClose");
+  await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
   await clickElement("#gameMenuClose");
 
   const scoreStress = await evaluate(`(() => {
@@ -269,6 +317,11 @@ for (const viewport of selectedViewports) {
       reroll_value: document.querySelector("#draftRerollValue")?.textContent,
       action_widths: widths,
       equal_actions: Math.max(...widths) - Math.min(...widths) <= 1,
+      point_rows_horizontal: [...document.querySelectorAll(".draft-card-points")].every((row) => {
+        const eat = row.querySelector(".draft-eat-point")?.getBoundingClientRect();
+        const discard = row.querySelector(".draft-discard-point")?.getBoundingClientRect();
+        return Boolean(eat && discard && Math.abs(eat.top - discard.top) <= 2 && row.scrollWidth <= row.clientWidth + 1);
+      }),
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
     };
   })()`);
@@ -339,7 +392,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, home, unlock, dealing, playing, score_stress: scoreStress, menu, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, home, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_detail: catalogDetail, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -367,13 +420,17 @@ const failures = [
     entry.playing.phase === "出牌中" && entry.playing.active_cards === 1 ? null : `${entry.viewport.name}: did not enter play`,
     entry.playing.visible_stack_cards === Math.min(3, entry.dealing.real_stack_cards) ? null : `${entry.viewport.name}: deep shuffle cards remain visible during play`,
     entry.playing.card_copy_size >= 12 && entry.playing.hud_label_size >= 11 ? null : `${entry.viewport.name}: gameplay text remains too small`,
+    entry.playing.point_values_inside && entry.playing.point_line_height_safe ? null : `${entry.viewport.name}: gameplay point glyphs are clipped`,
     entry.playing.has_gold || entry.playing.has_timer ? `${entry.viewport.name}: legacy HUD exists` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
     entry.score_stress.score_inside && entry.score_stress.postpone_inside && entry.score_stress.card_inside && entry.score_stress.font_mode === "large" ? null : `${entry.viewport.name}: large-font score/postpone content overflows`,
     entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule ? null : `${entry.viewport.name}: menu rules incomplete`,
     entry.menu.forbidden_terms.length ? `${entry.viewport.name}: legacy terms ${entry.menu.forbidden_terms.join(",")}` : null,
+    entry.catalog.count === 89 && entry.catalog.effects_present && entry.catalog.effects_inside && entry.catalog.inspectable && entry.catalog.point_rows_horizontal ? null : `${entry.viewport.name}: catalog summaries are clipped or not inspectable`,
+    entry.catalog_detail.effect_visible && entry.catalog_detail.preview_visible && entry.catalog_detail.inside_viewport ? null : `${entry.viewport.name}: catalog detail dialog is invalid`,
     entry.draft.offer_count === 3 && entry.draft.reroll_value === "0" && entry.draft.offers_changed ? null : `${entry.viewport.name}: draft reroll failed`,
     entry.draft.equal_actions ? null : `${entry.viewport.name}: draft action buttons are unequal`,
+    entry.draft.point_rows_horizontal ? null : `${entry.viewport.name}: draft points are not horizontal`,
     entry.draft.inside_viewport ? null : `${entry.viewport.name}: draft outside viewport`,
     entry.delete_layout.equal_actions ? null : `${entry.viewport.name}: delete buttons are unequal`,
     entry.save_home.continue_enabled && entry.save_home.save_exists ? null : `${entry.viewport.name}: autosave/continue failed`,

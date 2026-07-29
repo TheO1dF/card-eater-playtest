@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#17121b" />
     <title>CardEater · 构筑你的餐盘</title>
     <link rel="icon" href="./assets/favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=27" />
+    <link rel="stylesheet" href="./styles.css?v=28" />
   </head>
   <body>
     <main class="app" id="app">
@@ -113,6 +113,10 @@
           <section class="modal-panel catalog-panel"><div class="catalog-heading"><div><div class="eyebrow">FULL CARD LIBRARY</div><h1 id="cardCatalogTitle">卡牌图鉴</h1></div><button class="shop-reroll-button" id="cardCatalogClose" type="button">返回菜单</button></div><div class="catalog-tools"><label for="catalogTypeFilter">类别</label><select id="catalogTypeFilter"><option value="all">全部类别</option></select><span id="catalogSummary">0 张卡牌</span></div><div class="catalog-grid" id="catalogList"></div></section>
         </div>
 
+        <div class="overlay catalog-detail-overlay" id="catalogCardDetail" role="dialog" aria-modal="true" aria-labelledby="catalogCardDetailTitle">
+          <section class="modal-panel catalog-detail-panel"><div class="catalog-detail-heading"><div><div class="eyebrow">CARD DETAIL</div><h1 id="catalogCardDetailTitle">卡牌详情</h1></div><button class="shop-reroll-button" id="catalogCardDetailClose" type="button">返回图鉴</button></div><div class="catalog-detail-layout"><div class="catalog-card-preview" id="catalogCardPreview"></div><div class="catalog-detail-copy" id="catalogCardDetailCopy"></div></div></section>
+        </div>
+
         <div class="overlay" id="roundSummary" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
           <section class="modal-panel summary-panel"><div class="eyebrow" id="summaryEyebrow">ROUND CLEAR</div><h1 id="summaryTitle">本轮结算</h1><p class="modal-lead" id="summaryTip">卡牌效果与牌面已经结算。</p><div class="milestone-summary"><span id="summaryMilestoneRounds">距离第 5 轮目标还有 4 轮</span><strong id="summaryMilestoneScore">累计 0 / 目标 100 分</strong><div class="milestone-meter"><i id="summaryMilestoneFill"></i></div></div><div class="receipt" id="summaryBreakdownList"></div><button class="primary-button" id="summaryContinueBtn" type="button">选择一张新牌</button></section>
         </div>
@@ -130,6 +134,6 @@
         </div>
       </section>
     </main>
-    <script type="module" src="./js/main.js?v=27"></script>
+    <script type="module" src="./js/main.js?v=28"></script>
   </body>
 </html>

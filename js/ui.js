@@ -262,7 +262,7 @@ function draftCardElement(card, onChoose) {
   button.type = "button";
   button.innerHTML = `
     <span class="shop-card-icon game-sprite" style="${spriteStyle(card)}"></span>
-    <span class="shop-card-copy"><small>${card.rarity} · ${card.type} · ${EDIBILITY_LABEL[card.edibility]}</small><strong>${card.name}</strong><em>吃 ${pointValue(card, "eat_points")} / 弃 ${pointValue(card, "discard_points")}</em><i>${cardEffectText(card)}</i></span>
+    <span class="shop-card-copy"><small>${card.rarity} · ${card.type} · ${EDIBILITY_LABEL[card.edibility]}</small><strong>${card.name}</strong><span class="draft-card-points"><span class="draft-eat-point">吃 <b>${signed(card.eat_points)}</b></span><span class="draft-point-separator">/</span><span class="draft-discard-point">弃 <b>${signed(card.discard_points)}</b></span></span><i>${cardEffectText(card)}</i></span>
     <span class="draft-pick-label">选择</span>
   `;
   button.addEventListener("click", () => onChoose(card), { once: true });
@@ -294,7 +294,7 @@ function deckChipElement(card, cost, onRemove) {
   return button;
 }
 
-function deckStatusCardElement(card, quantity, onRemove = null) {
+function deckStatusCardElement(card, quantity, onRemove = null, onInspect = null) {
   const article = document.createElement("article");
   article.className = `deck-status-card rarity-${RARITY_CLASS[card.rarity] ?? "common"}${freshArtClass(card)}`;
   const progress = card.growth_uses ? `<small>成长进度：${card.growth_uses}/${card.effect?.every ?? "?"}</small>` : "";
@@ -310,8 +310,23 @@ function deckStatusCardElement(card, quantity, onRemove = null) {
       <em>吃 ${pointValue(card, "eat_points")} / 弃 ${pointValue(card, "discard_points")}</em>
       ${generated}${stored}${progress}
       <i>${cardEffectText(card)}</i>
+      ${onInspect ? '<span class="catalog-inspect-hint">点击查看完整卡牌 ↗</span>' : ""}
     </span>
   `;
+  if (onInspect) {
+    article.classList.add("is-inspectable");
+    article.tabIndex = 0;
+    article.setAttribute("role", "button");
+    article.setAttribute("aria-label", `查看${card.name}完整卡牌：${cardEffectText(card)}`);
+    article.title = cardEffectText(card);
+    article.addEventListener("click", () => onInspect(card));
+    article.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onInspect(card);
+      }
+    });
+  }
   if (onRemove) {
     const remove = document.createElement("button");
     remove.type = "button";
@@ -344,6 +359,7 @@ export function createUI(root) {
     storyGuide: get("#storyGuide"), tutorialInfoButton: get("#tutorialInfoButton"),
     gameMenu: get("#gameMenu"), menuButton: get("#menuButton"),
     cardCatalog: get("#cardCatalog"), catalogList: get("#catalogList"),
+    catalogCardDetail: get("#catalogCardDetail"), catalogCardPreview: get("#catalogCardPreview"),
   };
 
   let tutorialFocus = null;
@@ -465,6 +481,29 @@ export function createUI(root) {
     nodes.deleteConfirm?.classList.remove("show");
   }
 
+  function closeCatalogCardDetail() {
+    nodes.catalogCardDetail?.classList.remove("show");
+    nodes.cardCatalog?.removeAttribute("aria-hidden");
+  }
+
+  function openCatalogCardDetail(card) {
+    const preview = cardElement(card, false, 0, false, 0, 1);
+    preview.classList.add("catalog-preview-game-card");
+    preview.removeAttribute("aria-label");
+    nodes.catalogCardPreview?.replaceChildren(preview);
+    const copy = get("#catalogCardDetailCopy");
+    if (copy) copy.innerHTML = `
+      <small>${card.rarity} · ${card.type} · ${EDIBILITY_LABEL[card.edibility]}</small>
+      <strong>${card.name}</strong>
+      <div class="catalog-detail-points"><span class="eat"><small>吃牌</small><b>${signed(card.eat_points)}</b></span><span class="discard"><small>弃牌</small><b>${signed(card.discard_points)}</b></span></div>
+      <section><small>CARD EFFECT · 卡牌效果</small><p>${cardEffectText(card)}</p></section>
+    `;
+    setText(get("#catalogCardDetailTitle"), card.name);
+    nodes.cardCatalog?.setAttribute("aria-hidden", "true");
+    nodes.catalogCardDetail?.classList.add("show");
+    get("#catalogCardDetailClose")?.focus();
+  }
+
   function openDeleteConfirmation(card, onRemove) {
     const preview = get("#deleteConfirmCard");
     preview.innerHTML = `
@@ -491,6 +530,10 @@ export function createUI(root) {
   });
   root.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
+    if (nodes.catalogCardDetail?.classList.contains("show")) {
+      closeCatalogCardDetail();
+      return;
+    }
     if (nodes.deleteConfirm?.classList.contains("show")) closeDeleteConfirmation();
     nodes.questStatus?.classList.remove("show");
     nodes.deckStatus?.classList.remove("show");
@@ -779,6 +822,7 @@ export function createUI(root) {
       this.renderSettings(currentSettings);
       if (state) suspendStoryForMenu();
       nodes.cardCatalog?.classList.remove("show");
+      closeCatalogCardDetail();
       nodes.gameMenu?.classList.add("show");
     },
     bindMenu({ onMusic, onEffects, onFontSize, onHome }) {
@@ -801,13 +845,14 @@ export function createUI(root) {
         const renderCatalog = () => {
           const cards = filter.value === "all" ? allCards : allCards.filter((card) => card.type === filter.value);
           setText(get("#catalogSummary"), `${cards.length} 张卡牌`);
-          nodes.catalogList.replaceChildren(...cards.map((card) => deckStatusCardElement(card, 1)));
+          nodes.catalogList.replaceChildren(...cards.map((card) => deckStatusCardElement(card, 1, null, openCatalogCardDetail)));
         };
         filter.onchange = renderCatalog;
         renderCatalog();
         nodes.cardCatalog?.classList.add("show");
       });
       get("#cardCatalogClose")?.addEventListener("click", () => {
+        closeCatalogCardDetail();
         nodes.cardCatalog?.classList.remove("show");
         if (menuState) {
           setText(get("#menuModeLabel"), MODE_LABELS[menuState.mode]);
@@ -815,6 +860,10 @@ export function createUI(root) {
         } else if (menuOpenedFromHome) {
           nodes.gameMenu?.classList.add("show");
         }
+      });
+      get("#catalogCardDetailClose")?.addEventListener("click", closeCatalogCardDetail);
+      nodes.catalogCardDetail?.addEventListener("click", (event) => {
+        if (event.target === nodes.catalogCardDetail) closeCatalogCardDetail();
       });
     },
     applyFontSize(fontSize) {
