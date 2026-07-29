@@ -203,6 +203,9 @@ for (const viewport of selectedViewports) {
     has_timer: Boolean(document.querySelector("#timerValue")),
     card_copy_size: parseFloat(getComputedStyle(document.querySelector(".card-effect")).fontSize),
     hud_label_size: parseFloat(getComputedStyle(document.querySelector(".hud-cell span")).fontSize),
+    text_size_adjust: getComputedStyle(document.documentElement).webkitTextSizeAdjust,
+    card_within_viewport: (() => { const card = document.querySelector(".game-card.is-active")?.getBoundingClientRect(); return Boolean(card && card.left >= -1 && card.right <= innerWidth + 1); })(),
+    card_head_inside: [...document.querySelectorAll(".game-card.is-active .card-head > *")].every((node) => { const head = node.parentElement.getBoundingClientRect(); const rect = node.getBoundingClientRect(); return rect.left >= head.left - 1 && rect.right <= head.right + 1; }),
     visible_stack_cards: [...document.querySelectorAll("#cardStack .game-card")].filter((card) => getComputedStyle(card).visibility !== "hidden" && parseFloat(getComputedStyle(card).opacity) > .05).length,
     point_values_inside: [...document.querySelectorAll(".game-card.is-active .card-point-value")].every((value) => {
       const cell = value.closest(".card-scores > span")?.getBoundingClientRect();
@@ -458,6 +461,7 @@ const failures = [
     entry.playing.audio.context_state === "running" && entry.playing.audio.bgm_playing ? null : `${entry.viewport.name}: BGM did not unlock after first interaction`,
     entry.playing.visible_stack_cards === Math.min(3, entry.dealing.real_stack_cards) ? null : `${entry.viewport.name}: deep shuffle cards remain visible during play`,
     entry.playing.card_copy_size >= 12 && entry.playing.hud_label_size >= 11 ? null : `${entry.viewport.name}: gameplay text remains too small`,
+    entry.playing.text_size_adjust === "100%" && entry.playing.card_within_viewport && entry.playing.card_head_inside ? null : `${entry.viewport.name}: mobile text autosizing or card width is unsafe`,
     entry.playing.point_values_inside && entry.playing.point_line_height_safe ? null : `${entry.viewport.name}: gameplay point glyphs are clipped`,
     entry.playing.has_gold || entry.playing.has_timer ? `${entry.viewport.name}: legacy HUD exists` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
