@@ -75,7 +75,7 @@ function saveRun(state) {
 function loadRun() {
   try {
     const state = JSON.parse(localStorage.getItem(RUN_SAVE_KEY) ?? "null");
-    return state?.schema_version === 20 && state?.phase !== "GameOver" ? state : null;
+    return state?.schema_version === 21 && state?.phase !== "GameOver" ? state : null;
   } catch {
     return null;
   }
@@ -90,7 +90,6 @@ export const browserPlatform = Object.freeze({
   now: () => Date.now(),
   random: () => Math.random(),
   create_id: makeId,
-  vibrate: (pattern = 8) => globalThis.navigator?.vibrate?.(pattern),
   load_records: loadRecords,
   save_record: saveRecord,
   has_completed_run: hasCompletedRun,

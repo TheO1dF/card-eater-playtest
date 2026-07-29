@@ -132,8 +132,11 @@ for (const viewport of selectedViewports) {
       title: document.querySelector("#welcomeTitle")?.textContent,
       action_labels: actions.map((button) => button.querySelector("b")?.textContent),
       continue_disabled: document.querySelector("#continueGameButton")?.disabled,
-      decor_count: document.querySelectorAll(".home-card-art").length,
+      rain_count: document.querySelectorAll(".home-rain-card").length,
       logo_lines: document.querySelectorAll(".home-logo span").length,
+      logo_has_annotation: Boolean(document.querySelector(".home-hero p")),
+      panel_border: parseFloat(getComputedStyle(document.querySelector(".home-panel")).borderTopWidth),
+      shell_border: parseFloat(getComputedStyle(document.querySelector(".game-shell")).borderTopWidth),
       modes_locked: ["#endlessModeButton", "#hardModeButton"].every((selector) => document.querySelector(selector)?.disabled),
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
       horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
@@ -156,12 +159,22 @@ for (const viewport of selectedViewports) {
   await capture(`${viewport.name}-mode-select`);
   await clickElement("#normalModeButton");
   await waitFor('Boolean(document.querySelector(".deal-layer"))');
+  await wait(260);
   await capture(`${viewport.name}-deal`);
-  const dealing = await evaluate(`(() => ({
-    card_backs: document.querySelectorAll(".deal-card-trail i").length,
-    message: document.querySelector(".deal-layer")?.textContent?.replace(/\\s+/g, " ").trim(),
-    shell_transform: getComputedStyle(document.querySelector(".game-shell")).transform,
-  }))()`);
+  const dealing = await evaluate(`(() => {
+    const layer = document.querySelector(".deal-layer");
+    const firstCard = document.querySelector(".deal-card-trail i");
+    const shell = document.querySelector(".game-shell");
+    const table = document.querySelector(".playfield");
+    return {
+      card_backs: document.querySelectorAll(".deal-card-trail i").length,
+      visible_card_backs: [...document.querySelectorAll(".deal-card-trail i")].filter((card) => parseFloat(getComputedStyle(card).opacity) > .05).length,
+      message: layer?.textContent?.replace(/\\s+/g, " ").trim() ?? "",
+      shell_transform: shell ? getComputedStyle(shell).transform : "missing",
+      animation_name: firstCard ? getComputedStyle(firstCard).animationName : "missing",
+      covers_table: Boolean(layer && table && layer.getBoundingClientRect().width >= table.getBoundingClientRect().width - 1),
+    };
+  })()`);
   await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中"', 12000);
   await capture(`${viewport.name}-round-1`);
   const playing = await evaluate(`(() => ({
@@ -253,6 +266,8 @@ for (const viewport of selectedViewports) {
     const widths = [...document.querySelectorAll(".item-draft-card")].map((card) => card.getBoundingClientRect().width);
     return {
       count: widths.length,
+      item_ids: [...document.querySelectorAll(".item-draft-card")].map((card) => card.dataset.itemId),
+      item_slots: [...document.querySelectorAll(".item-draft-card")].map((card) => card.dataset.itemSlot),
       equal_cards: Math.max(...widths) - Math.min(...widths) <= 1,
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
       reroll_tokens: document.querySelector("#draftRerollValue")?.textContent,
@@ -291,15 +306,17 @@ const failures = [
     entry.home.title === "CardEater" ? null : `${entry.viewport.name}: wrong home title`,
     JSON.stringify(entry.home.action_labels) === JSON.stringify(["新游戏", "继续", "菜单"]) ? null : `${entry.viewport.name}: wrong home actions`,
     entry.home.continue_disabled ? null : `${entry.viewport.name}: continue should start disabled`,
-    entry.home.decor_count === 3 && entry.home.logo_lines === 2 ? null : `${entry.viewport.name}: home hero assets missing`,
+    entry.home.rain_count >= 24 && entry.home.logo_lines === 2 ? null : `${entry.viewport.name}: home card rain missing`,
+    !entry.home.logo_has_annotation && entry.home.panel_border === 0 && entry.home.shell_border === 0 ? null : `${entry.viewport.name}: home logo still has annotation or frame`,
     entry.home.modes_locked ? null : `${entry.viewport.name}: advanced modes should start locked`,
     entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
     entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
-    entry.dealing.card_backs > 0 && entry.dealing.message.includes("餐盘上菜") ? null : `${entry.viewport.name}: dealing animation missing`,
+    entry.dealing.card_backs > 0 && entry.dealing.visible_card_backs > 0 && entry.dealing.message.includes("餐盘上菜") ? null : `${entry.viewport.name}: dealing animation missing`,
     entry.dealing.shell_transform === "none" ? null : `${entry.viewport.name}: dealing animation moves the game shell`,
+    entry.dealing.animation_name === "dealToPlate" && entry.dealing.covers_table ? null : `${entry.viewport.name}: dealing animation is not table-wide`,
     entry.playing.phase === "出牌中" && entry.playing.active_cards === 1 ? null : `${entry.viewport.name}: did not enter play`,
-    entry.playing.card_copy_size >= 11 && entry.playing.hud_label_size >= 10 ? null : `${entry.viewport.name}: gameplay text remains too small`,
+    entry.playing.card_copy_size >= 12 && entry.playing.hud_label_size >= 11 ? null : `${entry.viewport.name}: gameplay text remains too small`,
     entry.playing.has_gold || entry.playing.has_timer ? `${entry.viewport.name}: legacy HUD exists` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
     entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule ? null : `${entry.viewport.name}: menu rules incomplete`,
@@ -309,7 +326,8 @@ const failures = [
     entry.draft.inside_viewport ? null : `${entry.viewport.name}: draft outside viewport`,
     entry.delete_layout.equal_actions ? null : `${entry.viewport.name}: delete buttons are unequal`,
     entry.save_home.continue_enabled && entry.save_home.save_exists ? null : `${entry.viewport.name}: autosave/continue failed`,
-    entry.item_draft.count === 3 && entry.item_draft.equal_cards ? null : `${entry.viewport.name}: item draft invalid`,
+    entry.item_draft.count === 3 && entry.item_draft.equal_cards && entry.item_draft.item_ids.every((id) => id.startsWith("BI")) ? null : `${entry.viewport.name}: item draft invalid`,
+    JSON.stringify(entry.item_draft.item_slots) === JSON.stringify(["relevant", "bridge", "wild"]) ? null : `${entry.viewport.name}: item draft slots are not relevant/bridge/wild`,
     entry.item_draft.inside_viewport ? null : `${entry.viewport.name}: item draft outside viewport`,
     entry.next_round.round === "4/15" && entry.next_round.save_exists && entry.next_round.owned_items >= 1 ? null : `${entry.viewport.name}: failed to reach saved round four with an item`,
     entry.card_art.failed_ids.length ? `${entry.viewport.name}: card art failed ${entry.card_art.failed_ids.join(",")}` : null,

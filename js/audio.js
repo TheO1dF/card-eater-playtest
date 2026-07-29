@@ -53,16 +53,19 @@ export function playSound(type, strength = 1) {
     chord([440, 554, 659], { end: 880, duration: 0.22, volume: 0.09, type: "square" });
   } else if (type === "item") {
     chord([330, 494, 659, 988], { end: 1046, duration: 0.3, volume: 0.075, type: "sine" });
+  } else if (type === "essence") {
+    chord([392, 523, 659, 784], { end: 1174 + safe * 12, duration: 0.42, volume: 0.085, type: "sine" });
+    tone({ frequency: 1174, end: 1760, duration: 0.28, volume: 0.07, type: "square", delay: 0.18 });
   } else if (type === "deal") {
-    const cards = Math.min(6, Math.max(3, Math.ceil(safe / 2)));
+    const cards = Math.min(10, Math.max(4, safe));
     for (let index = 0; index < cards; index += 1) {
       tone({
         frequency: 210 + index * 24,
         end: 300 + index * 28,
-        duration: 0.065,
-        volume: 0.045,
+        duration: 0.085,
+        volume: 0.055,
         type: "triangle",
-        delay: index * 0.055,
+        delay: index * 0.085,
       });
     }
   } else if (type === "milestone") {

@@ -64,6 +64,7 @@ export function createRoundState() {
     wrong_edibility_count: 0,
     wrong_edibility_streak: 0,
     postponed_uuids: [],
+    postpone_counts: {},
     postpone_count: 0,
     postpone_effect_triggers: 0,
     reverse_postpone_charges: 0,
@@ -91,6 +92,7 @@ export function createRoundState() {
     nebula_unresolved_since: {},
     contract_gold_reward: 0,
     speed_gold_reward: 0,
+    item_fruit_chain: 0,
   };
 }
 
@@ -111,6 +113,7 @@ export function createInitialPlayerState(options = {}) {
     active_rules: [],
     items: [],
     item_history: [],
+    item_serial: 0,
     pending_draft_ids: [],
     pending_item_ids: [],
     draft_resolved: false,

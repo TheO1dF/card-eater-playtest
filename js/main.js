@@ -9,7 +9,7 @@ import { initAudio, playSound, toggleBGM } from "./audio.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "./plate.js";
 import { activateReshuffle, getReshuffleStatus } from "./reshuffle.js";
 import { getCardById } from "./data.js";
-import { applyRoundItemSetup, chooseItem, getItemById, hasUnlimitedPostpone, randomDraftItems } from "./items.js";
+import { applyRoundItemSetup, chooseItem, getItemById, getPostponeLimit, hydrateOwnedItems, randomDraftItems } from "./items.js";
 
 let state = createInitialPlayerState({ create_id: browserPlatform.create_id });
 const engine = createRoundEngine({ random: browserPlatform.random });
@@ -102,8 +102,8 @@ function renderTutorial() {
   ui.showStoryGuide({
     step: "complete",
     chapter: "EPILOGUE · 每轮都在构筑",
-    message: "轮末可以选牌、刷新或跳过；每 3 轮再从三件道具中挑选一件。",
-    objective: "游戏会自动保存，随时可从菜单回到主界面。",
+    message: "轮末可以选牌、刷新或跳过；每 3 轮再从三件培养道具中挑选一件。",
+    objective: "使用对应行动积累进度，道具会精华突破，部分可以无限升级。",
     progress,
     can_continue: true,
     continue_label: "完成教学",
@@ -130,6 +130,12 @@ function updateStreak(action) {
   if (streak.action === action) streak.count += 1;
   else streak = { action, count: 1 };
   return streak.count;
+}
+
+function presentItemEvents(events = []) {
+  if (events.length === 0) return;
+  ui.showItemEvolution(events);
+  if (effectsEnabled) playSound("essence", Math.max(...events.map((event) => event.level ?? 1)));
 }
 
 function finishRoundCycle() {
@@ -168,7 +174,6 @@ function enterItemDraft() {
     state.item_draft_resolved = true;
     ui.closeItemDraft();
     if (effectsEnabled) playSound("item", 1);
-    browserPlatform.vibrate([12, 24, 18]);
     ui.showPickBurst(result.message, "item");
     itemBuffer = [];
     saveGame();
@@ -214,7 +219,6 @@ function enterCardDraft() {
       state.draft_resolved = true;
       ui.closeCardDraft();
       if (effectsEnabled) playSound("draft", 1);
-      browserPlatform.vibrate([8, 16, 12]);
       ui.showPickBurst(`「${card.name}」加入牌组`, "card");
       saveGame();
       window.setTimeout(finishCardDraft, 740);
@@ -375,6 +379,7 @@ function handleAction(action, card) {
   if (entry.wrong_edibility) ui.showHardEat(entry.wrong_edibility_streak, entry.points);
   if (entry.fruit_combo) ui.showFruitCombo(entry.fruit_combo);
   if (entry.effect_triggered) ui.showEffectFlash(entry.effect_triggered, entry);
+  presentItemEvents(entry.item_events);
   ui.showPointMutation(entry, card);
   ui.punchAction(entry.points, hitCount);
   if (effectsEnabled) {
@@ -382,7 +387,6 @@ function handleAction(action, card) {
     if (entry.effect_triggered) playSound("effect", hitCount);
     if (hitCount >= 3 || entry.points >= 8) playSound("combo", Math.max(hitCount, entry.points));
   }
-  browserPlatform.vibrate(entry.points < 0 ? [18, 22, 18] : entry.points >= 10 ? [10, 18, 22] : entry.points >= 5 ? [8, 12, 10] : 6);
   if (entry.points < 0) {
     if (effectsEnabled) playSound("error", 1);
   }
@@ -411,23 +415,25 @@ function handlePostpone(card) {
     refreshTable();
     return;
   }
-  const result = postponeCurrentCard(state, { unlimited: hasUnlimitedPostpone(state) });
+  const postponeLimit = getPostponeLimit(state);
+  const result = postponeCurrentCard(state, { max_per_card: postponeLimit, unlimited: postponeLimit === Infinity });
   if (!result.success) {
     actionLocked = false;
-    ui.showEffectFlash(result.reason === "already_postponed" ? `「${card.name}」本轮已经后置过` : "餐盘只剩一张牌，无法后置");
+    ui.showEffectFlash(result.reason === "already_postponed" ? `「${card.name}」本轮已达到后置次数上限` : "餐盘只剩一张牌，无法后置");
     refreshTable();
     return;
   }
   const effectResult = engine.recordPostpone(state, card);
+  const totalPostponeScore = (result.score_bonus ?? 0) + (effectResult.score_bonus ?? 0);
   streak = { action: null, count: 0 };
   const messages = [result.direction === "front" ? `末牌「${result.revealed_card?.name ?? "未知牌"}」立即登场` : `后置「${card.name}」`];
-  if (result.score_bonus > 0) ui.showFloatingScore(result.score_bonus, "postpone", 1);
+  if (totalPostponeScore > 0) ui.showFloatingScore(totalPostponeScore, "postpone", 1);
   messages.push(...effectResult.messages);
   ui.showEffectFlash(messages.join(" · "));
-  ui.punchAction(result.score_bonus, 1, "postpone");
+  ui.punchAction(totalPostponeScore, 1, "postpone");
+  presentItemEvents(effectResult.item_events);
   if (tutorial.active) tutorial.postponed = true;
   if (effectsEnabled) playSound("postpone", 1);
-  browserPlatform.vibrate(5);
   actionLocked = false;
   saveGame();
   refreshTable();
@@ -470,6 +476,7 @@ function prepareRound() {
 function restoreRun(saved) {
   state = saved;
   state.items ??= [];
+  hydrateOwnedItems(state);
   state.item_history ??= [];
   state.pending_draft_ids ??= [];
   state.pending_item_ids ??= [];

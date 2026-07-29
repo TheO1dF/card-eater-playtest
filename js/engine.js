@@ -1,6 +1,12 @@
 import { GAME_CONFIG, getEffectiveMilestoneRound, getFinalRound, getMilestoneTarget, getNextMilestone } from "./config.js";
 import { createShopCardPool, getCardById } from "./data.js";
-import { getItemFinalMultipliers, resolveItemActionEffects } from "./items.js";
+import {
+  getItemFinalMultipliers,
+  getItemRoundEndEffects,
+  resolveItemActionEffects,
+  resolveItemAfterActionEffects,
+  resolveItemPostponeEffects,
+} from "./items.js";
 import { formatScore, safeAdd, safeMultiply, safeProduct } from "./numbers.js";
 
 const ACTIONS = Object.freeze({ EAT: "eat", DISCARD: "discard" });
@@ -28,6 +34,16 @@ function matchesPosition(state, position) {
 function isWrongEdibilityAction(action, card) {
   return (card.edibility === "edible" && action === ACTIONS.DISCARD)
     || (card.edibility === "inedible" && action === ACTIONS.EAT);
+}
+
+function getDeckReductionTotal(state) {
+  return (state.deck ?? []).reduce((total, card) => {
+    const eatBase = card.base_eat_points ?? card.eat_points ?? 0;
+    const discardBase = card.base_discard_points ?? card.discard_points ?? 0;
+    return safeAdd(total,
+      Math.max(0, eatBase - (card.eat_points ?? 0))
+      + Math.max(0, discardBase - (card.discard_points ?? 0)));
+  }, 0);
 }
 
 function getRuleFlatBonus(state, action, card) {
@@ -2148,8 +2164,19 @@ export function createRoundEngine(options = {}) {
       note(`${card.name}：剩余 ${marked.length} 张牌标记为已后置；此后错误食性吃额外 +${effect.bonus ?? 3}`);
     }
 
-    if (triggered) state.round.postpone_effect_triggers = safeAdd(state.round.postpone_effect_triggers ?? 0, 1);
-    return { triggered, messages, point_changes: pointChanges };
+    const itemEffects = resolveItemPostponeEffects(state, card);
+    if (itemEffects.score_bonus > 0) {
+      state.round.postpone_bonus_score = safeAdd(state.round.postpone_bonus_score ?? 0, itemEffects.score_bonus);
+    }
+    messages.push(...itemEffects.messages);
+    if (triggered || itemEffects.messages.length > 0) state.round.postpone_effect_triggers = safeAdd(state.round.postpone_effect_triggers ?? 0, 1);
+    return {
+      triggered: triggered || itemEffects.messages.length > 0,
+      messages,
+      point_changes: pointChanges,
+      score_bonus: itemEffects.score_bonus,
+      item_events: itemEffects.item_events,
+    };
   }
 
   function recordAction(state, action, card) {
@@ -2158,6 +2185,8 @@ export function createRoundEngine(options = {}) {
     }
 
     const lockAfterResolution = (state.round.lock_next_stats_charges ?? 0) > 0;
+    const reductionBefore = getDeckReductionTotal(state);
+    const destroyedBefore = state.round.destroyed_count ?? 0;
     for (const sourceUuid of Object.keys(state.round.nebula_postpone_counts ?? {})) {
       if (sourceUuid !== card.uuid) {
         state.round.nebula_postpone_counts[sourceUuid] = safeAdd(state.round.nebula_postpone_counts[sourceUuid] ?? 0, 1);
@@ -2207,6 +2236,7 @@ export function createRoundEngine(options = {}) {
       buff_flat_bonus: buffs.flat_bonus,
       buff_multiplier: buffs.multiplier,
       item_bonus: itemEffects.flat_bonus,
+      item_markers: itemEffects.markers,
       quest_modifier: questModifier,
       effect_bonus: safeAdd(immediateEffect.bonus, state.round.card_score_bonuses?.[card.uuid] ?? 0),
       reshuffle_index: state.round.reshuffle_count,
@@ -2285,6 +2315,20 @@ export function createRoundEngine(options = {}) {
           : `${card.name}：【弱化】结算后摧毁自身`;
       }
     }
+    const reductionAfter = getDeckReductionTotal(state);
+    entry.restored_points = Math.max(0, reductionBefore - reductionAfter);
+    entry.reduced_points = Math.max(0, reductionAfter - reductionBefore);
+    entry.destroyed_count = Math.max(0, (state.round.destroyed_count ?? 0) - destroyedBefore);
+    const itemAfterEffects = resolveItemAfterActionEffects(state, action, card, entry, {
+      restored_points: entry.restored_points,
+      reduced_points: entry.reduced_points,
+      destroyed_count: entry.destroyed_count,
+    });
+    entry.effect_bonus = safeAdd(entry.effect_bonus, itemAfterEffects.score_bonus);
+    entry.item_events = itemAfterEffects.item_events;
+    if (itemAfterEffects.point_changes.length > 0) {
+      entry.point_changes = [...(entry.point_changes ?? []), ...itemAfterEffects.point_changes];
+    }
     const flatValue = [printedPoints, ruleBonus, buffs.flat_bonus, itemEffects.flat_bonus, entry.quest_modifier]
       .reduce((sum, value) => safeAdd(sum, value), 0);
     entry.points = safeAdd(safeMultiply(flatValue, buffs.multiplier), entry.effect_bonus);
@@ -2296,8 +2340,9 @@ export function createRoundEngine(options = {}) {
       entry.points = safeAdd(entry.points, bonus);
       markEffect(entry, card, `${card.name}：弃置得分不高于 ${card.effect.threshold ?? -5}，反击 +${bonus}`);
     }
-    if (itemEffects.messages.length > 0) {
-      const itemMessage = itemEffects.messages.join(" · ");
+    const allItemMessages = [...itemEffects.messages, ...itemAfterEffects.messages];
+    if (allItemMessages.length > 0) {
+      const itemMessage = allItemMessages.join(" · ");
       entry.effect_triggered = entry.effect_triggered ? `${entry.effect_triggered} · ${itemMessage}` : itemMessage;
     }
 
@@ -2308,9 +2353,10 @@ export function createRoundEngine(options = {}) {
 
   function finalizeRound(state) {
     const roundEndEffects = applyRoundEndCardEffects(state);
+    const itemRoundEndEffects = getItemRoundEndEffects(state);
     const actionScore = state.round.actions.reduce((sum, item) => safeAdd(sum, item.points), 0);
     const postponeScore = state.round.postpone_bonus_score ?? 0;
-    const cardScore = [actionScore, postponeScore, roundEndEffects.score_bonus]
+    const cardScore = [actionScore, postponeScore, roundEndEffects.score_bonus, itemRoundEndEffects.score_bonus]
       .reduce((sum, value) => safeAdd(sum, value), 0);
     const multipliers = [
       ...state.round.final_multipliers,
@@ -2333,6 +2379,11 @@ export function createRoundEngine(options = {}) {
     }
     roundEndEffects.messages.forEach((message) => breakdown.push({
       label: "↳ 轮末卡牌效果",
+      text: message,
+      kind: "bonus",
+    }));
+    itemRoundEndEffects.messages.forEach((message) => breakdown.push({
+      label: "↳ 培养道具",
       text: message,
       kind: "bonus",
     }));

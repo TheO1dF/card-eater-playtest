@@ -8,7 +8,15 @@ import { createDraftService } from "../js/draft.js";
 import { createRoundEngine } from "../js/engine.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "../js/plate.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
-import { applyRoundItemSetup, chooseItem, createItemPool, hasUnlimitedPostpone, randomDraftItems } from "../js/items.js";
+import {
+  chooseItem,
+  createItemPool,
+  getPostponeLimit,
+  hasUnlimitedPostpone,
+  randomDraftItems,
+  resolveItemAfterActionEffects,
+  resolveItemPostponeEffects,
+} from "../js/items.js";
 
 let uuidCounter = 0;
 const nextId = (card) => `${card.id}-test-${uuidCounter += 1}`;
@@ -151,32 +159,60 @@ test("初始牌组仍是七张教学牌，四张可食用、三张不可食用",
   assert.equal(deck.some((card) => card.id === "F003"), false, "初始牌组不再包含西瓜");
 });
 
-test("每三轮道具三选一支持永久、一次性、生成与无限后置", () => {
+test("B 方案三选一固定提供当前体系、跨体系桥梁和规则改写", () => {
   const state = createInitialPlayerState({ create_id: nextId });
   const offers = randomDraftItems(state, 3, () => 0);
   assert.equal(offers.length, 3);
   assert.equal(new Set(offers.map((entry) => entry.id)).size, 3);
+  assert.ok(offers.every((entry) => entry.id.startsWith("BI")));
+  assert.equal(offers[1].bridge, true);
+  assert.equal(offers[2].wild, true);
+});
 
-  const instant = chooseItem(state, "IT101");
-  assert.equal(instant.consumed, true);
-  assert.equal(state.delete_tokens, 2);
-  assert.equal(state.items.some((entry) => entry.id === "IT101"), false);
+test("无限培养道具能从培养状态持续升级", () => {
+  const engine = createRoundEngine();
+  const state = stateWith(["F009", "A001"]);
+  assert.equal(chooseItem(state, "BI001").success, true);
+  const pear = state.deck.find((card) => card.id === "F009");
+  let latest;
+  for (let index = 0; index < 6; index += 1) latest = engine.recordAction(state, "eat", pear);
+  assert.equal(state.items[0].level, 1);
+  assert.match(latest.item_events[0].message, /精华突破/);
+  for (let index = 0; index < 8; index += 1) latest = engine.recordAction(state, "eat", pear);
+  assert.equal(state.items[0].level, 2);
+  assert.match(latest.item_events[0].message, /Lv\.2/);
+});
 
-  assert.equal(chooseItem(state, "IT011").success, true);
-  assert.equal(hasUnlimitedPostpone(state), true);
+test("回转餐车先允许每张牌后置两次，精华后无限后置并可继续培养", () => {
+  const state = createInitialPlayerState({ create_id: nextId });
+  assert.equal(chooseItem(state, "BI013").success, true);
+  assert.equal(getPostponeLimit(state), 2);
+  assert.equal(hasUnlimitedPostpone(state), false);
   resetRoundState(state);
   state.round.draw_pile = [owned("F001", "post-a"), owned("A001", "post-b")];
-  assert.equal(postponeCurrentCard(state, { unlimited: true }).success, true);
-  assert.equal(postponeCurrentCard(state, { unlimited: true }).success, true);
-  assert.equal(postponeCurrentCard(state, { unlimited: true }).success, true);
+  const current = state.round.draw_pile.at(-1);
+  state.round.postpone_counts[current.uuid] = 2;
+  assert.equal(postponeCurrentCard(state, { max_per_card: 2 }).success, false);
+  for (let index = 0; index < 8; index += 1) resolveItemPostponeEffects(state);
+  assert.equal(state.items[0].level, 1);
+  assert.equal(hasUnlimitedPostpone(state), true);
+  for (let index = 0; index < 12; index += 1) resolveItemPostponeEffects(state);
+  assert.equal(state.items[0].level, 2);
+});
 
-  assert.equal(chooseItem(state, "IT012").success, true);
+test("厨余发酵罐把摧毁转换成梨子，突破后生成牌不再弱化", () => {
+  const state = createInitialPlayerState({ create_id: nextId });
+  assert.equal(chooseItem(state, "BI004").success, true);
+  const card = state.deck[0];
   const before = state.deck.length;
-  const messages = applyRoundItemSetup(state, { create_id: nextId });
+  resolveItemAfterActionEffects(state, "discard", card, { item_markers: {} }, { destroyed_count: 3 });
   assert.equal(state.deck.length, before + 1);
   assert.equal(state.deck.at(-1).id, "F009");
   assert.equal(state.deck.at(-1).weakened, true);
-  assert.equal(messages.length, 1);
+  resolveItemAfterActionEffects(state, "discard", card, { item_markers: {} }, { destroyed_count: 2 });
+  assert.equal(state.items[0].level, 1);
+  resolveItemAfterActionEffects(state, "discard", card, { item_markers: {} }, { destroyed_count: 1 });
+  assert.equal(state.deck.at(-1).weakened, false);
 });
 
 test("新道具候选不再奖励牌组尺寸限制或额外餐盘扩容", () => {
@@ -309,6 +345,7 @@ test("菜单与主循环源码不再包含商店、任务选择、金币或计�
   assert.match(html, /id="continueGameButton"/);
   assert.match(main, /playDealAnimation/);
   assert.doesNotMatch(`${main}\n${ui}\n${styles}`, /triggerShake|shellShake|impact-heavy/);
+  assert.doesNotMatch(`${main}\n${ui}`, /\.vibrate\(|navigator\.vibrate/);
   assert.match(html, /id="itemDraft"/);
   assert.match(main, /saveGame\(\)/);
 });

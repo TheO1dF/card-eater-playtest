@@ -50,10 +50,14 @@ export function postponeCurrentCard(state, options = {}) {
   if (!Array.isArray(pile) || pile.length < 2) return { success: false, reason: "not_enough_cards" };
   const card = pile.at(-1);
   state.round.postponed_uuids ??= [];
-  if (!options.unlimited && state.round.postponed_uuids.includes(card.uuid)) {
+  state.round.postpone_counts ??= {};
+  const limit = options.unlimited ? Infinity : Math.max(1, options.max_per_card ?? 1);
+  const used = state.round.postpone_counts[card.uuid] ?? 0;
+  if (used >= limit) {
     return { success: false, reason: "already_postponed", card };
   }
   if (!state.round.postponed_uuids.includes(card.uuid)) state.round.postponed_uuids.push(card.uuid);
+  state.round.postpone_counts[card.uuid] = used + 1;
 
   let direction = "back";
   let revealedCard = null;
@@ -85,5 +89,7 @@ export function postponeCurrentCard(state, options = {}) {
     direction,
     revealed_card: revealedCard,
     score_bonus: scoreBonus,
+    postpone_count_for_card: state.round.postpone_counts[card.uuid],
+    postpone_limit: limit,
   };
 }

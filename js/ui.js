@@ -1,5 +1,13 @@
 import { GAME_CONFIG, GAME_MODES, MODE_LABELS, getFinalRound, getNextMilestone } from "./config.js";
-import { getItemById } from "./items.js";
+import {
+  getCurrentItemDescription,
+  getCultivationTarget,
+  getItemById,
+  getItemLevelLabel,
+  getItemProgressText,
+  getPostponeLimit,
+  isCultivationComplete,
+} from "./items.js";
 import { formatScore } from "./numbers.js";
 import { getQuestRequirement, getQuestTarget } from "./quests.js";
 import { stripKeywordTags } from "./keywords.js";
@@ -127,9 +135,12 @@ function metaStyle(entry) {
 
 function itemElement(entry) {
   const node = document.createElement("span");
-  node.className = "item-chip";
-  node.title = `${entry.name}：${entry.description}`;
-  node.innerHTML = `<span class="meta-sprite" style="${metaStyle(entry)}"></span>`;
+  const target = getCultivationTarget(entry);
+  const progress = isCultivationComplete(entry) ? 100 : Math.min(100, (entry.cultivation_progress ?? 0) / target * 100);
+  node.className = `item-chip${(entry.level ?? 0) > 0 ? " is-essence" : ""}`;
+  node.style.setProperty("--item-progress", `${progress}%`);
+  node.title = `${entry.name} · ${getItemLevelLabel(entry)}：${getCurrentItemDescription(entry)}（${getItemProgressText(entry)}）`;
+  node.innerHTML = `<span class="meta-sprite" style="${metaStyle(entry)}"></span><i>${entry.level ?? 0}</i>`;
   return node;
 }
 
@@ -166,18 +177,20 @@ function questElement(entry, state, onChoose) {
   return button;
 }
 
-function cardElement(card, active, depth, fogged = false, postponed = false) {
+function cardElement(card, active, depth, fogged = false, postponeCount = 0, postponeLimit = 1) {
   const article = document.createElement("article");
   const pointChanged = pointTone(card, "eat_points") !== "point-base" || pointTone(card, "discard_points") !== "point-base";
+  const postponed = postponeCount > 0;
+  const postponeText = postponeLimit === Infinity ? `本轮已后置 ${postponeCount} 次，可继续后置` : `本轮已后置 ${postponeCount}/${postponeLimit} 次`;
   article.className = `game-card card-${card.edibility} rarity-${RARITY_CLASS[card.rarity] ?? "common"}${active ? " is-active" : ""}${fogged ? " is-fogged" : ""}${postponed ? " is-postponed" : ""}${pointChanged ? " has-point-change" : ""}${card.weakened ? " is-weakened" : ""}${freshArtClass(card)}`;
   article.style.setProperty("--depth", depth);
   article.style.zIndex = String(10 - depth);
   article.dataset.cardUuid = card.uuid;
-  article.setAttribute("aria-label", fogged ? "被星云遮蔽的未处理卡牌" : `${card.name}，吃牌 ${card.eat_points} 分，弃牌 ${card.discard_points} 分${postponed ? "，本轮已后置，不能再次后置" : ""}`);
+  article.setAttribute("aria-label", fogged ? "被星云遮蔽的未处理卡牌" : `${card.name}，吃牌 ${card.eat_points} 分，弃牌 ${card.discard_points} 分${postponed ? `，${postponeText}` : ""}`);
   article.innerHTML = `
     <div class="card-noise" aria-hidden="true"></div>
     <div class="card-head"><span class="rarity-tag">${card.rarity}</span><span class="edibility-tag">${EDIBILITY_LABEL[card.edibility] ?? "特殊"}</span></div>
-    <div class="card-art" aria-hidden="true"><span class="game-sprite" style="${spriteStyle(card)}"></span>${postponed ? '<span class="card-postpone-mark"><b>↔</b> 已后置</span>' : ""}</div>
+    <div class="card-art" aria-hidden="true"><span class="game-sprite" style="${spriteStyle(card)}"></span>${postponed ? `<span class="card-postpone-mark"><b>↔</b> ${postponeLimit === Infinity ? `×${postponeCount}` : `${postponeCount}/${postponeLimit}`}</span>` : ""}</div>
     <div class="card-title"><small>${card.type}</small><strong>${card.name}</strong></div>
     <div class="card-scores"><span class="discard-score"><i><small>DISCARD</small>↑ 弃</i>${pointValue(card, "discard_points")}</span><span class="eat-score"><i><small>EAT</small>↓ 吃</i>${pointValue(card, "eat_points")}</span></div>
     <div class="card-effect${card.effect ? "" : " is-flavor"}">${cardEffectText(card)}</div>
@@ -213,10 +226,12 @@ function selectedRuleElement(rule, index) {
 
 function ownedItemElement(entry) {
   const article = document.createElement("article");
-  article.className = "collection-status-card item-status-card";
+  const target = getCultivationTarget(entry);
+  const progress = isCultivationComplete(entry) ? 100 : Math.min(100, (entry.cultivation_progress ?? 0) / target * 100);
+  article.className = `collection-status-card item-status-card${(entry.level ?? 0) > 0 ? " is-essence" : ""}`;
   article.innerHTML = `
     <span class="collection-item-icon meta-sprite" style="${metaStyle(entry)}"></span>
-    <span><small>${entry.rarity} · ${entry.role}</small><strong>${entry.name}</strong><em>${entry.description}</em></span>
+    <span><small>${getItemLevelLabel(entry)} · ${entry.role}</small><strong>${entry.name}</strong><em>${getCurrentItemDescription(entry)}</em><span class="item-progress"><i style="width:${progress}%"></i></span><b class="item-progress-copy">${getItemProgressText(entry)} · ${entry.essence_description}</b></span>
   `;
   return article;
 }
@@ -255,9 +270,11 @@ function itemDraftElement(entry, onChoose) {
   const button = document.createElement("button");
   button.className = `item-draft-card${entry.consumable ? " is-consumable" : ""}`;
   button.type = "button";
+  button.dataset.itemId = entry.id;
+  button.dataset.itemSlot = entry.wild ? "wild" : entry.bridge ? "bridge" : "relevant";
   button.innerHTML = `
     <span class="item-draft-icon meta-sprite" style="${metaStyle(entry)}"></span>
-    <span class="item-draft-copy"><small>${entry.rarity} · ${entry.role}</small><strong>${entry.name}</strong><em>${entry.description}</em></span>
+    <span class="item-draft-copy"><small>${entry.rarity} · ${entry.role}</small><strong>${entry.name}</strong><em>${entry.description}</em><span class="item-essence-preview"><b>精华</b>${entry.essence_description}</span></span>
     <span class="draft-pick-label">领取</span>
   `;
   button.addEventListener("click", () => onChoose(entry), { once: true });
@@ -332,6 +349,26 @@ export function createUI(root) {
   let storySuspendedByMenu = false;
   let menuOpenedFromHome = false;
   let deckRemovalHandler = null;
+
+  function renderHomeCardRain() {
+    const host = get("#homeCardRain");
+    if (!host || host.childElementCount > 0) return;
+    const ids = ["A001", "F002", "F003", "F009", "K001", "D001", "C005", "U001", "A004", "T003", "P002", "B004", "F006", "C008", "A008", "D006", "K008", "U007"];
+    const cards = ids.map(getCardById).filter(Boolean);
+    const drops = Array.from({ length: 32 }, (_, index) => {
+      const card = cards[index % cards.length];
+      const node = document.createElement("span");
+      node.className = "home-rain-card";
+      node.style.setProperty("--rain-x", `${(index * 37 + 5) % 101}%`);
+      node.style.setProperty("--rain-delay", `${-((index * 1.73) % 13).toFixed(2)}s`);
+      node.style.setProperty("--rain-duration", `${(7.2 + (index % 7) * 0.72).toFixed(2)}s`);
+      node.style.setProperty("--rain-turn", `${-16 + (index * 11) % 33}deg`);
+      node.style.setProperty("--rain-scale", String(0.68 + (index % 5) * 0.1));
+      node.innerHTML = `<i class="game-sprite" style="${spriteStyle(card)}"></i>`;
+      return node;
+    });
+    host.replaceChildren(...drops);
+  }
 
   function updateHudValue(node, value) {
     if (!node) return;
@@ -517,7 +554,7 @@ export function createUI(root) {
 
   function openItemStatus(state) {
     const items = state.items;
-    get("#itemStatusSummary").innerHTML = `<b>${items.length} 件永久道具</b><span>每 3 轮可从三件道具中领取一件；一次性道具会记录后立即消耗。</span>`;
+    get("#itemStatusSummary").innerHTML = `<b>${items.length} 件培养道具</b><span>行动会积累培养进度；精华突破后改变规则，带“无限培养”的道具可持续升级。</span>`;
     const list = get("#itemStatusList");
     if (items.length === 0) list.innerHTML = '<p class="collection-status-empty">尚未获得永久道具。完成第 3 轮后会出现第一次道具三选一。</p>';
     else list.replaceChildren(...items.map(ownedItemElement));
@@ -574,12 +611,14 @@ export function createUI(root) {
     if (postponeButton) {
       const reshuffle = getReshuffleStatus(state);
       const currentCard = state.round.draw_pile.at(-1);
-      const unlimitedPostpone = state.items.some((entry) => entry.effect?.kind === "unlimited_postpone");
-      const alreadyPostponed = !unlimitedPostpone && Boolean(currentCard && state.round.postponed_uuids?.includes(currentCard.uuid));
+      const postponeLimit = getPostponeLimit(state);
+      const usedPostpones = currentCard ? state.round.postpone_counts?.[currentCard.uuid] ?? 0 : 0;
+      const unlimitedPostpone = postponeLimit === Infinity;
+      const alreadyPostponed = usedPostpones >= postponeLimit;
       postponeButton.disabled = state.phase !== "Playing" || state.round.draw_pile.length < 2 || alreadyPostponed;
       postponeButton.title = alreadyPostponed
-        ? "这张牌本轮已经后置过，不能再次后置"
-        : "侧滑或点击：把当前牌移动到牌堆最后；每轮每张牌限一次";
+        ? "这张牌本轮已经达到后置次数上限"
+        : `侧滑或点击：把当前牌移动到餐盘末尾；${unlimitedPostpone ? "可无限后置" : `每张最多 ${postponeLimit} 次`}`;
       const hint = get("#reshuffleHint");
       const postponeEffectHint = (state.round.reverse_postpone_charges ?? 0) > 0
         ? "送餐员蓄势：下次后置将末牌调到当前"
@@ -588,12 +627,12 @@ export function createUI(root) {
           : null;
       setText(hint, postponeEffectHint
         ?? (alreadyPostponed
-          ? "当前牌已后置过 · 本轮不能再次后置"
+          ? "当前牌已达到后置次数上限"
           : reshuffle.charges > 0
             ? `自动重洗 ${reshuffle.charges} 次 · 后置标记不会清除`
             : unlimitedPostpone
-              ? `永动传送带 · 同一张牌可无限后置`
-              : `本轮已后置 ${state.round.postpone_count ?? 0} 张 · 每张牌限一次`));
+              ? `回转餐车精华 · 同一张牌可无限后置`
+              : `本轮已后置 ${state.round.postpone_count ?? 0} 次 · 每张最多 ${postponeLimit} 次`));
     }
   }
 
@@ -615,11 +654,12 @@ export function createUI(root) {
   return {
     preloadCardArt: warmCardArt,
     openWelcome(callbacks, options = {}) {
+      renderHomeCardRain();
       setText(get("#welcomeBestScore"), options.best_score ?? "--");
       const chooser = get("#modeChooser");
       const continueButton = get("#continueGameButton");
       continueButton.disabled = !options.has_save;
-      continueButton.querySelector("small").textContent = options.has_save ? "从最近一次自动保存继续" : "当前没有可继续的对局";
+      continueButton.title = options.has_save ? "从最近一次自动保存继续" : "当前没有可继续的对局";
       get("#newGameButton").onclick = () => { chooser.hidden = !chooser.hidden; };
       continueButton.onclick = callbacks.onContinue;
       get("#homeMenuButton").onclick = callbacks.onMenu;
@@ -642,9 +682,10 @@ export function createUI(root) {
       const visible = cards.slice(-3);
       visible.forEach((card, index) => {
         const depth = visible.length - 1 - index;
-        const postponed = Boolean(state.round.postponed_uuids?.includes(card.uuid));
+        const postponeCount = state?.round?.postpone_counts?.[card.uuid] ?? 0;
+        const postponeLimit = state ? getPostponeLimit(state) : 1;
         const fogged = Boolean(state.round.hidden_postponed_uuids?.includes(card.uuid));
-        nodes.stack.appendChild(cardElement(card, depth === 0, depth, fogged, postponed));
+        nodes.stack.appendChild(cardElement(card, depth === 0, depth, fogged, postponeCount, postponeLimit));
       });
       const activeCard = cards.at(-1);
       const activeElement = nodes.stack.querySelector(".game-card.is-active");
@@ -881,28 +922,41 @@ export function createUI(root) {
     closeQuestDraft() { nodes.quest.classList.remove("show"); },
     playDealAnimation(cardCount, onComplete) {
       const stage = get(".deck-stage");
-      if (!stage) {
+      const host = get(".playfield");
+      if (!stage || !host) {
         onComplete();
         return;
       }
-      stage.querySelector(".deal-layer")?.remove();
+      host.querySelector(".deal-layer")?.remove();
       const visibleCount = Math.min(10, Math.max(1, Number(cardCount) || 1));
       const layer = document.createElement("div");
       layer.className = "deal-layer";
       layer.setAttribute("role", "status");
       layer.setAttribute("aria-live", "polite");
-      layer.innerHTML = `<strong>餐盘上菜</strong><span>${cardCount} 张牌已发到餐桌</span><div class="deal-card-trail" aria-hidden="true">${Array.from({ length: visibleCount }, (_, index) => `<i style="--deal-index:${index};--deal-count:${visibleCount}"></i>`).join("")}</div>`;
+      layer.innerHTML = `<div class="deal-copy"><small>PLATE ${String(cardCount).padStart(2, "0")}</small><strong>餐盘上菜</strong><span>${cardCount} 张牌落到餐桌</span></div><div class="deal-landing" aria-hidden="true"></div><div class="deal-card-trail" aria-hidden="true">${Array.from({ length: visibleCount }, (_, index) => {
+        const offset = index - (visibleCount - 1) / 2;
+        return `<i style="--deal-index:${index};--deal-x:${offset * 3}px;--deal-x-wide:${offset * 8}px;--deal-x-bounce:${offset * 5}px;--deal-angle:${offset * 0.65}deg;--deal-angle-wide:${offset * 2}deg"><b>CE</b></i>`;
+      }).join("")}</div>`;
       stage.classList.add("is-dealing");
-      stage.appendChild(layer);
-      const duration = 520 + visibleCount * 42;
+      host.appendChild(layer);
+      const duration = 1250 + visibleCount * 100;
       window.setTimeout(() => {
         stage.classList.remove("is-dealing");
         layer.classList.add("is-leaving");
         window.setTimeout(() => {
           layer.remove();
           onComplete();
-        }, 150);
+        }, 220);
       }, duration);
+    },
+    showItemEvolution(events = []) {
+      const host = get(".playfield");
+      if (!host || events.length === 0) return;
+      const node = document.createElement("div");
+      node.className = "essence-awakening";
+      node.innerHTML = `<small>ESSENCE AWAKENED</small>${events.map((event) => `<strong>${event.name}</strong><span>${event.level === 1 ? "精华突破" : `无限培养 · Lv.${event.level}`}</span>`).join("")}`;
+      host.appendChild(node);
+      window.setTimeout(() => node.remove(), 1650);
     },
     showRoundSummary(result, state, outcome, onConfirm) {
       const title = get("#summaryTitle");
