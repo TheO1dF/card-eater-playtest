@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN" data-font-size="medium">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#17121b" />
+    <title>Card Eater · 15 轮试验版</title>
+    <link rel="icon" href="./assets/favicon.svg" />
+    <link rel="stylesheet" href="./styles.css?v=20" />
+  </head>
+  <body>
+    <main class="app" id="app">
+      <section class="game-shell">
+        <header class="topbar">
+          <div class="brand"><span class="brand-mark">CE</span><span><b>CARD EATER</b><small id="phaseValue">准备中</small></span></div>
+          <div class="topbar-actions">
+            <button class="icon-button deck-info-button" id="deckInfoButton" type="button" aria-label="查看永久牌组">组</button>
+            <button class="icon-button menu-button" id="menuButton" type="button" aria-label="打开游戏菜单">☰</button>
+          </div>
+        </header>
+
+        <section class="hud" aria-label="本局数据">
+          <div class="hud-cell"><span>轮次</span><strong id="roundValue">1/15</strong></div>
+          <div class="hud-cell"><span id="scoreLabel">总分</span><strong id="scoreValue">0</strong><small id="scoreDelta" hidden>本轮 +0</small></div>
+          <div class="hud-cell token-cell"><span>删牌 token</span><strong id="tokenValue">0</strong><small>轮末使用</small></div>
+          <div class="hud-cell"><span id="remainingLabel">餐盘</span><strong id="remainingValue">7/7</strong></div>
+        </section>
+
+        <section class="playfield">
+          <div class="action-zone discard-zone" id="discardZone" aria-hidden="true"><span class="zone-arrow">↑</span><b>弃 牌</b><small>DISCARD</small></div>
+          <div class="deck-stage">
+            <div class="pixel-spark spark-a"></div><div class="pixel-spark spark-b"></div><div class="stack-shadow"></div>
+            <div class="card-stack" id="cardStack" aria-live="polite"></div>
+            <div class="deck-empty" id="deckEmpty" hidden>餐盘清空</div>
+            <div class="swipe-status" id="swipeStatus" aria-hidden="true"></div>
+          </div>
+          <div class="effect-feed" id="effectFeed" aria-live="polite" aria-atomic="false"></div>
+          <div class="action-zone eat-zone" id="eatZone" aria-hidden="true"><span class="zone-arrow">↓</span><b>吃 牌</b><small>EAT</small></div>
+        </section>
+
+        <footer class="controls">
+          <button class="action-button discard-button" id="discardButton" type="button"><kbd>↑</kbd><span>弃掉</span></button>
+          <div class="control-center"><button class="reshuffle-button postpone-button" id="postponeButton" type="button"><span>↔ 后置</span></button><small id="reshuffleHint">暂时不处理就后置到餐盘末尾 · 每轮每张牌限一次</small></div>
+          <button class="action-button eat-button" id="eatButton" type="button"><kbd>↓</kbd><span>吃掉</span></button>
+        </footer>
+
+        <div class="overlay welcome-overlay show" id="welcomeOverlay" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+          <section class="welcome-panel">
+            <div class="welcome-logo" aria-hidden="true"><span>CE</span></div>
+            <div class="eyebrow">15-ROUND EXPERIMENT</div>
+            <h1 id="welcomeTitle">吃牌肉鸽 · 试验版</h1>
+            <p>每轮随机装满餐盘。吃、弃或后置所有牌，然后从三张奖励中选一张加入永久牌组。</p>
+            <div class="welcome-objective"><span>阶段目标</span><strong>第 5 / 10 / 15 轮累计达到 100 / 300 / 500 分</strong><small>任一目标未达成，本局立即结束。</small></div>
+            <div class="welcome-loop" aria-label="每轮流程">
+              <span><b>① 随机上菜</b><small>按餐盘上限从永久牌组抽取</small></span>
+              <span><b>② 吃弃后置</b><small>规划牌序并完成本轮得分</small></span>
+              <span><b>③ 三选一</b><small>选一张加入牌组，也可以跳过</small></span>
+            </div>
+            <div class="welcome-legend"><span class="legend-edible">↓ 可食用 · 通常适合吃</span><span class="legend-inedible">↑ 不可食用 · 通常适合弃</span></div>
+            <div class="best-score">本机最佳 <strong id="welcomeBestScore">--</strong></div>
+            <div class="welcome-actions"><button class="primary-button start-button" id="startGameButton" type="button">开始故事教学</button><button class="secondary-button tutorial-start-button" id="tutorialStartButton" type="button">跳过教学 · 直接开始</button></div>
+          </section>
+        </div>
+
+        <div class="overlay countdown-overlay" id="countdownOverlay" role="status" aria-live="assertive"><div class="countdown-pixel" id="countdownText">3</div></div>
+
+        <aside class="story-guide" id="storyGuide" role="status" aria-live="polite" aria-atomic="true" hidden>
+          <div class="story-card-avatar" aria-hidden="true"><span class="game-sprite" style="--sprite-image:url('./assets/cards/v017/a001-v3.png?v=14');--sprite-x:50%;--sprite-y:50%;--sprite-size-x:100%;--sprite-size-y:100%;--sprite-scale:1;"></span><i>?</i></div>
+          <div class="story-dialog"><small id="storyGuideChapter">PROLOGUE · 会说话的牌</small><strong id="storyGuideSpeaker">咔嚓</strong><p id="storyGuideMessage">别怕，我只是比别的牌更爱说话。</p><em id="storyGuideObjective">跟着提示完成真实操作。</em><div class="story-progress" id="storyGuideProgress"></div><div class="story-actions"><button class="story-skip" id="storyGuideSkip" type="button">跳过教学</button><button class="story-next" id="storyGuideNext" type="button" hidden>完成教学</button></div></div>
+        </aside>
+
+        <div class="overlay deck-overlay" id="deckStatus" role="dialog" aria-modal="true" aria-labelledby="deckStatusTitle">
+          <section class="modal-panel deck-status-panel">
+            <div class="eyebrow">PERMANENT DECK</div><h1 id="deckStatusTitle">我的永久牌组</h1>
+            <div class="deck-status-summary" id="deckStatusSummary"></div><div class="deck-capacity-summary" id="deckCapacitySummary"></div><div class="deck-status-list" id="deckStatusList"></div>
+            <p class="modal-lead" id="deckRemovalHint">出牌阶段只能查看；轮末三选一时可消耗 token 删除卡牌。</p>
+            <button class="primary-button" id="deckStatusClose" type="button">返回游戏</button>
+          </section>
+        </div>
+
+        <div class="overlay menu-overlay" id="gameMenu" role="dialog" aria-modal="true" aria-labelledby="gameMenuTitle">
+          <section class="modal-panel game-menu-panel">
+            <div class="eyebrow">PAUSE & REFERENCE</div><h1 id="gameMenuTitle">游戏菜单</h1><div class="menu-mode-label" id="menuModeLabel">15 轮试验模式</div>
+            <div class="settings-grid"><button class="setting-toggle" id="musicToggle" type="button" aria-pressed="true"><span>音乐</span><b>开启</b></button><button class="setting-toggle" id="effectsToggle" type="button" aria-pressed="true"><span>音效</span><b>开启</b></button></div>
+            <div class="font-size-setting"><span><b>界面字号</b><small>只调整说明文字与操作控件</small></span><div role="group" aria-label="界面字号"><button type="button" data-font-size="small">小</button><button type="button" data-font-size="medium">标准</button><button type="button" data-font-size="large">大</button></div></div>
+            <button class="menu-wide-button" id="cardCatalogButton" type="button"><b>卡牌图鉴</b><small>查看完整卡池、数值与效果</small></button>
+            <details class="menu-rules" id="menuRules"><summary>规则与细则</summary><div class="menu-objective" id="menuObjective">第 5 / 10 / 15 轮累计达到 100 / 300 / 500 分</div><ul>
+              <li><b>随机餐盘</b><span>每轮从永久牌组随机抽取不超过餐盘上限的卡牌；未登场牌下轮会重新参与抽取。</span></li>
+              <li><b>吃与弃</b><span>可食用牌通常适合吃，不可食用牌通常适合弃；错误食性仍按牌面和效果结算。</span></li>
+              <li><b>后置</b><span>把当前牌移到餐盘末尾，不结算、不占用行动；每轮每张实体牌限一次。</span></li>
+              <li><b>轮末选牌</b><span>本轮结束后从三张随机卡中选一张加入永久牌组，也可以跳过。</span></li>
+              <li><b>删牌 token</b><span>轮末选牌阶段可点击牌组，消耗 1 枚 token 删除 1 张实体牌；至少保留 1 张。</span></li>
+              <li><b>餐盘扩容</b><span>成功完成第 5、10、15 轮时，餐盘上限永久 +1。</span></li>
+            </ul></details>
+            <button class="menu-wide-button" id="tutorialInfoButton" type="button"><b>重玩故事教学</b><small>重新查看吃、弃与后置教学</small></button><button class="primary-button" id="gameMenuClose" type="button">返回游戏</button>
+          </section>
+        </div>
+
+        <div class="overlay catalog-overlay" id="cardCatalog" role="dialog" aria-modal="true" aria-labelledby="cardCatalogTitle">
+          <section class="modal-panel catalog-panel"><div class="catalog-heading"><div><div class="eyebrow">FULL CARD LIBRARY</div><h1 id="cardCatalogTitle">卡牌图鉴</h1></div><button class="shop-reroll-button" id="cardCatalogClose" type="button">返回菜单</button></div><div class="catalog-tools"><label for="catalogTypeFilter">类别</label><select id="catalogTypeFilter"><option value="all">全部类别</option></select><span id="catalogSummary">0 张卡牌</span></div><div class="catalog-grid" id="catalogList"></div></section>
+        </div>
+
+        <div class="overlay" id="roundSummary" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
+          <section class="modal-panel summary-panel"><div class="eyebrow" id="summaryEyebrow">ROUND CLEAR</div><h1 id="summaryTitle">本轮结算</h1><p class="modal-lead" id="summaryTip">卡牌效果与牌面已经结算。</p><div class="milestone-summary"><span id="summaryMilestoneRounds">距离第 5 轮目标还有 4 轮</span><strong id="summaryMilestoneScore">累计 0 / 目标 100 分</strong><div class="milestone-meter"><i id="summaryMilestoneFill"></i></div></div><div class="receipt" id="summaryBreakdownList"></div><button class="primary-button" id="summaryContinueBtn" type="button">选择一张新牌</button></section>
+        </div>
+
+        <div class="overlay" id="cardDraft" role="dialog" aria-modal="true" aria-labelledby="cardDraftTitle">
+          <section class="modal-panel shop-panel-inner draft-reward-panel"><div class="shop-heading"><div><div class="eyebrow">BETWEEN ROUNDS</div><h1 id="cardDraftTitle">选择一张加入牌组</h1></div><div class="shop-wallet"><span>删牌 token</span><strong id="draftTokenValue">0</strong></div></div><p class="modal-lead" id="draftMessage">三选一，也可以跳过。选牌前可先整理永久牌组。</p><div class="shop-grid draft-reward-grid" id="cardDraftList"></div><div class="draft-actions"><button class="shop-reroll-button" id="draftManageDeck" type="button">整理牌组</button><button class="primary-button" id="draftSkip" type="button">跳过 · 不加牌</button></div></section>
+        </div>
+
+        <div class="overlay delete-confirm-overlay" id="deleteConfirm" role="alertdialog" aria-modal="true" aria-labelledby="deleteConfirmTitle">
+          <section class="modal-panel delete-confirm-panel"><div class="eyebrow">SPEND ONE TOKEN</div><h1 id="deleteConfirmTitle">确认删除这张牌？</h1><div class="delete-confirm-card" id="deleteConfirmCard"></div><p id="deleteConfirmWarning">删除不可撤销。</p><div class="delete-confirm-actions"><button class="shop-reroll-button" id="deleteConfirmCancel" type="button">取消</button><button class="primary-button danger-action" id="deleteConfirmAccept" type="button">确认删除</button></div></section>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./js/main.js?v=20"></script>
+  </body>
+</html>
