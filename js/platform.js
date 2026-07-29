@@ -72,10 +72,24 @@ function saveRun(state) {
   }
 }
 
+export function migrateRunState(state) {
+  if (!state || state.phase === "GameOver") return null;
+  if (state.schema_version === 20) {
+    state.schema_version = 21;
+    state.item_serial ??= 0;
+    if (state.round) {
+      state.round.postpone_counts ??= Object.fromEntries(
+        (state.round.postponed_uuids ?? []).map((uuid) => [uuid, 1]),
+      );
+      state.round.item_fruit_chain ??= 0;
+    }
+  }
+  return state.schema_version === 21 ? state : null;
+}
+
 function loadRun() {
   try {
-    const state = JSON.parse(localStorage.getItem(RUN_SAVE_KEY) ?? "null");
-    return state?.schema_version === 21 && state?.phase !== "GameOver" ? state : null;
+    return migrateRunState(JSON.parse(localStorage.getItem(RUN_SAVE_KEY) ?? "null"));
   } catch {
     return null;
   }

@@ -7,6 +7,7 @@ import { CARD_LIBRARY, createCardPool, createInitialDeck, getCardById } from "..
 import { createDraftService } from "../js/draft.js";
 import { createRoundEngine } from "../js/engine.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "../js/plate.js";
+import { migrateRunState } from "../js/platform.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
 import {
   chooseItem,
@@ -56,6 +57,25 @@ test("试验版通常为 15 轮，并在第 5/10/15 轮检查 100/300/500", () =
   assert.equal(getFinalRound({}, GAME_MODES.ENDLESS), Infinity);
   assert.deepEqual(getNextMilestone(16, {}, GAME_MODES.ENDLESS), { base_round: null, round: null, target: 0, endless: true });
   assert.equal(getNextMilestone(1, {}, GAME_MODES.HARD).target, 120);
+});
+
+test("v0.20 自动存档迁移后保留对局并补齐培养状态", () => {
+  const saved = {
+    schema_version: 20,
+    phase: GAME_PHASES.PLAYING,
+    current_round: 4,
+    total_score: 72,
+    deck: [{ id: "F009", uuid: "pear-saved" }],
+    round: { postponed_uuids: ["pear-saved"] },
+  };
+  const migrated = migrateRunState(saved);
+  assert.equal(migrated.schema_version, 21);
+  assert.equal(migrated.current_round, 4);
+  assert.equal(migrated.total_score, 72);
+  assert.equal(migrated.deck[0].uuid, "pear-saved");
+  assert.equal(migrated.round.postpone_counts["pear-saved"], 1);
+  assert.equal(migrated.round.item_fruit_chain, 0);
+  assert.equal(migrated.item_serial, 0);
 });
 
 test("状态机从开局直接出牌，轮末只进入三选一", () => {
