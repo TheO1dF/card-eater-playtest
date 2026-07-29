@@ -118,6 +118,7 @@ for (const viewport of selectedViewports) {
   await evaluate(`(() => {
     localStorage.removeItem("cardeater.run-history.v1");
     localStorage.removeItem("cardeater.active-run.v2");
+    localStorage.removeItem("cardeater.settings.v1");
     localStorage.setItem("cardeater.story-tutorial.v1", "complete");
   })()`);
   await send("Page.reload", { ignoreCache: true });
@@ -133,6 +134,10 @@ for (const viewport of selectedViewports) {
       action_labels: actions.map((button) => button.querySelector("b")?.textContent),
       continue_disabled: document.querySelector("#continueGameButton")?.disabled,
       rain_count: document.querySelectorAll(".home-rain-card").length,
+      rain_unique_cards: new Set([...document.querySelectorAll(".home-rain-card")].map((card) => card.dataset.cardId)).size,
+      rain_card_ratio: (() => { const style = getComputedStyle(document.querySelector(".home-rain-card")); return parseFloat(style.width) / parseFloat(style.height); })(),
+      rain_art_square: (() => { const rect = document.querySelector(".home-rain-art")?.getBoundingClientRect(); return Boolean(rect && Math.abs(rect.width - rect.height) <= 1); })(),
+      rain_animation: getComputedStyle(document.querySelector(".home-rain-card")).animationName,
       logo_lines: document.querySelectorAll(".home-logo span").length,
       logo_has_annotation: Boolean(document.querySelector(".home-hero p")),
       panel_border: parseFloat(getComputedStyle(document.querySelector(".home-panel")).borderTopWidth),
@@ -163,15 +168,19 @@ for (const viewport of selectedViewports) {
   await capture(`${viewport.name}-deal`);
   const dealing = await evaluate(`(() => {
     const layer = document.querySelector(".deal-layer");
-    const firstCard = document.querySelector(".deal-card-trail i");
+    const dealtCards = [...document.querySelectorAll("#cardStack .game-card[data-deal-instance='true']")];
+    const stack = document.querySelector("#cardStack");
     const shell = document.querySelector(".game-shell");
     const table = document.querySelector(".playfield");
     return {
-      card_backs: document.querySelectorAll(".deal-card-trail i").length,
-      visible_card_backs: [...document.querySelectorAll(".deal-card-trail i")].filter((card) => parseFloat(getComputedStyle(card).opacity) > .05).length,
+      real_stack_cards: dealtCards.length,
+      visible_stack_cards: dealtCards.filter((card) => parseFloat(getComputedStyle(card).opacity) > .05).length,
+      dealt_uuids: dealtCards.map((card) => card.dataset.cardUuid),
+      fake_card_backs: document.querySelectorAll(".deal-card-trail i").length,
+      outer_rings: document.querySelectorAll(".deal-landing").length,
       message: layer?.textContent?.replace(/\\s+/g, " ").trim() ?? "",
       shell_transform: shell ? getComputedStyle(shell).transform : "missing",
-      animation_name: firstCard ? getComputedStyle(firstCard).animationName : "missing",
+      animation_name: stack ? getComputedStyle(stack).animationName : "missing",
       covers_table: Boolean(layer && table && layer.getBoundingClientRect().width >= table.getBoundingClientRect().width - 1),
     };
   })()`);
@@ -189,9 +198,12 @@ for (const viewport of selectedViewports) {
     hud_label_size: parseFloat(getComputedStyle(document.querySelector(".hud-cell span")).fontSize),
     horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
   }))()`);
+  playing.dealt_instances_survive = await evaluate(`(${JSON.stringify(dealing.dealt_uuids)}).every((uuid) => Boolean(document.querySelector('[data-card-uuid="' + uuid + '"][data-deal-instance="true"]')))`);
 
   await clickElement("#menuButton");
   await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
+  await evaluate('document.querySelector(\'[data-font-size="large"]\')?.click()');
+  await waitFor('document.documentElement.dataset.fontSize === "large"');
   await evaluate('document.querySelector("#menuRules").open = true');
   await capture(`${viewport.name}-menu`);
   const menu = await evaluate(`(() => {
@@ -204,6 +216,37 @@ for (const viewport of selectedViewports) {
     };
   })()`);
   await clickElement("#gameMenuClose");
+
+  const scoreStress = await evaluate(`(() => {
+    const card = document.querySelector(".game-card.is-active");
+    const art = card?.querySelector(".card-art");
+    if (!card || !art) return { score_inside: false, postpone_inside: false, card_inside: false };
+    card.classList.add("is-postponed", "has-point-change");
+    art.insertAdjacentHTML("beforeend", '<span class="card-postpone-mark"><b>↔</b> 12/12</span>');
+    const wraps = [...card.querySelectorAll(".card-point-wrap")];
+    const samples = [["-123", "▼99", "原 -24"], ["+987", "▲986", "原 +1"]];
+    wraps.forEach((wrap, index) => {
+      wrap.className = "card-point-wrap " + (index === 0 ? "point-decreased" : "point-increased") + " is-wide";
+      wrap.innerHTML = '<b class="card-point-value">' + samples[index][0] + '</b><small class="card-point-delta"><span>' + samples[index][1] + '</span><span>' + samples[index][2] + '</span></small>';
+    });
+    const inside = (parent, child) => {
+      const outer = parent.getBoundingClientRect();
+      const inner = child.getBoundingClientRect();
+      return inner.left >= outer.left - 1 && inner.right <= outer.right + 1 && inner.top >= outer.top - 1 && inner.bottom <= outer.bottom + 1;
+    };
+    const scoreInside = [...card.querySelectorAll(".card-scores > span")].every((cell) =>
+      [...cell.querySelectorAll(".card-point-value, .card-point-delta")].every((child) => inside(cell, child))
+    );
+    const postpone = card.querySelector(".card-postpone-mark");
+    return {
+      score_inside: scoreInside,
+      postpone_inside: Boolean(postpone && inside(art, postpone)),
+      card_inside: card.scrollWidth <= card.clientWidth + 1 && card.scrollHeight <= card.clientHeight + 1,
+      point_label_size: parseFloat(getComputedStyle(card.querySelector(".card-point-delta")).fontSize),
+      font_mode: document.documentElement.dataset.fontSize,
+    };
+  })()`);
+  await capture(`${viewport.name}-large-score-stress`);
 
   await finishCurrentPlate();
   await capture(`${viewport.name}-summary-1`);
@@ -293,7 +336,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, home, unlock, dealing, playing, menu, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, home, unlock, dealing, playing, score_stress: scoreStress, menu, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -306,19 +349,22 @@ const failures = [
     entry.home.title === "CardEater" ? null : `${entry.viewport.name}: wrong home title`,
     JSON.stringify(entry.home.action_labels) === JSON.stringify(["新游戏", "继续", "菜单"]) ? null : `${entry.viewport.name}: wrong home actions`,
     entry.home.continue_disabled ? null : `${entry.viewport.name}: continue should start disabled`,
-    entry.home.rain_count >= 24 && entry.home.logo_lines === 2 ? null : `${entry.viewport.name}: home card rain missing`,
+    entry.home.rain_count >= 24 && entry.home.rain_unique_cards >= 16 && entry.home.logo_lines === 2 ? null : `${entry.viewport.name}: home card rain is not varied`,
+    Math.abs(entry.home.rain_card_ratio - (1 / 1.34)) <= .02 && entry.home.rain_art_square && entry.home.rain_animation === "homeCardFall" ? null : `${entry.viewport.name}: home rain cards are distorted`,
     !entry.home.logo_has_annotation && entry.home.panel_border === 0 && entry.home.shell_border === 0 ? null : `${entry.viewport.name}: home logo still has annotation or frame`,
     entry.home.modes_locked ? null : `${entry.viewport.name}: advanced modes should start locked`,
     entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
     entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
-    entry.dealing.card_backs > 0 && entry.dealing.visible_card_backs > 0 && entry.dealing.message.includes("餐盘上菜") ? null : `${entry.viewport.name}: dealing animation missing`,
+    entry.dealing.real_stack_cards > 0 && entry.dealing.visible_stack_cards > 0 && entry.dealing.message.includes("牌堆落位") ? null : `${entry.viewport.name}: real-stack dealing animation missing`,
+    entry.dealing.fake_card_backs === 0 && entry.dealing.outer_rings === 0 && entry.playing.dealt_instances_survive ? null : `${entry.viewport.name}: deal still swaps to fake cards or retains a ring`,
     entry.dealing.shell_transform === "none" ? null : `${entry.viewport.name}: dealing animation moves the game shell`,
-    entry.dealing.animation_name === "dealToPlate" && entry.dealing.covers_table ? null : `${entry.viewport.name}: dealing animation is not table-wide`,
+    entry.dealing.animation_name === "dealPileStack" && entry.dealing.covers_table ? null : `${entry.viewport.name}: dealing animation is not table-wide`,
     entry.playing.phase === "出牌中" && entry.playing.active_cards === 1 ? null : `${entry.viewport.name}: did not enter play`,
     entry.playing.card_copy_size >= 12 && entry.playing.hud_label_size >= 11 ? null : `${entry.viewport.name}: gameplay text remains too small`,
     entry.playing.has_gold || entry.playing.has_timer ? `${entry.viewport.name}: legacy HUD exists` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
+    entry.score_stress.score_inside && entry.score_stress.postpone_inside && entry.score_stress.card_inside && entry.score_stress.font_mode === "large" ? null : `${entry.viewport.name}: large-font score/postpone content overflows`,
     entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule ? null : `${entry.viewport.name}: menu rules incomplete`,
     entry.menu.forbidden_terms.length ? `${entry.viewport.name}: legacy terms ${entry.menu.forbidden_terms.join(",")}` : null,
     entry.draft.offer_count === 3 && entry.draft.reroll_value === "0" && entry.draft.offers_changed ? null : `${entry.viewport.name}: draft reroll failed`,

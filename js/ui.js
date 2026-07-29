@@ -38,7 +38,10 @@ const pointValue = (card, stat) => {
   const base = card[`base_${stat}`] ?? value;
   const delta = value - base;
   const tone = pointTone(card, stat);
-  return `<span class="card-point-wrap ${tone}"><b class="card-point-value">${signed(value)}</b>${delta === 0 ? "" : `<small class="card-point-delta">${delta > 0 ? "▲" : "▼"}${Math.abs(delta)} · 原 ${signed(base)}</small>`}</span>`;
+  const valueText = signed(value);
+  const widthClass = valueText.length >= 6 ? " is-very-wide" : valueText.length >= 4 ? " is-wide" : "";
+  const deltaText = `${delta > 0 ? "▲" : "▼"}${Math.abs(delta)} · 原 ${signed(base)}`;
+  return `<span class="card-point-wrap ${tone}${widthClass}"><b class="card-point-value">${valueText}</b>${delta === 0 ? "" : `<small class="card-point-delta" title="${deltaText}"><span>${delta > 0 ? "▲" : "▼"}${Math.abs(delta)}</span><span>原 ${signed(base)}</span></small>`}</span>`;
 };
 const cardEffectText = (card) => {
   const visibleStatuses = (card.status_keywords ?? []).filter((keyword) => ["弱化", "锁定", "休眠"].includes(keyword));
@@ -349,25 +352,55 @@ export function createUI(root) {
   let storySuspendedByMenu = false;
   let menuOpenedFromHome = false;
   let deckRemovalHandler = null;
+  let homeRainTimer = null;
+  const homeRainCards = createCardPool();
+
+  function createHomeRainCard(host, card, initial = false) {
+    const duration = 7.8 + Math.random() * 5.2;
+    const node = document.createElement("span");
+    node.className = "home-rain-card";
+    node.dataset.cardId = card.id;
+    node.style.setProperty("--rain-x", `${(2 + Math.random() * 96).toFixed(2)}%`);
+    node.style.setProperty("--rain-delay", `${initial ? -(Math.random() * duration).toFixed(2) : "0"}s`);
+    node.style.setProperty("--rain-duration", `${duration.toFixed(2)}s`);
+    node.style.setProperty("--rain-turn", `${(-18 + Math.random() * 36).toFixed(2)}deg`);
+    node.style.setProperty("--rain-turn-end", `${(-28 + Math.random() * 56).toFixed(2)}deg`);
+    node.style.setProperty("--rain-scale", (0.72 + Math.random() * 0.38).toFixed(3));
+    node.style.setProperty("--rain-drift", `${(-70 + Math.random() * 140).toFixed(1)}px`);
+    node.style.setProperty("--rain-opacity", (0.32 + Math.random() * 0.26).toFixed(2));
+    node.innerHTML = `<span class="home-rain-art"><i class="game-sprite" style="${spriteStyle(card)}"></i></span>`;
+    node.addEventListener("animationend", () => node.remove(), { once: true });
+    host.appendChild(node);
+    return node;
+  }
+
+  function stopHomeCardRain() {
+    if (homeRainTimer !== null) window.clearInterval(homeRainTimer);
+    homeRainTimer = null;
+    get("#homeCardRain")?.replaceChildren();
+  }
 
   function renderHomeCardRain() {
     const host = get("#homeCardRain");
-    if (!host || host.childElementCount > 0) return;
-    const ids = ["A001", "F002", "F003", "F009", "K001", "D001", "C005", "U001", "A004", "T003", "P002", "B004", "F006", "C008", "A008", "D006", "K008", "U007"];
-    const cards = ids.map(getCardById).filter(Boolean);
-    const drops = Array.from({ length: 32 }, (_, index) => {
-      const card = cards[index % cards.length];
-      const node = document.createElement("span");
-      node.className = "home-rain-card";
-      node.style.setProperty("--rain-x", `${(index * 37 + 5) % 101}%`);
-      node.style.setProperty("--rain-delay", `${-((index * 1.73) % 13).toFixed(2)}s`);
-      node.style.setProperty("--rain-duration", `${(7.2 + (index % 7) * 0.72).toFixed(2)}s`);
-      node.style.setProperty("--rain-turn", `${-16 + (index * 11) % 33}deg`);
-      node.style.setProperty("--rain-scale", String(0.68 + (index % 5) * 0.1));
-      node.innerHTML = `<i class="game-sprite" style="${spriteStyle(card)}"></i>`;
-      return node;
-    });
-    host.replaceChildren(...drops);
+    if (!host) return;
+    stopHomeCardRain();
+    const shuffled = [...homeRainCards];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[swap]] = [shuffled[swap], shuffled[index]];
+    }
+    const featured = ["A001", "F002", "F003"].map(getCardById).filter(Boolean);
+    const initialCards = [...featured, ...shuffled.filter((card) => !featured.some((entry) => entry.id === card.id))].slice(0, 34);
+    for (let index = initialCards.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(Math.random() * (index + 1));
+      [initialCards[index], initialCards[swap]] = [initialCards[swap], initialCards[index]];
+    }
+    initialCards.forEach((card) => createHomeRainCard(host, card, true));
+    homeRainTimer = window.setInterval(() => {
+      if (!nodes.welcome?.classList.contains("show")) return;
+      const card = homeRainCards[Math.floor(Math.random() * homeRainCards.length)];
+      if (card) createHomeRainCard(host, card);
+    }, 310);
   }
 
   function updateHudValue(node, value) {
@@ -672,7 +705,10 @@ export function createUI(root) {
       }
       nodes.welcome.classList.add("show");
     },
-    hideWelcome() { nodes.welcome.classList.remove("show"); },
+    hideWelcome() {
+      nodes.welcome.classList.remove("show");
+      stopHomeCardRain();
+    },
     showStoryGuide,
     hideStoryGuide,
     renderHud,
@@ -923,25 +959,34 @@ export function createUI(root) {
     playDealAnimation(cardCount, onComplete) {
       const stage = get(".deck-stage");
       const host = get(".playfield");
-      if (!stage || !host) {
+      const stack = nodes.stack;
+      const cards = [...(stack?.querySelectorAll(".game-card") ?? [])];
+      if (!stage || !host || !stack || cards.length === 0) {
         onComplete();
         return;
       }
       host.querySelector(".deal-layer")?.remove();
-      const visibleCount = Math.min(10, Math.max(1, Number(cardCount) || 1));
       const layer = document.createElement("div");
       layer.className = "deal-layer";
       layer.setAttribute("role", "status");
       layer.setAttribute("aria-live", "polite");
-      layer.innerHTML = `<div class="deal-copy"><small>PLATE ${String(cardCount).padStart(2, "0")}</small><strong>餐盘上菜</strong><span>${cardCount} 张牌落到餐桌</span></div><div class="deal-landing" aria-hidden="true"></div><div class="deal-card-trail" aria-hidden="true">${Array.from({ length: visibleCount }, (_, index) => {
-        const offset = index - (visibleCount - 1) / 2;
-        return `<i style="--deal-index:${index};--deal-x:${offset * 3}px;--deal-x-wide:${offset * 8}px;--deal-x-bounce:${offset * 5}px;--deal-angle:${offset * 0.65}deg;--deal-angle-wide:${offset * 2}deg"><b>CE</b></i>`;
-      }).join("")}</div>`;
+      layer.innerHTML = `<div class="deal-copy"><small>PLATE ${String(cardCount).padStart(2, "0")}</small><strong>牌堆落位</strong><span>${cardCount} 张牌进入本轮餐盘</span></div>`;
       stage.classList.add("is-dealing");
+      stack.classList.add("is-deal-entering");
+      cards.forEach((card) => {
+        card.classList.add("is-deal-covered");
+        card.dataset.dealInstance = "true";
+      });
+      void stack.offsetWidth;
       host.appendChild(layer);
-      const duration = 1250 + visibleCount * 100;
+      const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+      const duration = reducedMotion ? 160 : 1120;
       window.setTimeout(() => {
         stage.classList.remove("is-dealing");
+        stack.classList.remove("is-deal-entering");
+        cards.forEach((card) => {
+          card.classList.remove("is-deal-covered");
+        });
         layer.classList.add("is-leaving");
         window.setTimeout(() => {
           layer.remove();
