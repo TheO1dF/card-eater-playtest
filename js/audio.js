@@ -11,6 +11,8 @@ const CHORDS = Object.freeze([
 
 let audioCtx = null;
 let isBGMPlaying = false;
+let bgmRequested = false;
+let unlockPromise = null;
 let bgmTimer = null;
 let masterBgmGain = null;
 let musicCompressor = null;
@@ -30,8 +32,24 @@ export function initAudio() {
     const noise = noiseBuffer.getChannelData(0);
     for (let index = 0; index < noise.length; index += 1) noise[index] = Math.random() * 2 - 1;
   }
-  if (audioCtx.state === "suspended") void audioCtx.resume().catch(() => {});
   return audioCtx;
+}
+
+export function unlockAudio() {
+  if (audioCtx?.state === "running") return Promise.resolve(audioCtx);
+  if (unlockPromise) return unlockPromise;
+  const context = initAudio();
+  unlockPromise = context.resume()
+    .then(() => {
+      unlockPromise = null;
+      if (bgmRequested) toggleBGM(true);
+      return context;
+    })
+    .catch(() => {
+      unlockPromise = null;
+      return context;
+    });
+  return unlockPromise;
 }
 
 function routeWithPan(source, destination, pan = 0) {
@@ -182,16 +200,17 @@ function scheduleMusicStep(startTime, stepNumber) {
   if (position % 2 === 0) hat(startTime, position === 14 && bar % 4 === 3, position % 4 === 0 ? -0.24 : 0.24);
   if (active > 0.34 && position % 2 === 1) hat(startTime, false, position % 4 === 1 ? -0.38 : 0.38);
 
-  const bassOffsets = { 2: 0, 6: 0, 10: 7, 14: bar % 2 === 0 ? 12 : 7 };
-  if (Object.hasOwn(bassOffsets, position)) bass(startTime, chord.root + bassOffsets[position], undefined, position === 14 ? 0.84 : 1);
+  const bassOffsets = { 0: 0, 4: 0, 8: 7, 12: bar % 2 === 0 ? 12 : 7 };
+  if (Object.hasOwn(bassOffsets, position)) bass(startTime, chord.root + bassOffsets[position], undefined, position === 12 ? 0.9 : 1);
   if (position === 0) pad(startTime, chord.notes);
 
-  if (position % 2 === 1) {
-    const arpIndex = ((position - 1) / 2 + bar) % chord.notes.length;
-    const octave = position >= 9 && bar % 4 === 3 ? 12 : 0;
-    pluck(startTime, chord.notes[arpIndex] + octave, 0.5 + active * 0.52, position % 4 === 1 ? -0.3 : 0.3);
+  if (position % 2 === 0) {
+    const arpIndex = (position / 2 + bar) % chord.notes.length;
+    const octave = position >= 8 && bar % 4 === 3 ? 12 : 0;
+    const beatAccent = position % 4 === 0 ? 1 : 0.76;
+    pluck(startTime, chord.notes[arpIndex] + octave, (0.46 + active * 0.48) * beatAccent, position % 4 === 0 ? -0.22 : 0.22);
   }
-  if (bar % 4 === 3 && position === 15) pluck(startTime, chord.notes[3] + 12, 0.72, 0);
+  if (bar % 4 === 3 && position === 14) pluck(startTime, chord.notes[3] + 12, 0.72, 0);
 
   actionEnergy = Math.max(0, actionEnergy - 0.045);
 }
@@ -228,7 +247,7 @@ function chord(frequencies, options = {}) {
 }
 
 export function playSound(type, strength = 1) {
-  initAudio();
+  if (!audioCtx || audioCtx.state !== "running") return false;
   const safe = Math.max(1, Math.min(24, Number(strength) || 1));
   if (type === "eat") {
     const scale = [329.63, 392, 440, 493.88, 587.33, 659.25];
@@ -276,10 +295,13 @@ export function playSound(type, strength = 1) {
   } else if (type === "error" || type === "damage") {
     synthTone({ frequency: 164.81, end: 48, duration: 0.3, volume: 0.2, type: "sawtooth", filter: 1500 });
   }
+  return true;
 }
 
 export function toggleBGM(play) {
-  initAudio();
+  bgmRequested = Boolean(play);
+  if (!play && !audioCtx) return false;
+  if (play && (!audioCtx || audioCtx.state !== "running")) return false;
   ensureMusicGraph();
   if (play && !isBGMPlaying) {
     isBGMPlaying = true;
@@ -300,14 +322,17 @@ export function toggleBGM(play) {
     masterBgmGain.gain.setValueAtTime(Math.max(0.001, masterBgmGain.gain.value), audioCtx.currentTime);
     masterBgmGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
   }
+  return isBGMPlaying;
 }
 
 export function getAudioStatus() {
   return {
     context_state: audioCtx?.state ?? "uninitialized",
     bgm_playing: isBGMPlaying,
+    bgm_requested: bgmRequested,
     bpm: BPM,
     layers: musicBuses ? 5 : 0,
     action_sync: "immediate-plus-quantized-response",
+    groove_alignment: "kick-bass-melody-even-grid",
   };
 }

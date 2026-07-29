@@ -5,7 +5,7 @@ import { createRoundEngine } from "./engine.js";
 import { createDraftService } from "./draft.js";
 import { createUI } from "./ui.js";
 import { browserPlatform } from "./platform.js";
-import { initAudio, playSound, toggleBGM } from "./audio.js";
+import { playSound, toggleBGM, unlockAudio } from "./audio.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "./plate.js";
 import { activateReshuffle, getReshuffleStatus } from "./reshuffle.js";
 import { CARD_TYPES, getCardById } from "./data.js";
@@ -33,7 +33,6 @@ let streak = { action: null, count: 0 };
 let settings = browserPlatform.load_settings();
 let musicEnabled = settings.music;
 let effectsEnabled = settings.effects;
-let bgmStarted = false;
 const tutorial = { active: false, correct_eat: false, postponed: false, correct_discard: false };
 
 const shuffle = (items) => {
@@ -52,11 +51,7 @@ function saveGame() {
 
 function startSound() {
   if (!musicEnabled && !effectsEnabled) return;
-  initAudio();
-  if (musicEnabled && !bgmStarted) {
-    toggleBGM(true);
-    bgmStarted = true;
-  }
+  if (musicEnabled) toggleBGM(true);
 }
 
 function tutorialProgress() {
@@ -610,18 +605,16 @@ ui.bindMenu({
     settings = browserPlatform.save_settings({ ...settings, music: enabled });
     if (enabled) {
       startSound();
-      toggleBGM(true);
-      bgmStarted = true;
+      void unlockAudio().then(() => toggleBGM(true));
     } else {
       toggleBGM(false);
-      bgmStarted = false;
     }
     ui.renderSettings(settings);
   },
   onEffects: (enabled) => {
     effectsEnabled = enabled;
     settings = browserPlatform.save_settings({ ...settings, effects: enabled });
-    if (enabled) initAudio();
+    if (enabled) void unlockAudio();
     ui.renderSettings(settings);
   },
   onFontSize: (fontSize) => {
@@ -647,16 +640,22 @@ window.addEventListener("pagehide", () => {
 
 ui.applyFontSize(settings.font_size);
 ui.renderSettings(settings);
-if (musicEnabled) {
-  startSound();
-  const unlockAudio = () => {
-    initAudio();
-    toggleBGM(true);
-    bgmStarted = true;
+if (musicEnabled) toggleBGM(true);
+if (musicEnabled || effectsEnabled) {
+  let audioUnlockPending = false;
+  let audioUnlocked = false;
+  const unlockFromGesture = () => {
+    if (audioUnlocked || audioUnlockPending) return;
+    audioUnlockPending = true;
+    void unlockAudio().then((context) => {
+      audioUnlockPending = false;
+      audioUnlocked = context.state === "running";
+      if (audioUnlocked && musicEnabled) toggleBGM(true);
+    });
   };
-  window.addEventListener("pointerdown", unlockAudio, { once: true, capture: true });
-  window.addEventListener("keydown", unlockAudio, { once: true, capture: true });
-  window.addEventListener("touchstart", unlockAudio, { once: true, capture: true });
+  window.addEventListener("pointerdown", unlockFromGesture, { capture: true });
+  window.addEventListener("keydown", unlockFromGesture, { capture: true });
+  window.addEventListener("touchstart", unlockFromGesture, { capture: true, passive: true });
 }
 ui.openWelcome({
   onNew: (mode) => {
