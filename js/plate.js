@@ -45,15 +45,15 @@ export function getPlateSummary(deckSize, plateCapacity) {
   };
 }
 
-export function postponeCurrentCard(state) {
+export function postponeCurrentCard(state, options = {}) {
   const pile = state?.round?.draw_pile;
   if (!Array.isArray(pile) || pile.length < 2) return { success: false, reason: "not_enough_cards" };
   const card = pile.at(-1);
   state.round.postponed_uuids ??= [];
-  if (state.round.postponed_uuids.includes(card.uuid)) {
+  if (!options.unlimited && state.round.postponed_uuids.includes(card.uuid)) {
     return { success: false, reason: "already_postponed", card };
   }
-  state.round.postponed_uuids.push(card.uuid);
+  if (!state.round.postponed_uuids.includes(card.uuid)) state.round.postponed_uuids.push(card.uuid);
 
   let direction = "back";
   let revealedCard = null;

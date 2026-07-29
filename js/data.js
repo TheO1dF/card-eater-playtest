@@ -150,7 +150,7 @@ const CARD_DEFS = [
 
 // Seven unique teaching cards: four edible, three inedible. Both fruits teach
 // the combo immediately; three effect-free cards keep the opening readable.
-const STARTER_IDS = Object.freeze(["F002", "F003", "K001", "D001", "A001", "A008", "A004"]);
+const STARTER_IDS = Object.freeze(["F002", "F009", "K001", "D001", "A001", "A008", "A004"]);
 
 function cloneCard(source) {
   return {

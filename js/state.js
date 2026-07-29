@@ -6,6 +6,7 @@ export const GAME_PHASES = Object.freeze({
   PLAYING: "Playing",
   SCORING: "Scoring",
   CARD_DRAFT: "CardDraft",
+  ITEM_DRAFT: "ItemDraft",
   NEXT_ROUND: "NextRound",
   GAME_OVER: "GameOver",
 });
@@ -17,7 +18,8 @@ const PHASE_TRANSITIONS = Object.freeze({
   [GAME_PHASES.INIT]: [GAME_PHASES.PLAYING],
   [GAME_PHASES.PLAYING]: [GAME_PHASES.SCORING],
   [GAME_PHASES.SCORING]: [GAME_PHASES.CARD_DRAFT, GAME_PHASES.GAME_OVER],
-  [GAME_PHASES.CARD_DRAFT]: [GAME_PHASES.NEXT_ROUND],
+  [GAME_PHASES.CARD_DRAFT]: [GAME_PHASES.ITEM_DRAFT, GAME_PHASES.NEXT_ROUND],
+  [GAME_PHASES.ITEM_DRAFT]: [GAME_PHASES.NEXT_ROUND],
   [GAME_PHASES.NEXT_ROUND]: [GAME_PHASES.PLAYING, GAME_PHASES.GAME_OVER],
   [GAME_PHASES.GAME_OVER]: [],
 });
@@ -94,18 +96,26 @@ export function createRoundState() {
 
 export function createInitialPlayerState(options = {}) {
   const createId = options.create_id;
+  const mode = options.mode ?? GAME_MODES.NORMAL;
   return {
     schema_version: GAME_CONFIG.schema_version,
     phase: GAME_PHASES.INIT,
-    mode: options.mode ?? GAME_MODES.NORMAL,
+    mode,
     current_round: 1,
     total_score: 0,
     delete_tokens: 0,
-    plate_capacity: GAME_CONFIG.initial_plate_capacity,
+    reroll_tokens: 1,
+    plate_capacity: mode === GAME_MODES.HARD ? GAME_CONFIG.initial_plate_capacity - 1 : GAME_CONFIG.initial_plate_capacity,
     plate_upgrade_count: 0,
     deck: createInitialDeck({ create_id: createId }),
     active_rules: [],
     items: [],
+    item_history: [],
+    pending_draft_ids: [],
+    pending_item_ids: [],
+    draft_resolved: false,
+    item_draft_resolved: false,
+    pending_summary: null,
     quest_history: [],
     pending_round_start_purify: false,
     milestone_delays: {},

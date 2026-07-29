@@ -1,6 +1,7 @@
 const RECORD_KEY = "cardeater.run-history.v1";
 const TUTORIAL_KEY = "cardeater.story-tutorial.v1";
 const SETTINGS_KEY = "cardeater.settings.v1";
+const RUN_SAVE_KEY = "cardeater.active-run.v2";
 const DEFAULT_SETTINGS = Object.freeze({ music: true, effects: true, font_size: "medium" });
 
 function makeId(card, index = 0) {
@@ -62,6 +63,29 @@ function saveSettings(settings = {}) {
   return safe;
 }
 
+function saveRun(state) {
+  try {
+    localStorage.setItem(RUN_SAVE_KEY, JSON.stringify(state));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function loadRun() {
+  try {
+    const state = JSON.parse(localStorage.getItem(RUN_SAVE_KEY) ?? "null");
+    return state?.schema_version === 20 && state?.phase !== "GameOver" ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearRun() {
+  try { localStorage.removeItem(RUN_SAVE_KEY); } catch { return false; }
+  return true;
+}
+
 export const browserPlatform = Object.freeze({
   now: () => Date.now(),
   random: () => Math.random(),
@@ -74,4 +98,8 @@ export const browserPlatform = Object.freeze({
   save_tutorial_complete: saveTutorialComplete,
   load_settings: loadSettings,
   save_settings: saveSettings,
+  save_run: saveRun,
+  load_run: loadRun,
+  clear_run: clearRun,
+  has_saved_run: () => Boolean(loadRun()),
 });

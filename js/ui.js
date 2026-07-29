@@ -1,4 +1,4 @@
-import { GAME_CONFIG, getFinalRound, getNextMilestone } from "./config.js";
+import { GAME_CONFIG, GAME_MODES, MODE_LABELS, getFinalRound, getNextMilestone } from "./config.js";
 import { getItemById } from "./items.js";
 import { formatScore } from "./numbers.js";
 import { getQuestRequirement, getQuestTarget } from "./quests.js";
@@ -11,7 +11,7 @@ import { getLiveHudValues } from "./live-hud.js";
 
 const PHASE_LABELS = Object.freeze({
   Init: "准备中", Playing: "出牌中", Scoring: "结算中", CardDraft: "轮末选牌",
-  NextRound: "下一轮", GameOver: "本局结束",
+  ItemDraft: "挑选道具", NextRound: "下一轮", GameOver: "本局结束",
 });
 
 const RARITY_CLASS = Object.freeze({ "普通": "common", "罕见": "uncommon", "稀有": "rare", "传奇": "legendary", "诅咒": "curse" });
@@ -251,6 +251,19 @@ function draftCardElement(card, onChoose) {
   return button;
 }
 
+function itemDraftElement(entry, onChoose) {
+  const button = document.createElement("button");
+  button.className = `item-draft-card${entry.consumable ? " is-consumable" : ""}`;
+  button.type = "button";
+  button.innerHTML = `
+    <span class="item-draft-icon meta-sprite" style="${metaStyle(entry)}"></span>
+    <span class="item-draft-copy"><small>${entry.rarity} · ${entry.role}</small><strong>${entry.name}</strong><em>${entry.description}</em></span>
+    <span class="draft-pick-label">领取</span>
+  `;
+  button.addEventListener("click", () => onChoose(entry), { once: true });
+  return button;
+}
+
 function deckChipElement(card, cost, onRemove) {
   const button = document.createElement("button");
   button.className = `deck-chip${freshArtClass(card)}`;
@@ -302,6 +315,7 @@ export function createUI(root) {
     quest: get("#questDraft"), questList: get("#questDraftList"),
     shop: get("#shopPanel"), shopOffers: get("#shopOfferList"), shopThemeOffers: get("#shopThemeOfferList"), shopItems: get("#shopItemOfferList"), shopDeck: get("#shopDeckList"), welcome: get("#welcomeOverlay"),
     cardDraft: get("#cardDraft"), cardDraftList: get("#cardDraftList"),
+    itemDraft: get("#itemDraft"), itemDraftList: get("#itemDraftList"),
     deleteConfirm: get("#deleteConfirm"),
     questStatus: get("#questStatus"), questInfoButton: get("#questInfoButton"),
     deckStatus: get("#deckStatus"), deckInfoButton: get("#deckInfoButton"),
@@ -316,6 +330,7 @@ export function createUI(root) {
   let menuState = null;
   let menuSettings = null;
   let storySuspendedByMenu = false;
+  let menuOpenedFromHome = false;
   let deckRemovalHandler = null;
 
   function updateHudValue(node, value) {
@@ -502,9 +517,9 @@ export function createUI(root) {
 
   function openItemStatus(state) {
     const items = state.items;
-    get("#itemStatusSummary").innerHTML = `<b>${items.length} 件永久道具</b><span>任务奖励与商店购买都会记录在这里。</span>`;
+    get("#itemStatusSummary").innerHTML = `<b>${items.length} 件永久道具</b><span>每 3 轮可从三件道具中领取一件；一次性道具会记录后立即消耗。</span>`;
     const list = get("#itemStatusList");
-    if (items.length === 0) list.innerHTML = '<p class="collection-status-empty">尚未获得道具。商店道具购买后立即生效，任务奖励在下一轮生效。</p>';
+    if (items.length === 0) list.innerHTML = '<p class="collection-status-empty">尚未获得永久道具。完成第 3 轮后会出现第一次道具三选一。</p>';
     else list.replaceChildren(...items.map(ownedItemElement));
     nodes.deckStatus?.classList.remove("show");
     nodes.questStatus?.classList.remove("show");
@@ -521,7 +536,8 @@ export function createUI(root) {
 
   function renderHud(state) {
     const live = getLiveHudValues(state);
-    setText(nodes.round, `${state.current_round}/${getFinalRound()}`);
+    const finalRound = getFinalRound({}, state.mode);
+    setText(nodes.round, Number.isFinite(finalRound) ? `${state.current_round}/${finalRound}` : `${state.current_round}/∞`);
     updateHudValue(nodes.score, live.display_score);
     updateHudValue(nodes.tokens, state.delete_tokens ?? 0);
     setText(nodes.scoreLabel, live.playing ? "实时总分" : "总分");
@@ -539,6 +555,7 @@ export function createUI(root) {
     setText(nodes.remaining, liveRound ? `${state.round.draw_pile.length}/${budget}` : `${budget}张`);
     nodes.remaining.title = `${liveRound ? "本轮" : "下轮预计"}登场 ${budget} 张；永久牌组 ${state.deck.length} 张`;
     setText(nodes.phase, PHASE_LABELS[state.phase] ?? state.phase);
+    renderItems(state);
     if (nodes.deckInfoButton) {
       nodes.deckInfoButton.title = `查看永久牌组（${state.deck.length} 张）`;
       nodes.deckInfoButton.onclick = () => {
@@ -546,11 +563,19 @@ export function createUI(root) {
         else openDeckStatus(state);
       };
     }
+    if (nodes.itemInfoButton) {
+      nodes.itemInfoButton.title = `查看道具（${state.items.length} 件）`;
+      nodes.itemInfoButton.onclick = () => {
+        if (nodes.itemStatus?.classList.contains("show")) nodes.itemStatus.classList.remove("show");
+        else openItemStatus(state);
+      };
+    }
     const postponeButton = get("#postponeButton");
     if (postponeButton) {
       const reshuffle = getReshuffleStatus(state);
       const currentCard = state.round.draw_pile.at(-1);
-      const alreadyPostponed = Boolean(currentCard && state.round.postponed_uuids?.includes(currentCard.uuid));
+      const unlimitedPostpone = state.items.some((entry) => entry.effect?.kind === "unlimited_postpone");
+      const alreadyPostponed = !unlimitedPostpone && Boolean(currentCard && state.round.postponed_uuids?.includes(currentCard.uuid));
       postponeButton.disabled = state.phase !== "Playing" || state.round.draw_pile.length < 2 || alreadyPostponed;
       postponeButton.title = alreadyPostponed
         ? "这张牌本轮已经后置过，不能再次后置"
@@ -566,7 +591,9 @@ export function createUI(root) {
           ? "当前牌已后置过 · 本轮不能再次后置"
           : reshuffle.charges > 0
             ? `自动重洗 ${reshuffle.charges} 次 · 后置标记不会清除`
-            : `本轮已后置 ${state.round.postpone_count ?? 0} 张 · 每张牌限一次`));
+            : unlimitedPostpone
+              ? `永动传送带 · 同一张牌可无限后置`
+              : `本轮已后置 ${state.round.postpone_count ?? 0} 张 · 每张牌限一次`));
     }
   }
 
@@ -587,27 +614,25 @@ export function createUI(root) {
 
   return {
     preloadCardArt: warmCardArt,
-    openWelcome(callbacks, bestScore = null, tutorialComplete = false) {
-      setText(get("#welcomeBestScore"), bestScore ?? "--");
-      const start = get("#startGameButton");
-      const tutorial = get("#tutorialStartButton");
-      const launch = (callback) => {
-        nodes.welcome.classList.remove("show");
-        callback();
-      };
-      if (tutorialComplete) {
-        start.textContent = "开始游戏";
-        tutorial.textContent = "重玩故事教学";
-        start.onclick = () => launch(callbacks.onNormal);
-        tutorial.onclick = () => launch(callbacks.onTutorial);
-      } else {
-        start.textContent = "开始故事教学";
-        tutorial.textContent = "跳过教学 · 直接开始";
-        start.onclick = () => launch(callbacks.onTutorial);
-        tutorial.onclick = () => launch(callbacks.onNormal);
+    openWelcome(callbacks, options = {}) {
+      setText(get("#welcomeBestScore"), options.best_score ?? "--");
+      const chooser = get("#modeChooser");
+      const continueButton = get("#continueGameButton");
+      continueButton.disabled = !options.has_save;
+      continueButton.querySelector("small").textContent = options.has_save ? "从最近一次自动保存继续" : "当前没有可继续的对局";
+      get("#newGameButton").onclick = () => { chooser.hidden = !chooser.hidden; };
+      continueButton.onclick = callbacks.onContinue;
+      get("#homeMenuButton").onclick = callbacks.onMenu;
+      get("#normalModeButton").onclick = () => callbacks.onNew(GAME_MODES.NORMAL);
+      for (const [selector, mode] of [["#endlessModeButton", GAME_MODES.ENDLESS], ["#hardModeButton", GAME_MODES.HARD]]) {
+        const button = get(selector);
+        button.disabled = !options.unlocked;
+        button.classList.toggle("is-locked", !options.unlocked);
+        button.onclick = options.unlocked ? () => callbacks.onNew(mode) : null;
       }
       nodes.welcome.classList.add("show");
     },
+    hideWelcome() { nodes.welcome.classList.remove("show"); },
     showStoryGuide,
     hideStoryGuide,
     renderHud,
@@ -649,19 +674,30 @@ export function createUI(root) {
     openMenu(state, currentSettings) {
       menuState = state;
       menuSettings = currentSettings;
-      setText(get("#menuModeLabel"), "15 轮试验模式");
-      const milestone = getNextMilestone(state.current_round);
-      setText(get("#menuObjective"), `当前目标：第 ${milestone.round} 轮结算时累计达到 ${formatScore(milestone.target)} 分 · 当前 ${formatScore(state.total_score)}`);
+      menuOpenedFromHome = !state;
+      setText(get("#menuModeLabel"), state ? MODE_LABELS[state.mode] : "主界面设置");
+      if (state) {
+        const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode);
+        setText(get("#menuObjective"), milestone.endless
+          ? `无尽模式 · 当前第 ${state.current_round} 轮 · 累计 ${formatScore(state.total_score)} 分`
+          : `当前目标：第 ${milestone.round} 轮累计达到 ${formatScore(milestone.target)} 分 · 当前 ${formatScore(state.total_score)}`);
+      } else {
+        setText(get("#menuObjective"), "对局中会在每次操作、选牌与轮次结算后自动保存。");
+      }
+      get("#menuHomeButton").hidden = !state;
+      get("#tutorialInfoButton").hidden = !state;
+      get("#gameMenuClose").textContent = state ? "返回游戏" : "返回主界面";
       this.renderSettings(currentSettings);
-      suspendStoryForMenu();
+      if (state) suspendStoryForMenu();
       nodes.cardCatalog?.classList.remove("show");
       nodes.gameMenu?.classList.add("show");
     },
-    bindMenu({ onMusic, onEffects, onFontSize }) {
+    bindMenu({ onMusic, onEffects, onFontSize, onHome }) {
       get("#gameMenuClose")?.addEventListener("click", () => {
         nodes.gameMenu?.classList.remove("show");
-        resumeStoryAfterMenu();
+        if (!menuOpenedFromHome) resumeStoryAfterMenu();
       });
+      get("#menuHomeButton")?.addEventListener("click", onHome);
       get("#musicToggle")?.addEventListener("click", () => onMusic(get("#musicToggle")?.getAttribute("aria-pressed") !== "true"));
       get("#effectsToggle")?.addEventListener("click", () => onEffects(get("#effectsToggle")?.getAttribute("aria-pressed") !== "true"));
       root.querySelectorAll("[data-font-size]").forEach((button) => {
@@ -685,7 +721,9 @@ export function createUI(root) {
       get("#cardCatalogClose")?.addEventListener("click", () => {
         nodes.cardCatalog?.classList.remove("show");
         if (menuState) {
-          setText(get("#menuModeLabel"), "15 轮试验模式");
+          setText(get("#menuModeLabel"), MODE_LABELS[menuState.mode]);
+          nodes.gameMenu?.classList.add("show");
+        } else if (menuOpenedFromHome) {
           nodes.gameMenu?.classList.add("show");
         }
       });
@@ -727,6 +765,35 @@ export function createUI(root) {
       floater.textContent = `${points > 0 ? "+" : ""}${formatScore(points)}${comboLabel ? ` · ${streak} ${comboLabel}` : ""}`;
       stage.appendChild(floater);
       floater.addEventListener("animationend", () => floater.remove(), { once: true });
+    },
+    punchAction(points = 0, streakCount = 1, action = "score") {
+      const shell = get(".game-shell");
+      const stage = get(".deck-stage");
+      if (!shell || !stage) return;
+      const weight = points >= 10 || streakCount >= 5 ? "heavy" : points >= 5 || streakCount >= 3 ? "medium" : "light";
+      shell.classList.remove("impact-light", "impact-medium", "impact-heavy");
+      stage.classList.remove("card-punch", "postpone-punch");
+      void shell.offsetWidth;
+      shell.classList.add(`impact-${weight}`);
+      stage.classList.add(action === "postpone" ? "postpone-punch" : "card-punch");
+      const burst = document.createElement("div");
+      burst.className = `juice-burst ${weight}`;
+      burst.innerHTML = Array.from({ length: weight === "heavy" ? 12 : 7 }, (_, index) => `<i style="--spark:${index}"></i>`).join("");
+      stage.appendChild(burst);
+      window.setTimeout(() => {
+        shell.classList.remove(`impact-${weight}`);
+        stage.classList.remove("card-punch", "postpone-punch");
+        burst.remove();
+      }, 520);
+    },
+    showPickBurst(message, tone = "card") {
+      const host = get(".game-shell");
+      if (!host) return;
+      const node = document.createElement("div");
+      node.className = `pick-burst ${tone}`;
+      node.innerHTML = `<small>${tone === "item" ? "ITEM GET" : "DECK UP"}</small><b>${message}</b>`;
+      host.appendChild(node);
+      node.addEventListener("animationend", () => node.remove(), { once: true });
     },
     showEffectFlash(message, entry = {}) {
       const feed = get("#effectFeed");
@@ -845,7 +912,7 @@ export function createUI(root) {
       const eyebrow = get("#summaryEyebrow");
       const button = get("#summaryContinueBtn");
       const list = get("#summaryBreakdownList");
-      const milestone = getNextMilestone(state.current_round);
+      const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode);
       const roundsRemaining = milestone.round === null ? 0 : Math.max(0, milestone.round - state.current_round);
       const milestoneProgress = milestone.target > 0
         ? Math.max(0, Math.min(100, state.total_score / milestone.target * 100))
@@ -869,15 +936,19 @@ export function createUI(root) {
       } else if (outcome === "defeat") {
         eyebrow.textContent = "TARGET MISSED";
         title.textContent = "挑战失败";
-        tip.textContent = `本阶段需要 ${formatScore(getNextMilestone(state.current_round).target)} 分，当前为 ${formatScore(state.total_score)} 分。`;
+        tip.textContent = `本阶段需要 ${formatScore(getNextMilestone(state.current_round, state.milestone_delays, state.mode).target)} 分，当前为 ${formatScore(state.total_score)} 分。`;
         button.textContent = "重新开始";
         button.classList.add("danger-action");
       } else {
         eyebrow.textContent = `ROUND ${String(state.current_round).padStart(2, "0")} CLEAR`;
         title.textContent = "本轮结算";
-        tip.textContent = result.plate_upgrade
-          ? `五轮赠礼：餐盘上限永久提升至 ${state.plate_capacity} 张。接下来从三张牌中选择一张。`
-          : "接下来从三张牌中选择一张加入永久牌组，也可以跳过。";
+        const gifts = [
+          result.plate_upgrade ? `餐盘上限提升至 ${state.plate_capacity}` : null,
+          result.reroll_grant ? `刷新 token 增至 ${state.reroll_tokens}` : null,
+        ].filter(Boolean);
+        tip.textContent = gifts.length > 0
+          ? `${gifts.join("，")}。接下来选择一张牌。`
+          : "接下来从三张牌中选择一张加入永久牌组，也可以刷新或跳过。";
         button.textContent = "确认结算 · 三选一";
         button.classList.remove("danger-action");
       }
@@ -911,9 +982,17 @@ export function createUI(root) {
         return result;
       };
       nodes.cardDraftList.replaceChildren(...cards.map((card) => draftCardElement(card, callbacks.onChoose)));
-      setText(get("#draftMessage"), "三选一，也可以跳过。选牌前可先整理永久牌组。");
+      setText(get("#draftMessage"), "三选一，也可以刷新或跳过。选牌前可先整理永久牌组。");
       updateTokens();
+      setText(get("#draftRerollValue"), state.reroll_tokens ?? 0);
       get("#draftManageDeck").onclick = () => openDeckStatus(state);
+      const reroll = get("#draftReroll");
+      reroll.disabled = (state.reroll_tokens ?? 0) < 1;
+      reroll.textContent = `刷新 · ${state.reroll_tokens ?? 0}`;
+      reroll.onclick = () => {
+        const result = callbacks.onReroll();
+        if (!result?.success) setText(get("#draftMessage"), "没有可用的刷新 token。");
+      };
       get("#draftSkip").onclick = callbacks.onSkip;
       nodes.cardDraft.classList.add("show");
     },
@@ -923,6 +1002,13 @@ export function createUI(root) {
       nodes.cardDraft?.classList.remove("show");
       deckRemovalHandler = null;
     },
+    openItemDraft(state, items, onChoose) {
+      renderHud(state);
+      setText(get("#itemDraftRound"), `第 ${state.current_round} 轮赠礼`);
+      nodes.itemDraftList.replaceChildren(...items.map((entry) => itemDraftElement(entry, onChoose)));
+      nodes.itemDraft?.classList.add("show");
+    },
+    closeItemDraft() { nodes.itemDraft?.classList.remove("show"); },
     openShop(state, cards, themedCards, themeType, itemOffers, onBuy, onBuyItem, onRemove, onPlateUpgrade, onReroll, onLock, onContinue, plateUpgradeStatus, arrivedWithLockedShop = false) {
       renderHud(state);
       const removeCardCost = (state.round.shop_free_removals ?? 0) > 0 || (state.free_card_removals ?? 0) > 0 ? 0 : state.remove_card_cost;

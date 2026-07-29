@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 const debugPort = Number(process.argv[2] ?? 9223);
 const gameUrl = process.argv[3] ?? "http://127.0.0.1:8765";
-const outputDir = resolve(process.argv[4] ?? ".artifacts/smoke-v15-experiment");
+const outputDir = resolve(process.argv[4] ?? ".artifacts/smoke-v21-juice");
 const viewportFilter = process.argv[5] ?? "all";
 const wait = (milliseconds) => new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
 
@@ -11,9 +11,7 @@ const VIEWPORTS = [
   { name: "mobile", width: 390, height: 844, mobile: true },
   { name: "desktop", width: 1280, height: 800, mobile: false },
 ];
-const selectedViewports = viewportFilter === "all"
-  ? VIEWPORTS
-  : VIEWPORTS.filter((viewport) => viewport.name === viewportFilter);
+const selectedViewports = viewportFilter === "all" ? VIEWPORTS : VIEWPORTS.filter((viewport) => viewport.name === viewportFilter);
 if (selectedViewports.length === 0) throw new Error(`Unknown viewport filter: ${viewportFilter}`);
 
 const targets = await fetch(`http://127.0.0.1:${debugPort}/json/list`).then((response) => response.json());
@@ -53,7 +51,7 @@ async function evaluate(expression) {
   return result.result.value;
 }
 
-async function waitFor(expression, timeout = 10000) {
+async function waitFor(expression, timeout = 12000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     if (await evaluate(expression)) return;
@@ -80,14 +78,24 @@ async function capture(name) {
 }
 
 async function finishCurrentPlate() {
-  for (let index = 0; index < 40; index += 1) {
-    const finished = await evaluate('document.querySelector("#roundSummary")?.classList.contains("show")');
-    if (finished) return;
-    const active = await evaluate('Boolean(document.querySelector(".game-card.is-active"))');
-    if (active) await clickElement("#discardButton");
-    await wait(130);
+  for (let index = 0; index < 80; index += 1) {
+    if (await evaluate('document.querySelector("#roundSummary")?.classList.contains("show")')) return;
+    if (await evaluate('Boolean(document.querySelector(".game-card.is-active"))')) await clickElement("#discardButton");
+    await wait(105);
   }
   throw new Error("Plate did not finish within the action safety bound.");
+}
+
+async function chooseCardAndWaitForRound(roundLabel) {
+  await clickElement(".draft-card");
+  await waitFor(`document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === ${JSON.stringify(roundLabel)}`, 12000);
+}
+
+async function completeToDraft() {
+  await finishCurrentPlate();
+  await waitFor('document.querySelector("#roundSummary")?.classList.contains("show")');
+  await clickElement("#summaryContinueBtn");
+  await waitFor('document.querySelector("#cardDraft")?.classList.contains("show") && document.querySelectorAll(".draft-card").length === 3');
 }
 
 await mkdir(outputDir, { recursive: true });
@@ -106,99 +114,147 @@ for (const viewport of selectedViewports) {
     screenHeight: viewport.height,
   });
   await send("Page.navigate", { url: `${gameUrl}?smoke=${viewport.name}-${Date.now()}` });
-  await waitFor('document.readyState === "complete" && typeof document.querySelector("#startGameButton")?.onclick === "function"');
-  await evaluate('localStorage.removeItem("cardeater.tutorial-complete.v1")');
+  await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
+  await evaluate(`(() => {
+    localStorage.removeItem("cardeater.run-history.v1");
+    localStorage.removeItem("cardeater.active-run.v2");
+    localStorage.setItem("cardeater.story-tutorial.v1", "complete");
+  })()`);
   await send("Page.reload", { ignoreCache: true });
-  await waitFor('document.readyState === "complete" && typeof document.querySelector("#startGameButton")?.onclick === "function"');
-  await wait(220);
+  await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
+  await wait(180);
 
-  await capture(`${viewport.name}-welcome`);
-  const welcome = await evaluate(`(() => {
-    const panel = document.querySelector(".welcome-panel")?.getBoundingClientRect();
+  await capture(`${viewport.name}-home`);
+  const home = await evaluate(`(() => {
+    const panel = document.querySelector(".home-panel")?.getBoundingClientRect();
+    const actions = [...document.querySelectorAll(".home-actions > button")];
     return {
       title: document.querySelector("#welcomeTitle")?.textContent,
-      loop_steps: document.querySelector(".welcome-loop")?.children.length,
-      objective: document.querySelector(".welcome-objective")?.textContent?.replace(/\\s+/g, " ").trim(),
+      action_labels: actions.map((button) => button.querySelector("b")?.textContent),
+      continue_disabled: document.querySelector("#continueGameButton")?.disabled,
+      decor_count: document.querySelectorAll(".home-card-art").length,
+      logo_lines: document.querySelectorAll(".home-logo span").length,
+      modes_locked: ["#endlessModeButton", "#hardModeButton"].every((selector) => document.querySelector(selector)?.disabled),
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
       horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     };
   })()`);
 
-  await clickElement("#tutorialStartButton");
-  await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中"', 10000);
+  await evaluate(`localStorage.setItem("cardeater.run-history.v1", JSON.stringify([{ outcome: "victory", score: 500 }]))`);
+  await send("Page.reload", { ignoreCache: true });
+  await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
+  const unlock = await evaluate(`(() => ({
+    endless_enabled: !document.querySelector("#endlessModeButton")?.disabled,
+    hard_enabled: !document.querySelector("#hardModeButton")?.disabled,
+  }))()`);
+  await evaluate('localStorage.removeItem("cardeater.run-history.v1")');
+  await send("Page.reload", { ignoreCache: true });
+  await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
+
+  await clickElement("#newGameButton");
+  await waitFor('!document.querySelector("#modeChooser")?.hidden');
+  await capture(`${viewport.name}-mode-select`);
+  await clickElement("#normalModeButton");
+  await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中"', 12000);
   await capture(`${viewport.name}-round-1`);
-  const playing = await evaluate(`(() => {
-    const shell = document.querySelector(".game-shell")?.getBoundingClientRect();
-    return {
-      phase: document.querySelector("#phaseValue")?.textContent,
-      round: document.querySelector("#roundValue")?.textContent,
-      active_cards: document.querySelectorAll(".game-card.is-active").length,
-      visible_cards: document.querySelectorAll(".game-card").length,
-      plate: document.querySelector("#remainingValue")?.textContent,
-      tokens: document.querySelector("#tokenValue")?.textContent,
-      has_gold: Boolean(document.querySelector("#goldValue")),
-      has_timer: Boolean(document.querySelector("#timerValue")),
-      shell_inside_viewport: Boolean(shell && shell.left >= -1 && shell.right <= innerWidth + 1),
-      horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-    };
-  })()`);
+  const playing = await evaluate(`(() => ({
+    phase: document.querySelector("#phaseValue")?.textContent,
+    round: document.querySelector("#roundValue")?.textContent,
+    active_cards: document.querySelectorAll(".game-card.is-active").length,
+    plate: document.querySelector("#remainingValue")?.textContent,
+    item_tray: Boolean(document.querySelector("#itemTray")),
+    has_gold: Boolean(document.querySelector("#goldValue")),
+    has_timer: Boolean(document.querySelector("#timerValue")),
+    horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  }))()`);
 
   await clickElement("#menuButton");
   await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
   await evaluate('document.querySelector("#menuRules").open = true');
   await capture(`${viewport.name}-menu`);
   const menu = await evaluate(`(() => {
-    const panel = document.querySelector(".game-menu-panel")?.getBoundingClientRect();
     const text = document.querySelector("#menuRules")?.textContent?.replace(/\\s+/g, " ").trim() ?? "";
     return {
       rule_count: document.querySelectorAll("#menuRules li").length,
-      text,
+      has_home: Boolean(document.querySelector("#menuHomeButton")?.getBoundingClientRect().height),
+      has_autosave_rule: text.includes("自动保存"),
       forbidden_terms: ["金币", "商店", "限时经济", "任务选择"].filter((term) => text.includes(term)),
-      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
     };
   })()`);
   await clickElement("#gameMenuClose");
 
   await finishCurrentPlate();
-  await waitFor('document.querySelector("#roundSummary")?.classList.contains("show")');
-  await wait(220);
-  await capture(`${viewport.name}-summary`);
-  const summary = await evaluate(`(() => ({
-    title: document.querySelector("#summaryTitle")?.textContent,
-    continue_label: document.querySelector("#summaryContinueBtn")?.textContent,
-    text: document.querySelector("#roundSummary")?.textContent?.replace(/\\s+/g, " ").trim(),
-  }))()`);
-
+  await capture(`${viewport.name}-summary-1`);
   await clickElement("#summaryContinueBtn");
   await waitFor('document.querySelector("#cardDraft")?.classList.contains("show") && document.querySelectorAll(".draft-card").length === 3');
-  await wait(220);
-  await capture(`${viewport.name}-draft`);
+  const offerNamesBefore = await evaluate('[...document.querySelectorAll(".draft-card .shop-card-copy strong")].map((node) => node.textContent)');
+  await clickElement("#draftReroll");
+  await waitFor('document.querySelector("#draftRerollValue")?.textContent === "0"');
+  await wait(180);
+  await capture(`${viewport.name}-draft-rerolled`);
   const draft = await evaluate(`(() => {
     const panel = document.querySelector(".draft-reward-panel")?.getBoundingClientRect();
+    const widths = [...document.querySelectorAll(".draft-actions > button")].map((button) => button.getBoundingClientRect().width);
     return {
       offer_count: document.querySelectorAll(".draft-card").length,
-      token_value: document.querySelector("#draftTokenValue")?.textContent,
-      skip_visible: Boolean(document.querySelector("#draftSkip")?.getBoundingClientRect().height),
-      manage_visible: Boolean(document.querySelector("#draftManageDeck")?.getBoundingClientRect().height),
+      offer_names: [...document.querySelectorAll(".draft-card .shop-card-copy strong")].map((node) => node.textContent),
+      reroll_value: document.querySelector("#draftRerollValue")?.textContent,
+      action_widths: widths,
+      equal_actions: Math.max(...widths) - Math.min(...widths) <= 1,
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
     };
   })()`);
+  draft.offers_changed = JSON.stringify(offerNamesBefore) !== JSON.stringify(draft.offer_names);
 
-  await clickElement("#draftManageDeck");
-  await waitFor('document.querySelector("#deckStatus")?.classList.contains("show")');
-  const deck = await evaluate(`(() => ({
-    card_groups: document.querySelectorAll("#deckStatusList .deck-status-card").length,
-    removal_buttons: document.querySelectorAll(".deck-remove-token").length,
-    hint: document.querySelector("#deckRemovalHint")?.textContent,
+  await evaluate('document.querySelector("#deleteConfirm").classList.add("show")');
+  const deleteLayout = await evaluate(`(() => {
+    const widths = [...document.querySelectorAll(".delete-confirm-actions > button")].map((button) => button.getBoundingClientRect().width);
+    return { widths, equal_actions: Math.max(...widths) - Math.min(...widths) <= 1 };
+  })()`);
+  await capture(`${viewport.name}-delete-layout`);
+  await evaluate('document.querySelector("#deleteConfirm").classList.remove("show")');
+
+  await chooseCardAndWaitForRound("2/15");
+  await send("Page.reload", { ignoreCache: true });
+  await waitFor('document.readyState === "complete" && typeof document.querySelector("#continueGameButton")?.onclick === "function"');
+  const saveHome = await evaluate(`(() => ({
+    continue_enabled: !document.querySelector("#continueGameButton")?.disabled,
+    save_exists: Boolean(localStorage.getItem("cardeater.active-run.v2")),
   }))()`);
-  await clickElement("#deckStatusClose");
+  await clickElement("#continueGameButton");
+  await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === "2/15"');
+  await clickElement("#menuButton");
+  await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
+  await clickElement("#menuHomeButton");
+  await waitFor('document.readyState === "complete" && document.querySelector("#welcomeOverlay")?.classList.contains("show") && !document.querySelector("#continueGameButton")?.disabled', 12000);
+  await wait(200);
+  await capture(`${viewport.name}-home-return`);
+  await clickElement("#continueGameButton");
+  await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === "2/15"');
+
+  await completeToDraft();
+  await chooseCardAndWaitForRound("3/15");
+  await completeToDraft();
   await clickElement(".draft-card");
-  await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === "2/15"', 10000);
-  await capture(`${viewport.name}-round-2`);
+  await waitFor('document.querySelector("#itemDraft")?.classList.contains("show") && document.querySelectorAll(".item-draft-card").length === 3');
+  await wait(180);
+  await capture(`${viewport.name}-item-draft`);
+  const itemDraft = await evaluate(`(() => {
+    const panel = document.querySelector(".item-draft-panel")?.getBoundingClientRect();
+    const widths = [...document.querySelectorAll(".item-draft-card")].map((card) => card.getBoundingClientRect().width);
+    return {
+      count: widths.length,
+      equal_cards: Math.max(...widths) - Math.min(...widths) <= 1,
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+      reroll_tokens: document.querySelector("#draftRerollValue")?.textContent,
+    };
+  })()`);
+  await clickElement(".item-draft-card:not(.is-consumable)");
+  await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === "4/15"', 12000);
   const nextRound = await evaluate(`(() => ({
     round: document.querySelector("#roundValue")?.textContent,
-    deck_summary: document.querySelector("#deckInfoButton")?.title,
-    plate: document.querySelector("#remainingValue")?.textContent,
+    owned_items: document.querySelectorAll("#itemTray .item-chip").length,
+    save_exists: Boolean(localStorage.getItem("cardeater.active-run.v2")),
   }))()`);
 
   const cardArt = await evaluate(`(async () => {
@@ -213,34 +269,37 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, welcome, playing, menu, summary, draft, deck, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, home, unlock, playing, menu, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, next_round: nextRound, card_art: cardArt });
 }
 
-const report = {
-  generated_at: new Date().toISOString(),
-  url: gameUrl,
-  reports,
-  browser_errors: browserErrors,
-};
+const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
 await writeFile(resolve(outputDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
 socket.close();
 
 const failures = [
   ...browserErrors,
   ...reports.flatMap((entry) => [
-    entry.welcome.inside_viewport ? null : `${entry.viewport.name}: welcome outside viewport`,
-    entry.welcome.horizontal_overflow ? `${entry.viewport.name}: welcome horizontal overflow` : null,
-    entry.playing.phase === "出牌中" ? null : `${entry.viewport.name}: did not enter play`,
-    entry.playing.active_cards === 1 ? null : `${entry.viewport.name}: active card count is not one`,
-    entry.playing.has_gold ? `${entry.viewport.name}: gold HUD still exists` : null,
-    entry.playing.has_timer ? `${entry.viewport.name}: timer HUD still exists` : null,
+    entry.home.title === "CardEater" ? null : `${entry.viewport.name}: wrong home title`,
+    JSON.stringify(entry.home.action_labels) === JSON.stringify(["新游戏", "继续", "菜单"]) ? null : `${entry.viewport.name}: wrong home actions`,
+    entry.home.continue_disabled ? null : `${entry.viewport.name}: continue should start disabled`,
+    entry.home.decor_count === 3 && entry.home.logo_lines === 2 ? null : `${entry.viewport.name}: home hero assets missing`,
+    entry.home.modes_locked ? null : `${entry.viewport.name}: advanced modes should start locked`,
+    entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
+    entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
+    entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
+    entry.playing.phase === "出牌中" && entry.playing.active_cards === 1 ? null : `${entry.viewport.name}: did not enter play`,
+    entry.playing.has_gold || entry.playing.has_timer ? `${entry.viewport.name}: legacy HUD exists` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
+    entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule ? null : `${entry.viewport.name}: menu rules incomplete`,
     entry.menu.forbidden_terms.length ? `${entry.viewport.name}: legacy terms ${entry.menu.forbidden_terms.join(",")}` : null,
-    entry.draft.offer_count === 3 ? null : `${entry.viewport.name}: draft does not have three cards`,
-    entry.draft.skip_visible ? null : `${entry.viewport.name}: skip button missing`,
+    entry.draft.offer_count === 3 && entry.draft.reroll_value === "0" && entry.draft.offers_changed ? null : `${entry.viewport.name}: draft reroll failed`,
+    entry.draft.equal_actions ? null : `${entry.viewport.name}: draft action buttons are unequal`,
     entry.draft.inside_viewport ? null : `${entry.viewport.name}: draft outside viewport`,
-    entry.deck.removal_buttons === 0 ? null : `${entry.viewport.name}: removal enabled without tokens`,
-    entry.next_round.round === "2/15" ? null : `${entry.viewport.name}: failed to start round two`,
+    entry.delete_layout.equal_actions ? null : `${entry.viewport.name}: delete buttons are unequal`,
+    entry.save_home.continue_enabled && entry.save_home.save_exists ? null : `${entry.viewport.name}: autosave/continue failed`,
+    entry.item_draft.count === 3 && entry.item_draft.equal_cards ? null : `${entry.viewport.name}: item draft invalid`,
+    entry.item_draft.inside_viewport ? null : `${entry.viewport.name}: item draft outside viewport`,
+    entry.next_round.round === "4/15" && entry.next_round.save_exists && entry.next_round.owned_items >= 1 ? null : `${entry.viewport.name}: failed to reach saved round four with an item`,
     entry.card_art.failed_ids.length ? `${entry.viewport.name}: card art failed ${entry.card_art.failed_ids.join(",")}` : null,
   ]).filter(Boolean),
 ];

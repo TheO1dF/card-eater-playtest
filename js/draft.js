@@ -18,8 +18,14 @@ export function createDraftService(options = {}) {
   const random = options.random ?? Math.random;
   const createId = options.create_id ?? ((card, index) => `${card.id}-draft-${Date.now()}-${index}`);
 
-  function getOffers(state, count = GAME_CONFIG.draft_size) {
-    const pool = createCardPool().filter((card) => (card.min_draft_round ?? 1) <= state.current_round);
+  function getOffers(state, count = GAME_CONFIG.draft_size, excludedIds = []) {
+    const excluded = new Set(excludedIds);
+    let pool = createCardPool().filter((card) => (
+      (card.min_draft_round ?? 1) <= state.current_round && !excluded.has(card.id)
+    ));
+    if (pool.length < count) {
+      pool = createCardPool().filter((card) => (card.min_draft_round ?? 1) <= state.current_round);
+    }
     const offers = [];
     while (offers.length < count && pool.length > 0) {
       const [chosen] = pool.splice(weightedIndex(pool, random), 1);
@@ -45,6 +51,14 @@ export function createDraftService(options = {}) {
     state.draft_history.push({ round: state.current_round, card_id: null, skipped: true });
   }
 
+  function reroll(state, cards = []) {
+    if (state.phase !== "CardDraft") return { success: false, reason: "wrong_phase" };
+    if ((state.reroll_tokens ?? 0) < 1) return { success: false, reason: "no_token" };
+    state.reroll_tokens -= 1;
+    const offers = getOffers(state, GAME_CONFIG.draft_size, cards.map((card) => card.id));
+    return { success: true, offers, tokens: state.reroll_tokens };
+  }
+
   function removeCard(state, cardUuid) {
     if (state.phase !== "CardDraft") return { success: false, reason: "wrong_phase" };
     if ((state.delete_tokens ?? 0) < 1) return { success: false, reason: "no_token" };
@@ -57,5 +71,5 @@ export function createDraftService(options = {}) {
     return { success: true, card: removed, tokens: state.delete_tokens };
   }
 
-  return { getOffers, addCard, skip, removeCard };
+  return { getOffers, addCard, skip, reroll, removeCard };
 }

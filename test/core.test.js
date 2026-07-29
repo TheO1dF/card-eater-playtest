@@ -2,12 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { GAME_CONFIG, getFinalRound, getNextMilestone, isPlateUpgradeRound } from "../js/config.js";
+import { GAME_CONFIG, GAME_MODES, getFinalRound, getNextMilestone, isPlateUpgradeRound } from "../js/config.js";
 import { CARD_LIBRARY, createCardPool, createInitialDeck, getCardById } from "../js/data.js";
 import { createDraftService } from "../js/draft.js";
 import { createRoundEngine } from "../js/engine.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "../js/plate.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
+import { applyRoundItemSetup, chooseItem, hasUnlimitedPostpone, randomDraftItems } from "../js/items.js";
 
 let uuidCounter = 0;
 const nextId = (card) => `${card.id}-test-${uuidCounter += 1}`;
@@ -42,6 +43,9 @@ test("试验版固定为 15 轮，并在第 5/10/15 轮检查 100/300/500", () =
   assert.equal(isPlateUpgradeRound(10), true);
   assert.equal(isPlateUpgradeRound(15), true);
   assert.equal(isPlateUpgradeRound(4), false);
+  assert.equal(getFinalRound({}, GAME_MODES.ENDLESS), Infinity);
+  assert.deepEqual(getNextMilestone(16, {}, GAME_MODES.ENDLESS), { base_round: null, round: null, target: 0, endless: true });
+  assert.equal(getNextMilestone(1, {}, GAME_MODES.HARD).target, 120);
 });
 
 test("状态机从开局直接出牌，轮末只进入三选一", () => {
@@ -82,6 +86,19 @@ test("轮末奖励固定三选一，可选牌或跳过", () => {
   assert.deepEqual(state.draft_history.at(-1), { round: 6, card_id: offers[0].id, skipped: false });
   service.skip(state);
   assert.deepEqual(state.draft_history.at(-1), { round: 6, card_id: null, skipped: true });
+});
+
+test("选牌刷新消耗 token，并避开当前三张牌", () => {
+  const state = createInitialPlayerState({ create_id: nextId });
+  const service = createDraftService({ random: () => 0, create_id: nextId });
+  state.phase = GAME_PHASES.CARD_DRAFT;
+  const first = service.getOffers(state);
+  const result = service.reroll(state, first);
+  assert.equal(result.success, true);
+  assert.equal(state.reroll_tokens, 0);
+  assert.equal(result.offers.length, 3);
+  assert.equal(result.offers.some((card) => first.some((old) => old.id === card.id)), false);
+  assert.equal(service.reroll(state, result.offers).reason, "no_token");
 });
 
 test("删牌必须在轮末选牌阶段消耗 token，且至少保留一张", () => {
@@ -128,6 +145,46 @@ test("初始牌组仍是七张教学牌，四张可食用、三张不可食用",
   assert.equal(deck.filter((card) => card.edibility === "edible").length, 4);
   assert.equal(deck.filter((card) => card.edibility === "inedible").length, 3);
   assert.equal(new Set(deck.map((card) => card.uuid)).size, 7);
+  assert.ok(deck.some((card) => card.id === "F009"), "初始牌组应包含梨子");
+  assert.equal(deck.some((card) => card.id === "F003"), false, "初始牌组不再包含西瓜");
+});
+
+test("每三轮道具三选一支持永久、一次性、生成与无限后置", () => {
+  const state = createInitialPlayerState({ create_id: nextId });
+  const offers = randomDraftItems(state, 3, () => 0);
+  assert.equal(offers.length, 3);
+  assert.equal(new Set(offers.map((entry) => entry.id)).size, 3);
+
+  const instant = chooseItem(state, "IT101");
+  assert.equal(instant.consumed, true);
+  assert.equal(state.delete_tokens, 2);
+  assert.equal(state.items.some((entry) => entry.id === "IT101"), false);
+
+  assert.equal(chooseItem(state, "IT011").success, true);
+  assert.equal(hasUnlimitedPostpone(state), true);
+  resetRoundState(state);
+  state.round.draw_pile = [owned("F001", "post-a"), owned("A001", "post-b")];
+  assert.equal(postponeCurrentCard(state, { unlimited: true }).success, true);
+  assert.equal(postponeCurrentCard(state, { unlimited: true }).success, true);
+  assert.equal(postponeCurrentCard(state, { unlimited: true }).success, true);
+
+  assert.equal(chooseItem(state, "IT012").success, true);
+  const before = state.deck.length;
+  const messages = applyRoundItemSetup(state, { create_id: nextId });
+  assert.equal(state.deck.length, before + 1);
+  assert.equal(state.deck.at(-1).id, "F009");
+  assert.equal(state.deck.at(-1).weakened, true);
+  assert.equal(messages.length, 1);
+});
+
+test("道具阶段位于卡牌三选一与下一轮之间", () => {
+  const state = createInitialPlayerState({ create_id: nextId });
+  transitionPhase(state, GAME_PHASES.PLAYING);
+  transitionPhase(state, GAME_PHASES.SCORING);
+  transitionPhase(state, GAME_PHASES.CARD_DRAFT);
+  transitionPhase(state, GAME_PHASES.ITEM_DRAFT);
+  transitionPhase(state, GAME_PHASES.NEXT_ROUND);
+  assert.deepEqual(state.phase_history.map(({ to }) => to), ["Playing", "Scoring", "CardDraft", "ItemDraft", "NextRound"]);
 });
 
 test("内部效果标签仍供引擎使用，但不写入开头说明", () => {
@@ -219,4 +276,8 @@ test("菜单与主循环源码不再包含商店、任务选择、金币或计�
   assert.doesNotMatch(main, /createShopService|randomDraftRules|randomDraftQuests|tickTimer/);
   assert.match(html, /id="cardDraft"/);
   assert.match(html, /id="tokenValue"/);
+  assert.match(html, /id="newGameButton"/);
+  assert.match(html, /id="continueGameButton"/);
+  assert.match(html, /id="itemDraft"/);
+  assert.match(main, /saveGame\(\)/);
 });
