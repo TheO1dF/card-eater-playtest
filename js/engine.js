@@ -227,10 +227,12 @@ function removeRoundCard(state, cardUuid) {
 
 function markRemainingPostponed(state, excludedUuid = null) {
   state.round.postponed_uuids ??= [];
+  state.round.postpone_counts ??= {};
   const marked = [];
   for (const remaining of state.round.draw_pile) {
-    if (remaining.uuid === excludedUuid || state.round.postponed_uuids.includes(remaining.uuid)) continue;
-    state.round.postponed_uuids.push(remaining.uuid);
+    if (remaining.uuid === excludedUuid) continue;
+    if (!state.round.postponed_uuids.includes(remaining.uuid)) state.round.postponed_uuids.push(remaining.uuid);
+    state.round.postpone_counts[remaining.uuid] = Math.max(1, state.round.postpone_counts[remaining.uuid] ?? 0);
     marked.push(remaining);
   }
   return marked;
@@ -753,15 +755,19 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     markEffect(entry, card, `${card.name}：判词已蓄势；避开硬吃至轮末可 +${effect.success_bonus ?? 5}`);
   }
 
-  if (effect.kind === "prime_review" && action === effect.trigger_action) {
-    state.round.pending_review = {
-      source_uuid: card.uuid,
-      source_name: card.name,
-      correct_bonus: effect.correct_bonus ?? 3,
-      wrong_bonus: effect.wrong_bonus ?? 2,
-      self_loss: effect.self_loss ?? 1,
-    };
-    markEffect(entry, card, `${card.name}：下一次出牌将接受食性点评`);
+  if (effect.kind === "review_next_edibility" && action === effect.trigger_action) {
+    const nextCard = state.round.draw_pile.slice(0, -1).at(-1) ?? null;
+    if (!nextCard) {
+      markEffect(entry, card, `${card.name}：餐盘中没有下一张牌`);
+    } else if (nextCard.edibility === "edible") {
+      const bonus = effect.edible_bonus ?? 3;
+      addCardScoreBonus(state, nextCard.uuid, bonus);
+      markEffect(entry, card, `${card.name}：下一张「${nextCard.name}」可食用，结算额外 +${bonus}`);
+    } else {
+      const change = changePermanentCard(state, nextCard, "eat_points", effect.inedible_eat_growth ?? 1);
+      entry.point_changes = [...(entry.point_changes ?? []), { card_name: nextCard.name, stat: "eat_points", amount: change }];
+      markEffect(entry, card, `${card.name}：下一张「${nextCard.name}」不可食用，吃点永久 +${change}`);
+    }
   }
 
   if (effect.kind === "schedule_purify" && action === effect.trigger_action && consumeOncePerRound(state, card, effect)) {
@@ -2306,24 +2312,6 @@ export function createRoundEngine(options = {}) {
     if (entry.wrong_edibility && action === ACTIONS.EAT && (state.round.wrong_eat_bonus ?? 0) !== 0) {
       entry.effect_bonus = safeAdd(entry.effect_bonus, state.round.wrong_eat_bonus);
       entry.effect_triggered = `铁胃徽章：错误食性吃额外 +${state.round.wrong_eat_bonus}`;
-    }
-
-    const pendingReview = state.round.pending_review;
-    if (pendingReview && pendingReview.source_uuid !== card.uuid) {
-      if (entry.wrong_edibility) {
-        const source = state.deck.find((owned) => owned.uuid === pendingReview.source_uuid);
-        if (source) changePermanentCard(state, source, "discard_points", -(pendingReview.self_loss ?? 1));
-        entry.effect_bonus = safeAdd(entry.effect_bonus, pendingReview.wrong_bonus ?? 2);
-        entry.effect_triggered = entry.effect_triggered
-          ? `${entry.effect_triggered} · ${pendingReview.source_name}：错误食性，额外 +${pendingReview.wrong_bonus ?? 2}，自身弃分 -${pendingReview.self_loss ?? 1}`
-          : `${pendingReview.source_name}：错误食性，额外 +${pendingReview.wrong_bonus ?? 2}，自身弃分 -${pendingReview.self_loss ?? 1}`;
-      } else {
-        entry.effect_bonus = safeAdd(entry.effect_bonus, pendingReview.correct_bonus ?? 3);
-        entry.effect_triggered = entry.effect_triggered
-          ? `${entry.effect_triggered} · ${pendingReview.source_name}：正确食性，额外 +${pendingReview.correct_bonus ?? 3}`
-          : `${pendingReview.source_name}：正确食性，额外 +${pendingReview.correct_bonus ?? 3}`;
-      }
-      state.round.pending_review = null;
     }
 
     if (entry.wrong_edibility) {

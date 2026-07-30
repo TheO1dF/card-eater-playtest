@@ -401,6 +401,41 @@ test("水果连击、后置与甜点留存继续工作", () => {
   assert.equal(dessertState.deck[0].eat_points, 4);
 });
 
+test("彗星会给所有剩余牌写入可见的已后置标记", () => {
+  const state = stateWith(["F001", "A001", "C004"]);
+  const engine = createRoundEngine();
+  const comet = state.round.draw_pile.at(-1);
+  assert.equal(postponeCurrentCard(state).success, true);
+  const result = engine.recordPostpone(state, comet);
+  const remaining = state.round.draw_pile.filter((card) => card.uuid !== comet.uuid);
+  assert.equal(result.triggered, true);
+  assert.equal(remaining.length, 2);
+  assert.ok(remaining.every((card) => state.round.postponed_uuids.includes(card.uuid)));
+  assert.ok(remaining.every((card) => state.round.postpone_counts[card.uuid] === 1));
+});
+
+test("美食评论家按下一张牌的食性给予结算加分或永久成长", () => {
+  const engine = createRoundEngine();
+
+  const edibleState = stateWith(["K001", "P010"]);
+  const edibleCritic = edibleState.round.draw_pile.at(-1);
+  engine.recordAction(edibleState, "discard", edibleCritic);
+  const edibleNext = edibleState.round.draw_pile[0];
+  assert.equal(edibleState.round.card_score_bonuses[edibleNext.uuid], 3);
+  edibleState.round.draw_pile.pop();
+  const edibleResult = engine.recordAction(edibleState, "eat", edibleNext);
+  assert.equal(edibleResult.effect_bonus, 3);
+  assert.equal(edibleResult.points, 5);
+
+  const inedibleState = stateWith(["A001", "P010"]);
+  const inedibleCritic = inedibleState.round.draw_pile.at(-1);
+  const inedibleNext = inedibleState.deck[0];
+  const eatBefore = inedibleNext.eat_points;
+  engine.recordAction(inedibleState, "discard", inedibleCritic);
+  assert.equal(inedibleNext.eat_points, eatBefore + 1);
+  assert.equal(inedibleState.round.card_score_bonuses[inedibleNext.uuid] ?? 0, 0);
+});
+
 test("发馊外卖、变味炸鸡桶与三明治使用新版快餐规则", () => {
   const engine = createRoundEngine({ random: () => 0 });
 
