@@ -48,7 +48,7 @@ export function getCardPostponeCount(state, cardOrUuid) {
 }
 
 // Applying an “already postponed” mark consumes the normal once-per-round allowance.
-// An explicit infinite-postpone rule can still override that limit at the caller.
+// An extra-postpone rule may raise the per-card limit, but a mark still counts as one use.
 export function markCardsPostponed(state, cards, minimumCount = 1) {
   state.round.postponed_uuids ??= [];
   state.round.postpone_counts ??= {};

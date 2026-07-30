@@ -54,7 +54,7 @@ const definitions = [
   { id: "C11", name: "梨香催熟袋", rarity: "普通", role: "水果 · 生成改写", builds: ["fruit", "generate"], bridge: true, description: "香蕉的生成效果改为生成梨，而不是苹果。", effect: { kind: "banana_pear", card_id: "F009" } },
   { id: "C12", name: "极速出餐灯", rarity: "稀有", role: "速通 · 倍率", builds: ["sequence"], wild: true, description: "在 12 秒内清空本轮餐盘时，本轮最终得分 ×1.2。", effect: { kind: "speed_clear_multiplier", threshold_ms: 12000, multiplier: 1.2 } },
   { id: "C13", name: "红字复利簿", rarity: "罕见", role: "恢复 · 永久成长", builds: ["restore", "growth"], bridge: true, description: "每当红色点数被恢复时，该项点数再永久增加本次恢复的差值。", effect: { kind: "restore_growth" } },
-  { id: "C14", name: "永动传菜带", rarity: "传奇", role: "后置 · 规则改写", builds: ["postpone", "sequence"], wild: true, description: "同一张卡牌每轮可以无限次后置。", effect: { kind: "unlimited_postpone" } },
+  { id: "C14", name: "双程传菜带", rarity: "传奇", role: "后置 · 规则改写", builds: ["postpone", "sequence"], wild: true, description: "同一张卡牌每轮可以额外后置 1 次，最多后置 2 次。", effect: { kind: "extra_postpone", extra_uses: 1 } },
   { id: "C15", name: "沼气炉", rarity: "稀有", role: "摧毁 → 生成", builds: ["destroy", "generate"], bridge: true, description: "每摧毁 1 张牌，在牌堆顶插入 1 张临时“沼气火”：可食用，吃 +8、弃 -3，结算后自毁。", effect: { kind: "destroy_spawn_gas" } },
   { id: "C16", name: "复写托盘", rarity: "稀有", role: "生成 · 临时复制", builds: ["generate"], description: "每轮第一张生成牌会额外产生一张临时无效果复制品；复制品结算后自毁且不能再被复制。", effect: { kind: "first_generation_copy" } },
   { id: "C17", name: "冷藏周转箱", rarity: "稀有", role: "水果 · 跨轮成长", builds: ["fruit", "growth"], bridge: true, description: "每轮最后吃掉的水果暂离永久牌组一轮，返回时吃分永久 +2。", effect: { kind: "fruit_sabbatical", bonus: 2 } },
@@ -508,10 +508,14 @@ export function getItemRoundEndEffects(state, random = Math.random) {
 }
 
 export function getPostponeLimit(state) {
-  return (state.items ?? []).some((entry) => entry.effect.kind === "unlimited_postpone") ? Infinity : 1;
+  const extraUses = (state.items ?? []).reduce((total, entry) => {
+    if (entry.effect.kind !== "extra_postpone" && entry.effect.kind !== "unlimited_postpone") return total;
+    return Math.max(total, Math.max(0, Math.floor(entry.effect.extra_uses ?? 1)));
+  }, 0);
+  return 1 + extraUses;
 }
 
-export function hasUnlimitedPostpone(state) { return getPostponeLimit(state) === Infinity; }
+export function hasExtraPostpone(state) { return getPostponeLimit(state) > 1; }
 
 export function getItemFinalMultipliers(state) {
   return (state.items ?? []).flatMap((item) => {

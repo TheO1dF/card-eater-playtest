@@ -1,4 +1,4 @@
-import { GAME_CONFIG, GAME_MODES, MODE_LABELS, getFinalRound, getNextMilestone } from "./config.js";
+import { GAME_CONFIG, GAME_MODES, MODE_LABELS, getFinalRound, getMilestoneTarget, getNextMilestone } from "./config.js";
 import {
   getCurrentItemDescription,
   getItemById,
@@ -689,12 +689,11 @@ export function createUI(root) {
       const currentCard = getCurrentCard(state);
       const postponeLimit = getPostponeLimit(state);
       const usedPostpones = currentCard ? state.round.postpone_counts?.[currentCard.uuid] ?? 0 : 0;
-      const unlimitedPostpone = postponeLimit === Infinity;
       const alreadyPostponed = usedPostpones >= postponeLimit;
       postponeButton.disabled = state.phase !== "Playing" || state.round.draw_pile.length < 2 || alreadyPostponed;
       postponeButton.title = alreadyPostponed
         ? "这张牌本轮已经达到后置次数上限"
-        : `侧滑或点击：把当前牌移动到餐盘末尾；${unlimitedPostpone ? "可无限后置" : `每张最多 ${postponeLimit} 次`}`;
+        : `侧滑或点击：把当前牌移动到餐盘末尾；每张最多 ${postponeLimit} 次`;
       const hint = get("#reshuffleHint");
       const postponeEffectHint = (state.round.reverse_postpone_charges ?? 0) > 0
         ? "送餐员蓄势：下次后置将末牌调到当前"
@@ -706,8 +705,8 @@ export function createUI(root) {
           ? "当前牌已达到后置次数上限"
           : reshuffle.charges > 0
             ? `自动重洗 ${reshuffle.charges} 次 · 后置标记不会清除`
-            : unlimitedPostpone
-              ? `永动传菜带 · 同一张牌可无限后置`
+            : postponeLimit > 1
+              ? `双程传菜带 · 同一张牌最多后置 ${postponeLimit} 次`
               : `本轮已后置 ${state.round.postpone_count ?? 0} 次 · 每张最多 ${postponeLimit} 次`));
     }
   }
@@ -811,9 +810,10 @@ export function createUI(root) {
       setText(get("#menuModeLabel"), state ? MODE_LABELS[state.mode] : "主界面设置");
       if (state) {
         const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode);
+        const targetRoadmap = [5, 10, 15].map((round) => formatScore(getMilestoneTarget(round, state.mode))).join(" / ");
         setText(get("#menuObjective"), milestone.endless
-          ? `无尽模式 · 当前第 ${state.current_round} 轮 · 累计 ${formatScore(state.total_score)} 分`
-          : `当前目标：第 ${milestone.round} 轮累计达到 ${formatScore(milestone.target)} 分 · 当前 ${formatScore(state.total_score)}`);
+          ? `第 5 / 10 / 15 轮目标 ${targetRoadmap} · 无尽第 ${state.current_round} 轮 · 累计 ${formatScore(state.total_score)} 分`
+          : `第 5 / 10 / 15 轮目标 ${targetRoadmap} · 当前：第 ${milestone.round} 轮达到 ${formatScore(milestone.target)} 分（已有 ${formatScore(state.total_score)}）`);
       } else {
         setText(get("#menuObjective"), "对局中会在每次操作、选牌与轮次结算后自动保存。");
       }
@@ -1148,9 +1148,7 @@ export function createUI(root) {
       nodes.cardDraftList.replaceChildren(...cards.map((card) => draftCardElement(card, callbacks.onChoose)));
       setText(get("#draftMessage"), "三选一，也可以刷新或跳过。选牌前可先整理永久牌组。");
       updateTokens();
-      setText(get("#draftRerollValue"), (state.free_rerolls ?? 0) > 0
-        ? `免费 ${state.free_rerolls} · 标记 ${state.reroll_tokens ?? 0}`
-        : `${state.reroll_tokens ?? 0}`);
+      setText(get("#draftRerollValue"), state.reroll_tokens ?? 0);
       get("#draftManageDeck").onclick = () => openDeckStatus(state);
       const reroll = get("#draftReroll");
       reroll.disabled = (state.free_rerolls ?? 0) < 1 && (state.reroll_tokens ?? 0) < 1;

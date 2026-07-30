@@ -1023,6 +1023,7 @@ body:has(#welcomeOverlay.show) .game-shell {
 .draft-wallets .shop-wallet { min-width: 76px; }
 .draft-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
 .draft-actions > button { width: 100%; min-width: 0; }
+.draft-actions > .primary-button { margin-top: 0; }
 .delete-confirm-actions > button { width: 100%; min-width: 0; }
 .deck-remove-token { grid-column: 1 / -1; min-height: 30px; margin-top: 6px; border: 1px solid #a84d63; color: #ffd9df; background: #4a202d; cursor: pointer; font-size: 8px; font-weight: 900; }
 .deck-remove-token:hover, .deck-remove-token:focus-visible { border-color: var(--danger); background: #642739; outline: 0; }
@@ -1314,12 +1315,53 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
   .shop-item-grid { grid-template-columns: 1fr; }
   .shop-card { min-height: 118px; }
   .shop-panel-inner { padding: 12px 11px; }
-  .draft-reward-panel { max-height: 100%; overflow: auto; }
-  .draft-actions { grid-template-columns: 1fr; }
-  .draft-wallets { align-self: stretch; }
-  .draft-wallets .shop-wallet { flex: 1; min-width: 0; }
-  .draft-wallets .shop-wallet span { font-size: 7px; line-height: 1.2; white-space: nowrap; }
-  .draft-wallets .shop-wallet strong { font-size: 16px; line-height: 1.1; }
+  #cardDraft { place-items: center; }
+  .draft-reward-panel {
+    width: 100%;
+    height: auto;
+    max-height: 100%;
+    display: grid;
+    grid-template-rows: auto auto auto auto;
+    padding: 9px 8px;
+    overflow: hidden auto;
+  }
+  .draft-reward-panel .shop-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 6px; }
+  .draft-reward-panel .shop-heading h1 {
+    margin: 4px 0 2px;
+    overflow: hidden;
+    font-size: clamp(18px, 5.5vw, 22px);
+    letter-spacing: 0;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+  .draft-reward-panel .eyebrow { font-size: 7px; }
+  .draft-reward-panel .modal-lead { margin: 4px 0 6px; font-size: min(10px, calc(6px + var(--ui-copy-step))); line-height: 1.35; }
+  .draft-reward-grid { min-height: 0; align-content: start; grid-template-rows: none; gap: 6px; margin-top: 0; overflow: visible; }
+  .draft-card {
+    min-height: 108px;
+    height: auto;
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 7px;
+    padding: 7px 7px 24px;
+    border-width: 2px;
+    box-shadow: 3px 3px 0 #0b0911, inset 0 0 0 1px color-mix(in srgb, var(--shop-rarity) 48%, transparent);
+  }
+  .draft-card .shop-card-icon { width: 44px; height: 44px; }
+  .draft-card .shop-card-copy small { font-size: 7px; line-height: 1.2; }
+  .draft-card .shop-card-copy strong { margin-top: 2px; font-size: 12px; }
+  .draft-card .shop-card-copy em,
+  .draft-card .shop-card-copy i { margin-top: 4px; font-size: min(11px, calc(6px + var(--ui-copy-step))); line-height: 1.3; }
+  .draft-card-points { gap: 5px; margin-top: 4px; }
+  .draft-card-points > span:not(.draft-point-separator) { gap: 3px; }
+  .draft-card-points b { font-size: 14px; }
+  .draft-point-separator { font-size: 10px; }
+  .draft-pick-label { right: 6px; bottom: 5px; padding: 3px 6px; font-size: 7px; }
+  .draft-wallets { align-self: start; gap: 4px; }
+  .draft-wallets .shop-wallet { min-width: 54px; padding: 4px 5px; border-width: 1px; }
+  .draft-wallets .shop-wallet span { overflow: hidden; font-size: 6px; line-height: 1.1; text-overflow: clip; white-space: nowrap; }
+  .draft-wallets .shop-wallet strong { display: block; overflow: hidden; font-size: 14px; line-height: 1.05; text-overflow: clip; white-space: nowrap; }
+  .draft-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 7px; }
+  .draft-actions > button { min-width: 0; min-height: 38px; margin-top: 0; padding: 5px 3px; font-size: 9px; line-height: 1.15; }
   .item-draft-grid { grid-template-columns: 1fr; }
   .item-draft-card { min-height: 176px; grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: 1fr; }
   .item-draft-icon { width: 60px; height: 60px; }

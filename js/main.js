@@ -483,7 +483,7 @@ function handlePostpone(card) {
     return;
   }
   const postponeLimit = getPostponeLimit(state);
-  const result = postponeCurrentCard(state, { max_per_card: postponeLimit, unlimited: postponeLimit === Infinity });
+  const result = postponeCurrentCard(state, { max_per_card: postponeLimit });
   if (!result.success) {
     actionLocked = false;
     ui.showEffectFlash(result.reason === "already_postponed" ? `「${card.name}」本轮已达到后置次数上限` : "餐盘只剩一张牌，无法后置");

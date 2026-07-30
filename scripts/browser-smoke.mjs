@@ -39,7 +39,10 @@ socket.addEventListener("message", (event) => {
   if (message.method === "Log.entryAdded" && (
     message.params.entry.level === "error"
     || message.params.entry.text.includes("AudioContext was not allowed to start")
-  )) browserErrors.push(message.params.entry.text);
+  )) {
+    const entry = message.params.entry;
+    browserErrors.push([entry.text, entry.url, entry.source].filter(Boolean).join(" · "));
+  }
 });
 
 function send(method, params = {}) {
@@ -244,6 +247,7 @@ for (const viewport of selectedViewports) {
       rule_count: document.querySelectorAll("#menuRules li").length,
       has_home: Boolean(document.querySelector("#menuHomeButton")?.getBoundingClientRect().height),
       has_autosave_rule: text.includes("自动保存"),
+      objective: document.querySelector("#menuObjective")?.textContent?.trim() ?? "",
       forbidden_terms: ["金币", "商店", "限时经济", "任务选择"].filter((term) => text.includes(term)),
     };
   })()`);
@@ -324,6 +328,7 @@ for (const viewport of selectedViewports) {
 
   await finishCurrentPlate();
   await capture(`${viewport.name}-summary-1`);
+  const summaryTarget = await evaluate('document.querySelector("#summaryMilestoneScore")?.textContent?.trim() ?? ""');
   await clickElement("#summaryContinueBtn");
   await waitFor('document.querySelector("#cardDraft")?.classList.contains("show") && document.querySelectorAll(".draft-card").length === 3');
   const offerNamesBefore = await evaluate('[...document.querySelectorAll(".draft-card .shop-card-copy strong")].map((node) => node.textContent)');
@@ -333,14 +338,21 @@ for (const viewport of selectedViewports) {
   await capture(`${viewport.name}-draft-rerolled`);
   const draft = await evaluate(`(() => {
     const panel = document.querySelector(".draft-reward-panel")?.getBoundingClientRect();
+    const panelElement = document.querySelector(".draft-reward-panel");
+    const grid = document.querySelector("#cardDraftList");
+    const title = document.querySelector("#cardDraftTitle");
     const widths = [...document.querySelectorAll(".draft-actions > button")].map((button) => button.getBoundingClientRect().width);
+    const actionRects = [...document.querySelectorAll(".draft-actions > button")].map((button) => button.getBoundingClientRect());
     const walletLabels = [...document.querySelectorAll(".draft-wallets .shop-wallet span")];
+    const walletValues = [...document.querySelectorAll(".draft-wallets .shop-wallet strong")];
+    const cards = [...document.querySelectorAll("#cardDraftList .draft-card")];
     return {
       offer_count: document.querySelectorAll(".draft-card").length,
       offer_names: [...document.querySelectorAll(".draft-card .shop-card-copy strong")].map((node) => node.textContent),
       reroll_value: document.querySelector("#draftRerollValue")?.textContent,
       action_widths: widths,
       equal_actions: Math.max(...widths) - Math.min(...widths) <= 1,
+      actions_single_row: actionRects.every((rect) => Math.abs(rect.top - actionRects[0].top) <= 2),
       point_rows_horizontal: [...document.querySelectorAll(".draft-card-points")].every((row) => {
         const eat = row.querySelector(".draft-eat-point")?.getBoundingClientRect();
         const discard = row.querySelector(".draft-discard-point")?.getBoundingClientRect();
@@ -348,7 +360,13 @@ for (const viewport of selectedViewports) {
       }),
       wallet_labels: walletLabels.map((label) => label.textContent),
       wallet_labels_fit: walletLabels.every((label) => label.scrollWidth <= label.clientWidth + 1),
+      wallet_values_fit: walletValues.every((value) => value.scrollWidth <= value.clientWidth + 1 && value.scrollHeight <= value.clientHeight + 1),
       wallet_label_max_size: Math.max(...walletLabels.map((label) => parseFloat(getComputedStyle(label).fontSize))),
+      title_single_line: Boolean(title && title.scrollWidth <= title.clientWidth + 1 && title.scrollHeight <= title.clientHeight + 1),
+      panel_scroll_free: Boolean(panelElement && panelElement.scrollHeight <= panelElement.clientHeight + 1),
+      grid_scroll_free: Boolean(grid && grid.scrollHeight <= grid.clientHeight + 1),
+      card_content_fits: cards.every((card) => card.scrollWidth <= card.clientWidth + 1 && card.scrollHeight <= card.clientHeight + 1),
+      compact_height: Boolean(panel && panel.height <= innerHeight * .86),
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
     };
   })()`);
@@ -451,7 +469,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, home, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_detail: catalogDetail, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, home, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_detail: catalogDetail, summary_target: summaryTarget, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -491,16 +509,19 @@ const failures = [
     entry.playing.has_gold || entry.playing.has_timer ? `${entry.viewport.name}: legacy HUD exists` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
     entry.score_stress.score_inside && entry.score_stress.postpone_inside && entry.score_stress.card_inside && entry.score_stress.font_mode === "large" ? null : `${entry.viewport.name}: large-font score/postpone content overflows`,
-    entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule ? null : `${entry.viewport.name}: menu rules incomplete`,
+    entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule && entry.menu.objective.includes("80 / 200 / 600") ? null : `${entry.viewport.name}: menu rules or milestone targets are incomplete`,
     entry.menu.forbidden_terms.length ? `${entry.viewport.name}: legacy terms ${entry.menu.forbidden_terms.join(",")}` : null,
     entry.catalog.count === 89 && entry.catalog.effects_present && entry.catalog.effects_inside && entry.catalog.inspectable && entry.catalog.point_rows_horizontal ? null : `${entry.viewport.name}: catalog summaries are clipped or not inspectable`,
     entry.catalog_detail.effect_visible && entry.catalog_detail.preview_visible && entry.catalog_detail.inside_viewport ? null : `${entry.viewport.name}: catalog detail dialog is invalid`,
+    entry.summary_target.includes("目标 80 分") ? null : `${entry.viewport.name}: first milestone target UI is stale`,
     entry.draft.offer_count === 3 && entry.draft.reroll_value === "0" && entry.draft.offers_changed ? null : `${entry.viewport.name}: draft reroll failed`,
     entry.draft.equal_actions ? null : `${entry.viewport.name}: draft action buttons are unequal`,
+    entry.draft.actions_single_row ? null : `${entry.viewport.name}: draft actions are not kept on one row`,
     entry.draft.point_rows_horizontal ? null : `${entry.viewport.name}: draft points are not horizontal`,
-    JSON.stringify(entry.draft.wallet_labels) === JSON.stringify(["删牌标记", "刷新标记"]) && entry.draft.wallet_labels_fit ? null : `${entry.viewport.name}: draft wallet labels overflow`,
+    JSON.stringify(entry.draft.wallet_labels) === JSON.stringify(["删牌标记", "刷新标记"]) && entry.draft.wallet_labels_fit && entry.draft.wallet_values_fit ? null : `${entry.viewport.name}: draft wallet content overflows`,
     entry.viewport.mobile && entry.draft.wallet_label_max_size > 8 ? `${entry.viewport.name}: draft wallet labels remain too large` : null,
     entry.draft.inside_viewport ? null : `${entry.viewport.name}: draft outside viewport`,
+    !entry.viewport.mobile || (entry.draft.title_single_line && entry.draft.panel_scroll_free && entry.draft.grid_scroll_free && entry.draft.card_content_fits && entry.draft.compact_height) ? null : `${entry.viewport.name}: large-font draft remains oversized, needs scrolling, or clips content`,
     entry.delete_layout.equal_actions ? null : `${entry.viewport.name}: delete buttons are unequal`,
     entry.save_home.continue_enabled && entry.save_home.save_exists ? null : `${entry.viewport.name}: autosave/continue failed`,
     entry.item_draft.count === 3 && entry.item_draft.equal_cards && entry.item_draft.item_ids.every((id) => /^(A[1-8]|B[1-3]|C(?:[1-9]|1\d|20|30))$/.test(id)) ? null : `${entry.viewport.name}: item draft invalid`,

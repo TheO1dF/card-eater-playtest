@@ -50,7 +50,8 @@ export function postponeCurrentCard(state, options = {}) {
   const pile = state?.round?.draw_pile;
   if (!Array.isArray(pile) || pile.length < 2) return { success: false, reason: "not_enough_cards" };
   const card = getCurrentCard(state);
-  const limit = options.unlimited ? Infinity : Math.max(1, options.max_per_card ?? 1);
+  const requestedLimit = Number(options.max_per_card);
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.floor(requestedLimit)) : 1;
   const used = getCardPostponeCount(state, card);
   if (used >= limit) {
     return { success: false, reason: "already_postponed", card };

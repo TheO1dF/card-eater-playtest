@@ -5,9 +5,9 @@ export const GAME_CONFIG = Object.freeze({
   item_draft_interval: 3,
   plate_upgrade_interval: 5,
   milestone_targets: Object.freeze({
-    5: 100,
-    10: 300,
-    15: 500,
+    5: 80,
+    10: 200,
+    15: 600,
   }),
   max_deck_size: 160,
   reshuffle_max_deck_size: 10,

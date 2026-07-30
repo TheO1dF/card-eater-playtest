@@ -30,7 +30,7 @@ import {
   getItemFinalMultipliers,
   getItemRoundEndEffects,
   getPostponeLimit,
-  hasUnlimitedPostpone,
+  hasExtraPostpone,
   maybeDuplicateGeneratedCard,
   randomDraftItems,
   resolveItemActionEffects,
@@ -69,14 +69,14 @@ test("牌堆查询统一区分当前、下一张、剩余顺序与最后一张",
   assert.deepEqual(getRemainingCardsInPlayOrder(state).map((card) => card.id), ["A001", "K001", "F001"]);
 });
 
-test("试验版通常为 15 轮，并在第 5/10/15 轮检查 100/300/500", () => {
+test("试验版通常为 15 轮，并在第 5/10/15 轮检查 80/200/600", () => {
   assert.equal(GAME_CONFIG.total_rounds, 15);
   assert.equal(getFinalRound(), 15);
-  assert.deepEqual(GAME_CONFIG.milestone_targets, { 5: 100, 10: 300, 15: 500 });
-  assert.deepEqual(getNextMilestone(1), { base_round: 5, round: 5, target: 100, endless: false });
-  assert.deepEqual(getNextMilestone(6), { base_round: 10, round: 10, target: 300, endless: false });
-  assert.deepEqual(getNextMilestone(11), { base_round: 15, round: 15, target: 500, endless: false });
-  assert.deepEqual(getNextMilestone(5, { 5: 1 }), { base_round: 5, round: 6, target: 100, endless: false });
+  assert.deepEqual(GAME_CONFIG.milestone_targets, { 5: 80, 10: 200, 15: 600 });
+  assert.deepEqual(getNextMilestone(1), { base_round: 5, round: 5, target: 80, endless: false });
+  assert.deepEqual(getNextMilestone(6), { base_round: 10, round: 10, target: 200, endless: false });
+  assert.deepEqual(getNextMilestone(11), { base_round: 15, round: 15, target: 600, endless: false });
+  assert.deepEqual(getNextMilestone(5, { 5: 1 }), { base_round: 5, round: 6, target: 80, endless: false });
   assert.equal(getFinalRound({ 15: 2 }), 17);
   assert.equal(isPlateUpgradeRound(5), true);
   assert.equal(isPlateUpgradeRound(10), true);
@@ -84,7 +84,7 @@ test("试验版通常为 15 轮，并在第 5/10/15 轮检查 100/300/500", () =
   assert.equal(isPlateUpgradeRound(4), false);
   assert.equal(getFinalRound({}, GAME_MODES.ENDLESS), Infinity);
   assert.deepEqual(getNextMilestone(16, {}, GAME_MODES.ENDLESS), { base_round: null, round: null, target: 0, endless: true });
-  assert.equal(getNextMilestone(1, {}, GAME_MODES.HARD).target, 120);
+  assert.equal(getNextMilestone(1, {}, GAME_MODES.HARD).target, 96);
 });
 
 test("旧自动存档迁移后保留对局并切换到稀有度道具状态", () => {
@@ -239,6 +239,10 @@ test("新道具池包含 32 件命名道具、四档稀有度与定向候选", (
   assert.deepEqual(new Set(pool.map((item) => item.rarity)), new Set(["普通", "罕见", "稀有", "传奇"]));
   assert.equal(new Set(pool.map((item) => item.id)).size, 32);
   assert.equal(pool.find((item) => item.id === "C10").name, "魔法帽");
+  assert.deepEqual(
+    { name: pool.find((item) => item.id === "C14").name, description: pool.find((item) => item.id === "C14").description },
+    { name: "双程传菜带", description: "同一张卡牌每轮可以额外后置 1 次，最多后置 2 次。" },
+  );
   const offers = randomDraftItems(state, 3, () => 0);
   assert.equal(offers.length, 3);
   assert.equal(new Set(offers.map((entry) => entry.id)).size, 3);
@@ -277,11 +281,19 @@ test("金面天平使用较高牌面，首尾砝码只改牌面而不翻倍效�
   assert.equal(getItemActionOverrides(edgeState, "eat", edgeState.deck[1]).printed_multiplier, 2);
 });
 
-test("无限后置、动物领队、12 秒倍率与临时复制按轮生效", () => {
+test("额外后置、动物领队、12 秒倍率与临时复制按轮生效", () => {
   const state = stateWith(["F009", "A001", "A004"]);
   assert.equal(chooseItem(state, "C14").success, true);
-  assert.equal(hasUnlimitedPostpone(state), true);
-  assert.equal(getPostponeLimit(state), Infinity);
+  assert.equal(hasExtraPostpone(state), true);
+  assert.equal(getPostponeLimit(state), 2);
+  const firstPostpone = postponeCurrentCard(state, { max_per_card: getPostponeLimit(state) });
+  assert.equal(firstPostpone.success, true);
+  state.round.draw_pile.splice(state.round.draw_pile.indexOf(firstPostpone.card), 1);
+  state.round.draw_pile.push(firstPostpone.card);
+  assert.equal(postponeCurrentCard(state, { max_per_card: getPostponeLimit(state) }).success, true);
+  state.round.draw_pile.splice(state.round.draw_pile.indexOf(firstPostpone.card), 1);
+  state.round.draw_pile.push(firstPostpone.card);
+  assert.equal(postponeCurrentCard(state, { max_per_card: getPostponeLimit(state) }).reason, "already_postponed");
 
   assert.equal(chooseItem(state, "C5").success, true);
   applyRoundItemDrawSetup(state, () => 0);
@@ -447,7 +459,11 @@ test("所有后置打标效果会同步状态与次数，普通规则禁止再�
     assert.ok(remaining.every((card) => state.round.postponed_uuids.includes(card.uuid)), sourceId);
     assert.ok(remaining.every((card) => state.round.postpone_counts[card.uuid] === 1), sourceId);
     assert.equal(postponeCurrentCard(state).reason, "already_postponed", `${sourceId} 标记后的牌不能再次普通后置`);
-    assert.equal(postponeCurrentCard(state, { unlimited: true }).success, true, `${sourceId} 可被无限后置规则改写`);
+    const extraCard = getCurrentCard(state);
+    assert.equal(postponeCurrentCard(state, { max_per_card: 2 }).success, true, `${sourceId} 可被额外后置规则改写`);
+    state.round.draw_pile.splice(state.round.draw_pile.indexOf(extraCard), 1);
+    state.round.draw_pile.push(extraCard);
+    assert.equal(postponeCurrentCard(state, { max_per_card: 2 }).reason, "already_postponed", `${sourceId} 额外后置后达到上限`);
   }
 
   const actionState = stateWith(["F001", "A001", "U008"]);
@@ -714,18 +730,18 @@ test("目标按有效轮次检查，并允许引力井延后", () => {
   const engine = createRoundEngine();
   const state = createInitialPlayerState({ create_id: nextId });
   state.current_round = 5;
-  state.total_score = 99;
-  assert.deepEqual(engine.levelProgressCheck(state), { passed: false, target: 100, base_round: 5 });
-  state.total_score = 100;
-  assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 100, base_round: 5 });
+  state.total_score = 79;
+  assert.deepEqual(engine.levelProgressCheck(state), { passed: false, target: 80, base_round: 5 });
+  state.total_score = 80;
+  assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 80, base_round: 5 });
   state.current_round = 6;
   assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 0, base_round: null });
   state.milestone_delays = { 5: 1 };
   state.current_round = 5;
   assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 0, base_round: null });
   state.current_round = 6;
-  state.total_score = 99;
-  assert.deepEqual(engine.levelProgressCheck(state), { passed: false, target: 100, base_round: 5 });
+  state.total_score = 79;
+  assert.deepEqual(engine.levelProgressCheck(state), { passed: false, target: 80, base_round: 5 });
 });
 
 test("引力井弃置后摧毁自身并把下一目标延后一轮", () => {

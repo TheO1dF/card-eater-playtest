@@ -12,9 +12,9 @@ CardEater Classic is a 15-round, mobile-first deck-building roguelite played by 
 
 ### Runtime mode addendum (v0.18)
 
-- **Normal mode** keeps the 15-round structure and the cumulative checkpoints at rounds 5 / 10 / 15: 100 / 300 / 500 score.
+- **Normal mode** keeps the 15-round structure and the cumulative checkpoints at rounds 5 / 10 / 15: 80 / 200 / 600 score.
 - The first locally recorded victory permanently unlocks **Endless mode** and **Hard mode** in that browser.
-- **Endless mode** is identical to Normal through the 500-point gate. After passing that gate it continues from round 16 with no further cumulative score checkpoints.
+- **Endless mode** is identical to Normal through the 600-point gate. After passing that gate it continues from round 16 with no further cumulative score checkpoints.
 - **Hard mode** keeps the Normal checkpoints and adds a mandatory three-choice dangerous quest at rounds 4, 8, and 12. The chosen penalty applies immediately, the requirement is evaluated only in that round, and success grants an advanced item at the start of the next round.
 - Every mode grants one bankable free card removal after each five completed rounds.
 - A shop can be locked so its remaining card and item offers carry into the next shop instead of being rerolled.
@@ -40,9 +40,9 @@ The game must reward planning without becoming an automatic spreadsheet. A good 
 
 - A Normal or Hard run lasts at most **15 rounds**; Endless continues after passing the round-15 gate.
 - Cumulative score checkpoints are:
-  - End of round 5: at least **100** total score.
-  - End of round 10: at least **300** total score.
-  - End of round 15: at least **500** total score.
+  - End of round 5: at least **80** total score.
+  - End of round 10: at least **200** total score.
+  - End of round 15: at least **600** total score.
 - Missing a checkpoint immediately ends the run in defeat.
 - Passing the round-15 checkpoint ends a Normal or Hard run in victory; Endless continues without further score gates.
 - There is no permanent metagame power progression in the current design.
