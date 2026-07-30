@@ -5,6 +5,7 @@ import {
   getItemLevelLabel,
   getPostponeLimit,
 } from "./items.js";
+import { getCardPostponeCount, getCurrentCard, isCardPostponed } from "./round-pile.js";
 import { formatScore } from "./numbers.js";
 import { getQuestRequirement, getQuestTarget } from "./quests.js";
 import { stripKeywordTags } from "./keywords.js";
@@ -174,11 +175,16 @@ function questElement(entry, state, onChoose) {
   return button;
 }
 
-function cardElement(card, active, depth, fogged = false, postponeCount = 0, postponeLimit = 1) {
+function cardElement(card, active, depth, fogged = false, postponeCount = 0, postponeLimit = 1, markedPostponed = false) {
   const article = document.createElement("article");
   const pointChanged = pointTone(card, "eat_points") !== "point-base" || pointTone(card, "discard_points") !== "point-base";
-  const postponed = postponeCount > 0;
-  const postponeText = postponeLimit === Infinity ? `本轮已后置 ${postponeCount} 次，可继续后置` : `本轮已后置 ${postponeCount}/${postponeLimit} 次`;
+  const postponed = markedPostponed || postponeCount > 0;
+  const postponeText = postponeCount === 0
+    ? "本轮已被效果标记为后置"
+    : postponeLimit === Infinity ? `本轮已后置 ${postponeCount} 次，可继续后置` : `本轮已后置 ${postponeCount}/${postponeLimit} 次`;
+  const postponeBadge = postponeCount === 0
+    ? "已后置"
+    : postponeLimit === Infinity ? `×${postponeCount}` : `${postponeCount}/${postponeLimit}`;
   article.className = `game-card card-${card.edibility} rarity-${RARITY_CLASS[card.rarity] ?? "common"}${active ? " is-active" : ""}${fogged ? " is-fogged" : ""}${postponed ? " is-postponed" : ""}${pointChanged ? " has-point-change" : ""}${card.weakened ? " is-weakened" : ""}${freshArtClass(card)}`;
   article.style.setProperty("--depth", depth);
   article.style.zIndex = String(10 - depth);
@@ -187,7 +193,7 @@ function cardElement(card, active, depth, fogged = false, postponeCount = 0, pos
   article.innerHTML = `
     <div class="card-noise" aria-hidden="true"></div>
     <div class="card-head"><span class="rarity-tag">${card.rarity}</span><span class="edibility-tag">${EDIBILITY_LABEL[card.edibility] ?? "特殊"}</span></div>
-    <div class="card-art" aria-hidden="true"><span class="game-sprite" style="${spriteStyle(card)}"></span>${postponed ? `<span class="card-postpone-mark"><b>↔</b> ${postponeLimit === Infinity ? `×${postponeCount}` : `${postponeCount}/${postponeLimit}`}</span>` : ""}</div>
+    <div class="card-art" aria-hidden="true"><span class="game-sprite" style="${spriteStyle(card)}"></span>${postponed ? `<span class="card-postpone-mark"><b>↔</b> ${postponeBadge}</span>` : ""}</div>
     <div class="card-title"><small>${card.type}</small><strong>${card.name}</strong></div>
     <div class="card-scores"><span class="discard-score"><i><small>DISCARD</small>↑ 弃</i>${pointValue(card, "discard_points")}</span><span class="eat-score"><i><small>EAT</small>↓ 吃</i>${pointValue(card, "eat_points")}</span></div>
     <div class="card-effect${card.effect ? "" : " is-flavor"}">${cardEffectText(card)}</div>
@@ -680,7 +686,7 @@ export function createUI(root) {
     const postponeButton = get("#postponeButton");
     if (postponeButton) {
       const reshuffle = getReshuffleStatus(state);
-      const currentCard = state.round.draw_pile.at(-1);
+      const currentCard = getCurrentCard(state);
       const postponeLimit = getPostponeLimit(state);
       const usedPostpones = currentCard ? state.round.postpone_counts?.[currentCard.uuid] ?? 0 : 0;
       const unlimitedPostpone = postponeLimit === Infinity;
@@ -755,10 +761,11 @@ export function createUI(root) {
       const stacked = [...cards];
       stacked.forEach((card, index) => {
         const depth = stacked.length - 1 - index;
-        const postponeCount = state?.round?.postpone_counts?.[card.uuid] ?? 0;
+        const postponeCount = getCardPostponeCount(state, card);
         const postponeLimit = state ? getPostponeLimit(state) : 1;
+        const markedPostponed = isCardPostponed(state, card);
         const fogged = Boolean(state.round.hidden_postponed_uuids?.includes(card.uuid));
-        const node = cardElement(card, depth === 0, depth, fogged, postponeCount, postponeLimit);
+        const node = cardElement(card, depth === 0, depth, fogged, postponeCount, postponeLimit, markedPostponed);
         const shuffleSide = depth % 2 === 0 ? -1 : 1;
         const shuffleRank = Math.floor(depth / 2);
         node.classList.toggle("is-stack-hidden", depth > 2);

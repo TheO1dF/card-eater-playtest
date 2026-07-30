@@ -9,7 +9,7 @@
     "export:cards": "node scripts/export-card-csv.mjs",
     "simulate": "node scripts/simulate-run.mjs",
     "test": "node --test --test-isolation=none",
-    "check": "node --check js/main.js && node --test --test-isolation=none && node scripts/build.mjs",
+    "check": "node --check js/main.js && node scripts/audit-cards.mjs && node --test --test-isolation=none && node scripts/build.mjs",
     "deploy": "npm run build && npx wrangler deploy",
     "preview": "npm run build && npx wrangler dev"
   }

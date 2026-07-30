@@ -1318,6 +1318,8 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
   .draft-actions { grid-template-columns: 1fr; }
   .draft-wallets { align-self: stretch; }
   .draft-wallets .shop-wallet { flex: 1; min-width: 0; }
+  .draft-wallets .shop-wallet span { font-size: 7px; line-height: 1.2; white-space: nowrap; }
+  .draft-wallets .shop-wallet strong { font-size: 16px; line-height: 1.1; }
   .item-draft-grid { grid-template-columns: 1fr; }
   .item-draft-card { min-height: 176px; grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: 1fr; }
   .item-draft-icon { width: 60px; height: 60px; }

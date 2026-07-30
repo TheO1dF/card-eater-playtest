@@ -7,6 +7,7 @@ import { createUI } from "./ui.js";
 import { browserPlatform } from "./platform.js";
 import { playSound, toggleBGM, unlockAudio } from "./audio.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "./plate.js";
+import { getCurrentCard } from "./round-pile.js";
 import { activateReshuffle, getReshuffleStatus } from "./reshuffle.js";
 import { CARD_TYPES, getCardById } from "./data.js";
 import {
@@ -68,7 +69,7 @@ function renderTutorial() {
     return;
   }
   const progress = tutorialProgress();
-  const card = state.round.draw_pile.at(-1);
+  const card = getCurrentCard(state);
   if (!tutorial.correct_eat) {
     const edible = card?.edibility === "edible";
     ui.showStoryGuide({
@@ -422,7 +423,7 @@ function handleAction(action, card) {
     actionLocked = false;
     return;
   }
-  const currentCard = state.round.draw_pile.at(-1);
+  const currentCard = getCurrentCard(state);
   if (!currentCard || currentCard.uuid !== card.uuid) {
     actionLocked = false;
     refreshTable();
@@ -437,7 +438,7 @@ function handleAction(action, card) {
   state.round.draw_pile.pop();
   if (state.deck.some((item) => item.uuid === card.uuid)) state.round.spent_pile.push(card);
   if (state.round.consume_next_uuid) {
-    const consumed = state.round.draw_pile.at(-1);
+    const consumed = getCurrentCard(state);
     if (consumed?.uuid === state.round.consume_next_uuid) state.round.draw_pile.pop();
     state.round.consume_next_uuid = null;
   }
@@ -475,7 +476,7 @@ function handlePostpone(card) {
     actionLocked = false;
     return;
   }
-  const currentCard = state.round.draw_pile.at(-1);
+  const currentCard = getCurrentCard(state);
   if (!currentCard || currentCard.uuid !== card.uuid) {
     actionLocked = false;
     refreshTable();

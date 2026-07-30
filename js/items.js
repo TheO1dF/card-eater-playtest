@@ -1,6 +1,7 @@
 import { GAME_CONFIG } from "./config.js";
 import { createShopCardPool, getCardById } from "./data.js";
 import { safeAdd } from "./numbers.js";
+import { getRemainingCardCount } from "./round-pile.js";
 
 const CARD_POOL_ITEMS = Object.freeze([
   ["A1", "果摊兑换券", "水果", "水果选牌"],
@@ -238,7 +239,7 @@ export function getItemActionOverrides(state, action, card) {
   return {
     use_best_side: bestSide,
     force_zero: Boolean(edge && state.round.actions.length === 0),
-    printed_multiplier: edge && state.round.actions.length > 0 && state.round.draw_pile.length === 1 ? edge.effect.last_multiplier ?? 2 : 1,
+    printed_multiplier: edge && state.round.actions.length > 0 && getRemainingCardCount(state) === 0 ? edge.effect.last_multiplier ?? 2 : 1,
   };
 }
 

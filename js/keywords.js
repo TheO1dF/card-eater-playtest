@@ -177,6 +177,7 @@ const KIND_KEYWORDS = Object.freeze({
   choice_score_or_delete_token: ["删牌", "摧毁"],
   early_action_bonus: ["位置"],
   flat_action_bonus: [],
+  first_discard_bonus: ["位置"],
   postpone_decay_score: ["后置", "成长"],
   destroy_self_score: ["摧毁"],
 });

@@ -7,6 +7,16 @@ import { CARD_LIBRARY, createCardPool, createInitialDeck, getCardById } from "..
 import { createDraftService } from "../js/draft.js";
 import { createRoundEngine } from "../js/engine.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "../js/plate.js";
+import {
+  getCurrentCard,
+  getFinalRemainingCard,
+  getNextCard,
+  getRemainingCardCount,
+  getRemainingCards,
+  getRemainingCardsInPlayOrder,
+  markCardsPostponed,
+} from "../js/round-pile.js";
+import { CARD_EFFECT_CONTRACTS } from "../js/card-effect-contracts.js";
 import { migrateRunState } from "../js/platform.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
 import {
@@ -49,6 +59,16 @@ function stateWith(ids) {
   return state;
 }
 
+test("牌堆查询统一区分当前、下一张、剩余顺序与最后一张", () => {
+  const state = stateWith(["F001", "K001", "A001", "P001"]);
+  assert.equal(getCurrentCard(state).id, "P001");
+  assert.equal(getNextCard(state).id, "A001");
+  assert.equal(getFinalRemainingCard(state).id, "F001");
+  assert.equal(getRemainingCardCount(state), 3);
+  assert.deepEqual(getRemainingCards(state).map((card) => card.id), ["F001", "K001", "A001"]);
+  assert.deepEqual(getRemainingCardsInPlayOrder(state).map((card) => card.id), ["A001", "K001", "F001"]);
+});
+
 test("试验版通常为 15 轮，并在第 5/10/15 轮检查 100/300/500", () => {
   assert.equal(GAME_CONFIG.total_rounds, 15);
   assert.equal(getFinalRound(), 15);
@@ -87,6 +107,19 @@ test("旧自动存档迁移后保留对局并切换到稀有度道具状态", ()
   assert.deepEqual(migrated.items, []);
   assert.deepEqual(migrated.exiled_cards, []);
   assert.equal(migrated.free_rerolls, 1);
+});
+
+test("当前版本存档也会修复后置 UUID 与次数不一致", () => {
+  const state = createInitialPlayerState({ create_id: nextId });
+  state.round.postponed_uuids = [state.deck[0].uuid];
+  state.round.postpone_counts = {};
+  const migrated = migrateRunState(state);
+  assert.equal(migrated.round.postpone_counts[state.deck[0].uuid], 1);
+
+  migrated.round.postponed_uuids = [];
+  migrated.round.postpone_counts[state.deck[1].uuid] = 1;
+  const reconciled = migrateRunState(migrated);
+  assert.ok(reconciled.round.postponed_uuids.includes(state.deck[1].uuid));
 });
 
 test("状态机从开局直接出牌，轮末只进入三选一", () => {
@@ -401,20 +434,72 @@ test("水果连击、后置与甜点留存继续工作", () => {
   assert.equal(dessertState.deck[0].eat_points, 4);
 });
 
-test("彗星会给所有剩余牌写入可见的已后置标记", () => {
-  const state = stateWith(["F001", "A001", "C004"]);
-  const engine = createRoundEngine();
-  const comet = state.round.draw_pile.at(-1);
-  assert.equal(postponeCurrentCard(state).success, true);
-  const result = engine.recordPostpone(state, comet);
-  const remaining = state.round.draw_pile.filter((card) => card.uuid !== comet.uuid);
-  assert.equal(result.triggered, true);
-  assert.equal(remaining.length, 2);
-  assert.ok(remaining.every((card) => state.round.postponed_uuids.includes(card.uuid)));
-  assert.ok(remaining.every((card) => state.round.postpone_counts[card.uuid] === 1));
+test("所有后置打标效果会同步状态与次数，普通规则禁止再次后置", () => {
+  for (const sourceId of ["K011", "C004", "C011", "U004"]) {
+    const state = stateWith(["F001", "A001", sourceId]);
+    const engine = createRoundEngine({ random: () => 0 });
+    const source = state.round.draw_pile.at(-1);
+    assert.equal(postponeCurrentCard(state).success, true);
+    const result = engine.recordPostpone(state, source);
+    const remaining = state.round.draw_pile.filter((card) => card.uuid !== source.uuid);
+    assert.equal(result.triggered, true, sourceId);
+    assert.equal(remaining.length, 2, sourceId);
+    assert.ok(remaining.every((card) => state.round.postponed_uuids.includes(card.uuid)), sourceId);
+    assert.ok(remaining.every((card) => state.round.postpone_counts[card.uuid] === 1), sourceId);
+    assert.equal(postponeCurrentCard(state).reason, "already_postponed", `${sourceId} 标记后的牌不能再次普通后置`);
+    assert.equal(postponeCurrentCard(state, { unlimited: true }).success, true, `${sourceId} 可被无限后置规则改写`);
+  }
+
+  const actionState = stateWith(["F001", "A001", "U008"]);
+  const actionEngine = createRoundEngine();
+  const laminator = actionState.round.draw_pile.at(-1);
+  actionEngine.recordAction(actionState, "discard", laminator);
+  actionState.round.draw_pile.pop();
+  assert.ok(actionState.round.draw_pile.every((card) => actionState.round.postponed_uuids.includes(card.uuid)));
+  assert.ok(actionState.round.draw_pile.every((card) => actionState.round.postpone_counts[card.uuid] === 1));
+  assert.equal(postponeCurrentCard(actionState).reason, "already_postponed");
+
+  const animalState = stateWith(["A001", "A010"]);
+  const animalEngine = createRoundEngine({ random: () => 0 });
+  const sheepdog = animalState.round.draw_pile.at(-1);
+  assert.equal(postponeCurrentCard(animalState).success, true);
+  animalEngine.recordPostpone(animalState, sheepdog);
+  const markedAnimal = animalState.round.draw_pile.at(-1);
+  assert.ok(animalState.round.postponed_uuids.includes(markedAnimal.uuid));
+  assert.equal(animalState.round.postpone_counts[markedAnimal.uuid], 1);
+  assert.equal(postponeCurrentCard(animalState).reason, "already_postponed");
 });
 
-test("美食评论家按下一张牌的食性给予结算加分或永久成长", () => {
+test("后置结算使用移动后的下一张，并正确统计除来源外的整副餐盘", () => {
+  const engine = createRoundEngine({ random: () => 0 });
+
+  const lunchboxState = stateWith(["F001", "A001", "K011"]);
+  const lunchbox = getCurrentCard(lunchboxState);
+  assert.equal(postponeCurrentCard(lunchboxState).success, true);
+  engine.recordPostpone(lunchboxState, lunchbox);
+  const ownedLunchbox = lunchboxState.deck.find((card) => card.uuid === lunchbox.uuid);
+  assert.equal(ownedLunchbox.eat_points, -1);
+  assert.equal(ownedLunchbox.discard_points, 1);
+
+  const wingState = stateWith(["F001", "A001", "K007"]);
+  const wing = getCurrentCard(wingState);
+  assert.equal(postponeCurrentCard(wingState).success, true);
+  assert.equal(getCurrentCard(wingState).id, "A001");
+  engine.recordPostpone(wingState, wing);
+  assert.equal(wingState.deck.find((card) => card.id === "A001").eat_points, -2);
+  assert.equal(wingState.deck.find((card) => card.id === "K007").eat_points, 5);
+
+  const reverseState = stateWith(["F001", "A001", "K007"]);
+  reverseState.round.reverse_postpone_charges = 1;
+  const reverseWing = getCurrentCard(reverseState);
+  const reverseResult = postponeCurrentCard(reverseState);
+  assert.equal(reverseResult.direction, "front");
+  assert.equal(getCurrentCard(reverseState).id, "F001");
+  engine.recordPostpone(reverseState, reverseWing);
+  assert.equal(reverseState.deck.find((card) => card.id === "F001").eat_points, 0);
+});
+
+test("美食评论家按下一张牌的食性给予结算加分或永久降低弃点", () => {
   const engine = createRoundEngine();
 
   const edibleState = stateWith(["K001", "P010"]);
@@ -430,10 +515,118 @@ test("美食评论家按下一张牌的食性给予结算加分或永久成长",
   const inedibleState = stateWith(["A001", "P010"]);
   const inedibleCritic = inedibleState.round.draw_pile.at(-1);
   const inedibleNext = inedibleState.deck[0];
-  const eatBefore = inedibleNext.eat_points;
+  const discardBefore = inedibleNext.discard_points;
   engine.recordAction(inedibleState, "discard", inedibleCritic);
-  assert.equal(inedibleNext.eat_points, eatBefore + 1);
+  assert.equal(inedibleNext.discard_points, discardBefore - 1);
   assert.equal(inedibleState.round.card_score_bonuses[inedibleNext.uuid] ?? 0, 0);
+});
+
+test("风险经纪人只在它是本轮第一张弃牌时额外加七分", () => {
+  const engine = createRoundEngine();
+
+  const firstDiscardState = stateWith(["P002"]);
+  const firstResult = engine.recordAction(firstDiscardState, "discard", firstDiscardState.round.draw_pile.at(-1));
+  assert.equal(firstResult.effect_bonus, 7);
+  assert.equal(firstResult.points, 4);
+
+  const afterEatState = stateWith(["P002", "F001"]);
+  engine.recordAction(afterEatState, "eat", afterEatState.round.draw_pile.at(-1));
+  afterEatState.round.draw_pile.pop();
+  const afterEatResult = engine.recordAction(afterEatState, "discard", afterEatState.round.draw_pile.at(-1));
+  assert.equal(afterEatResult.effect_bonus, 7);
+
+  const afterDiscardState = stateWith(["P002", "A001"]);
+  engine.recordAction(afterDiscardState, "discard", afterDiscardState.round.draw_pile.at(-1));
+  afterDiscardState.round.draw_pile.pop();
+  const lateResult = engine.recordAction(afterDiscardState, "discard", afterDiscardState.round.draw_pile.at(-1));
+  assert.equal(lateResult.effect_bonus, 0);
+  assert.equal(lateResult.points, -3);
+});
+
+test("隔夜餐盒与辣鸡翅使用调整后的稀有度", () => {
+  assert.equal(CARD_LIBRARY.K011.rarity, "稀有");
+  assert.equal(CARD_LIBRARY.K007.rarity, "罕见");
+});
+
+test("餐盘数量、下一张、末牌和已后置目标按统一牌堆语义结算", () => {
+  const engine = createRoundEngine({ random: () => 0 });
+
+  const dessertState = stateWith(["D001", "F001", "D010"]);
+  const dessertResult = engine.recordAction(dessertState, "eat", getCurrentCard(dessertState));
+  assert.equal(dessertResult.effect_bonus, 1);
+  assert.equal(dessertResult.points, 2);
+
+  const remainingState = stateWith(["F001", "A001", "K001", "C006"]);
+  const remainingResult = engine.recordAction(remainingState, "discard", getCurrentCard(remainingState));
+  assert.equal(remainingResult.effect_bonus, 3);
+  assert.equal(remainingResult.points, 5);
+
+  const uniqueState = stateWith(["F001", "A001", "K001", "P009"]);
+  const uniqueResult = engine.recordAction(uniqueState, "discard", getCurrentCard(uniqueState));
+  assert.equal(uniqueResult.effect_bonus, 3);
+
+  const tailState = stateWith(["F001", "A001", "D011"]);
+  const tailResult = engine.recordAction(tailState, "eat", getCurrentCard(tailState));
+  assert.equal(tailResult.effect_bonus, 3);
+
+  const markedState = stateWith(["F001", "A001", "C009"]);
+  markCardsPostponed(markedState, getRemainingCards(markedState));
+  const moon = getCurrentCard(markedState);
+  engine.recordAction(markedState, "discard", moon);
+  markedState.round.draw_pile.pop();
+  const markedResult = engine.recordAction(markedState, "discard", getCurrentCard(markedState));
+  assert.equal(markedResult.effect_bonus, 2);
+  assert.equal(markedResult.points, 4);
+});
+
+test("89 张卡均有有效契约，并可在基础与相邻上下文安全结算", () => {
+  const supportIds = ["F001", "K001", "D001", "B001", "A001", "C001", "P001", "U001"];
+  const cards = createCardPool();
+  const engine = createRoundEngine({ random: () => 0 });
+  assert.equal(cards.length, 89);
+
+  for (const template of cards) {
+    if (template.effect) assert.ok(CARD_EFFECT_CONTRACTS[template.effect.kind], `${template.id} 缺少效果契约`);
+
+    for (const action of ["eat", "discard"]) {
+      const state = stateWith([...supportIds, template.id]);
+      const result = engine.recordAction(state, action, getCurrentCard(state));
+      assert.ok(Number.isFinite(result.points), `${template.id} ${action} 得分不是有限数`);
+      assert.ok(state.deck.every((card) => Number.isFinite(card.eat_points) && Number.isFinite(card.discard_points)), `${template.id} ${action} 产生非法牌面`);
+    }
+
+    const warmState = stateWith([...supportIds, template.id, "F001"]);
+    engine.recordAction(warmState, "eat", getCurrentCard(warmState));
+    warmState.round.draw_pile.pop();
+    const warmResult = engine.recordAction(warmState, "discard", getCurrentCard(warmState));
+    assert.ok(Number.isFinite(warmResult.points), `${template.id} 相邻上下文得分不是有限数`);
+
+    const timing = template.effect ? CARD_EFFECT_CONTRACTS[template.effect.kind].timing : "";
+    if (timing.includes("postpone")) {
+      const state = stateWith([...supportIds, template.id]);
+      const source = getCurrentCard(state);
+      assert.equal(postponeCurrentCard(state).success, true, `${template.id} 无法进行首次后置`);
+      const result = engine.recordPostpone(state, source);
+      assert.ok(Number.isFinite(result.score_bonus), `${template.id} 后置奖励不是有限数`);
+    }
+  }
+});
+
+test("加分券的两次蓄势每轮只允许创建一次", () => {
+  const state = stateWith(["U003", "U003"]);
+  const engine = createRoundEngine();
+  const first = getCurrentCard(state);
+  engine.recordAction(state, "discard", first);
+  state.round.draw_pile.pop();
+  const second = getCurrentCard(state);
+  engine.recordAction(state, "discard", second);
+  assert.equal(state.round.buffs.filter((buff) => buff.source === "加分券").length, 2, "两张不同实体各创建一组蓄势");
+
+  const repeatedState = stateWith(["U003", "F001"]);
+  const coupon = repeatedState.deck[0];
+  engine.recordAction(repeatedState, "discard", coupon);
+  engine.recordAction(repeatedState, "discard", coupon);
+  assert.equal(repeatedState.round.buffs.filter((buff) => buff.source === "加分券").length, 1);
 });
 
 test("发馊外卖、变味炸鸡桶与三明治使用新版快餐规则", () => {

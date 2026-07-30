@@ -105,6 +105,16 @@ export function migrateRunState(state) {
     state.free_rerolls ??= 1;
     state.reroll_tokens ??= 0;
   }
+  if (state.schema_version === 23 && state.round) {
+    state.round.postponed_uuids ??= [];
+    state.round.postpone_counts ??= {};
+    for (const uuid of state.round.postponed_uuids) {
+      state.round.postpone_counts[uuid] = Math.max(1, state.round.postpone_counts[uuid] ?? 0);
+    }
+    for (const [uuid, count] of Object.entries(state.round.postpone_counts)) {
+      if (count > 0 && !state.round.postponed_uuids.includes(uuid)) state.round.postponed_uuids.push(uuid);
+    }
+  }
   return state.schema_version === 23 ? state : null;
 }
 

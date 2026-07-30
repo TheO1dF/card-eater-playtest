@@ -334,6 +334,7 @@ for (const viewport of selectedViewports) {
   const draft = await evaluate(`(() => {
     const panel = document.querySelector(".draft-reward-panel")?.getBoundingClientRect();
     const widths = [...document.querySelectorAll(".draft-actions > button")].map((button) => button.getBoundingClientRect().width);
+    const walletLabels = [...document.querySelectorAll(".draft-wallets .shop-wallet span")];
     return {
       offer_count: document.querySelectorAll(".draft-card").length,
       offer_names: [...document.querySelectorAll(".draft-card .shop-card-copy strong")].map((node) => node.textContent),
@@ -345,6 +346,9 @@ for (const viewport of selectedViewports) {
         const discard = row.querySelector(".draft-discard-point")?.getBoundingClientRect();
         return Boolean(eat && discard && Math.abs(eat.top - discard.top) <= 2 && row.scrollWidth <= row.clientWidth + 1);
       }),
+      wallet_labels: walletLabels.map((label) => label.textContent),
+      wallet_labels_fit: walletLabels.every((label) => label.scrollWidth <= label.clientWidth + 1),
+      wallet_label_max_size: Math.max(...walletLabels.map((label) => parseFloat(getComputedStyle(label).fontSize))),
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
     };
   })()`);
@@ -494,6 +498,8 @@ const failures = [
     entry.draft.offer_count === 3 && entry.draft.reroll_value === "0" && entry.draft.offers_changed ? null : `${entry.viewport.name}: draft reroll failed`,
     entry.draft.equal_actions ? null : `${entry.viewport.name}: draft action buttons are unequal`,
     entry.draft.point_rows_horizontal ? null : `${entry.viewport.name}: draft points are not horizontal`,
+    JSON.stringify(entry.draft.wallet_labels) === JSON.stringify(["删牌标记", "刷新标记"]) && entry.draft.wallet_labels_fit ? null : `${entry.viewport.name}: draft wallet labels overflow`,
+    entry.viewport.mobile && entry.draft.wallet_label_max_size > 8 ? `${entry.viewport.name}: draft wallet labels remain too large` : null,
     entry.draft.inside_viewport ? null : `${entry.viewport.name}: draft outside viewport`,
     entry.delete_layout.equal_actions ? null : `${entry.viewport.name}: delete buttons are unequal`,
     entry.save_home.continue_enabled && entry.save_home.save_exists ? null : `${entry.viewport.name}: autosave/continue failed`,

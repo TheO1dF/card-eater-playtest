@@ -14,6 +14,17 @@ import {
   shouldEchoDrinkEffect,
 } from "./items.js";
 import { formatScore, safeAdd, safeMultiply, safeProduct } from "./numbers.js";
+import {
+  getFinalRemainingCard,
+  getCurrentCard,
+  getNextCard,
+  getRemainingCardCount,
+  getRemainingCards,
+  getRemainingCardsInPlayOrder,
+  getRoundCardsExcept,
+  isCardPostponed,
+  markCardsPostponed,
+} from "./round-pile.js";
 
 const ACTIONS = Object.freeze({ EAT: "eat", DISCARD: "discard" });
 
@@ -32,8 +43,8 @@ function matchesTarget(rule, card) {
 function matchesPosition(state, position) {
   if (position === "first") return state.round.actions.length === 0;
   if (position === "second") return state.round.actions.length === 1;
-  if (position === "last") return state.round.draw_pile.length === 1;
-  if (position === "middle") return state.round.actions.length > 0 && state.round.draw_pile.length > 1;
+  if (position === "last") return getRemainingCardCount(state) === 0;
+  if (position === "middle") return state.round.actions.length > 0 && getRemainingCardCount(state) > 0;
   return false;
 }
 
@@ -226,16 +237,7 @@ function removeRoundCard(state, cardUuid) {
 }
 
 function markRemainingPostponed(state, excludedUuid = null) {
-  state.round.postponed_uuids ??= [];
-  state.round.postpone_counts ??= {};
-  const marked = [];
-  for (const remaining of state.round.draw_pile) {
-    if (remaining.uuid === excludedUuid) continue;
-    if (!state.round.postponed_uuids.includes(remaining.uuid)) state.round.postponed_uuids.push(remaining.uuid);
-    state.round.postpone_counts[remaining.uuid] = Math.max(1, state.round.postpone_counts[remaining.uuid] ?? 0);
-    marked.push(remaining);
-  }
-  return marked;
+  return markCardsPostponed(state, getRoundCardsExcept(state, excludedUuid));
 }
 
 function addCardScoreBonus(state, cardUuid, amount) {
@@ -365,6 +367,15 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     markEffect(entry, card, `${card.name}：额外 +${bonus} 分`);
   }
 
+  if (effect.kind === "first_discard_bonus" && action === ACTIONS.DISCARD) {
+    const isFirstDiscard = !state.round.actions.some((previous) => previous.action === ACTIONS.DISCARD);
+    if (isFirstDiscard) {
+      const bonus = effect.bonus ?? 0;
+      entry.effect_bonus = safeAdd(entry.effect_bonus, bonus);
+      markEffect(entry, card, `${card.name}：本轮第一张弃牌，额外 +${bonus} 分`);
+    }
+  }
+
   if (effect.kind === "early_action_bonus" && action === effect.trigger_action) {
     const actionNumber = state.round.actions.length + 1;
     if (actionNumber <= (effect.action_limit ?? 3)) {
@@ -423,7 +434,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     state.round.fruit_combo = combo;
     state.round.best_fruit_combo = Math.max(state.round.best_fruit_combo ?? 0, combo);
     const bonus = Math.min(effect.max_bonus ?? GAME_CONFIG.max_score, combo * (effect.bonus_per_combo ?? 1));
-    const forecast = state.round.draw_pile.slice(0, -1).slice(-(effect.count ?? 3)).reverse();
+    const forecast = getRemainingCardsInPlayOrder(state).slice(0, effect.count ?? 3);
     entry.effect_bonus = safeAdd(entry.effect_bonus, bonus);
     entry.fruit_combo = combo;
     entry.forecast_cards = forecast.map((item) => item.name);
@@ -494,13 +505,13 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       const discardChange = changePermanentCard(state, card, "discard_points", effect.discard_gain ?? 2, { max: 12 });
       entry.permanent_change = { eat: eatChange, discard: discardChange };
     }
-    const doubled = state.round.draw_pile.slice(0, -1).filter((remaining) => remaining.type === "快餐").map((remaining) => remaining.uuid);
+    const doubled = getRemainingCards(state).filter((remaining) => remaining.type === "快餐").map((remaining) => remaining.uuid);
     state.round.double_point_change_uuids = [...new Set([...(state.round.double_point_change_uuids ?? []), ...doubled])];
     markEffect(entry, card, `${card.name}：本轮剩余 ${doubled.length} 张快餐的点数变动值翻倍`);
   }
 
   if (effect.kind === "fast_food_anorexia_or_positive_count") {
-    const remaining = state.round.draw_pile.slice(0, -1);
+    const remaining = getRemainingCards(state);
     if (action === ACTIONS.EAT) {
       const hasFastFood = remaining.some((candidate) => candidate.type === "快餐");
       if (hasFastFood) {
@@ -570,7 +581,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (["scale_by_reserve_type", "scale_by_pile_type"].includes(effect.kind) && action === effect.trigger_action) {
-    const source = effect.kind === "scale_by_pile_type" ? state.round.draw_pile.slice(0, -1) : (state.round.reserve_cards ?? []);
+    const source = effect.kind === "scale_by_pile_type" ? getRemainingCards(state) : (state.round.reserve_cards ?? []);
     const count = source.filter((owned) => owned.type === effect.target_type && owned.uuid !== card.uuid).length;
     const bonus = Math.min(effect.max_bonus ?? GAME_CONFIG.max_score, count * (effect.multiplier ?? 1));
     entry.effect_bonus = safeAdd(entry.effect_bonus, bonus);
@@ -578,7 +589,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "forecast_tail_edibility" && action === effect.trigger_action) {
-    const tail = state.round.draw_pile.length > 1 ? state.round.draw_pile[0] : null;
+    const tail = getFinalRemainingCard(state);
     entry.forecast_cards = tail ? [tail.name] : [];
     const success = tail?.edibility === effect.target_edibility;
     if (success) entry.effect_bonus = safeAdd(entry.effect_bonus, effect.bonus ?? 0);
@@ -673,8 +684,8 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "gather_unresolved_type" && action === effect.trigger_action) {
-    const current = state.round.draw_pile.at(-1);
-    const unresolved = state.round.draw_pile.slice(0, -1);
+    const current = getCurrentCard(state);
+    const unresolved = getRemainingCards(state);
     const gathered = unresolved.filter((owned) => owned.type === effect.target_type);
     const others = unresolved.filter((owned) => owned.type !== effect.target_type);
     state.round.draw_pile = [...others, ...gathered, current];
@@ -683,8 +694,8 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "recall_tail" && action === effect.trigger_action) {
     if (state.round.draw_pile.length > 2) {
-      const current = state.round.draw_pile.at(-1);
-      const unresolved = state.round.draw_pile.slice(0, -1);
+      const current = getCurrentCard(state);
+      const unresolved = getRemainingCards(state);
       const tail = unresolved.shift();
       state.round.draw_pile = [...unresolved, tail, current];
       markEffect(entry, card, `${card.name}：末牌「${tail.name}」被调到下一张`);
@@ -699,7 +710,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       const removed = removePermanentCard(state, previous.card_uuid);
       if (removed) { destroyed += 1; names.push(removed.name); }
     }
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     if (next && state.deck.length > 1) {
       const removed = removePermanentCard(state, next.uuid);
       if (removed) {
@@ -736,7 +747,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (["scale_by_reserve_unique_types", "scale_by_pile_unique_types"].includes(effect.kind) && action === effect.trigger_action) {
-    const source = effect.kind === "scale_by_pile_unique_types" ? state.round.draw_pile.slice(0, -1) : (state.round.reserve_cards ?? []);
+    const source = effect.kind === "scale_by_pile_unique_types" ? getRemainingCards(state) : (state.round.reserve_cards ?? []);
     const count = new Set(source.map((owned) => owned.type)).size;
     const bonus = Math.min(effect.max_bonus ?? GAME_CONFIG.max_score, count * (effect.multiplier ?? 1));
     entry.effect_bonus = safeAdd(entry.effect_bonus, bonus);
@@ -756,7 +767,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "review_next_edibility" && action === effect.trigger_action) {
-    const nextCard = state.round.draw_pile.slice(0, -1).at(-1) ?? null;
+    const nextCard = getNextCard(state);
     if (!nextCard) {
       markEffect(entry, card, `${card.name}：餐盘中没有下一张牌`);
     } else if (nextCard.edibility === "edible") {
@@ -764,9 +775,9 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       addCardScoreBonus(state, nextCard.uuid, bonus);
       markEffect(entry, card, `${card.name}：下一张「${nextCard.name}」可食用，结算额外 +${bonus}`);
     } else {
-      const change = changePermanentCard(state, nextCard, "eat_points", effect.inedible_eat_growth ?? 1);
-      entry.point_changes = [...(entry.point_changes ?? []), { card_name: nextCard.name, stat: "eat_points", amount: change }];
-      markEffect(entry, card, `${card.name}：下一张「${nextCard.name}」不可食用，吃点永久 +${change}`);
+      const change = changePermanentCard(state, nextCard, "discard_points", -(effect.inedible_discard_loss ?? 1));
+      entry.point_changes = [...(entry.point_changes ?? []), { card_name: nextCard.name, stat: "discard_points", amount: change }];
+      markEffect(entry, card, `${card.name}：下一张「${nextCard.name}」不可食用，弃点永久 ${change}`);
     }
   }
 
@@ -798,9 +809,8 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "buff_two_marked" && action === effect.trigger_action) {
-    const marked = state.round.draw_pile.slice(0, -1)
-      .reverse()
-      .filter((remaining) => state.round.postponed_uuids?.includes(remaining.uuid))
+    const marked = getRemainingCardsInPlayOrder(state)
+      .filter((remaining) => isCardPostponed(state, remaining))
       .slice(0, effect.count ?? 2);
     marked.forEach((remaining) => addCardScoreBonus(state, remaining.uuid, effect.bonus ?? 1));
     markEffect(entry, card, `${card.name}：${marked.length} 张已后置牌结算额外 +${effect.bonus ?? 1}`);
@@ -810,7 +820,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     const marked = markRemainingPostponed(state, card.uuid);
     state.round.protected_decrease_uuids = [...new Set([
       ...(state.round.protected_decrease_uuids ?? []),
-      ...state.round.draw_pile.slice(0, -1).map((remaining) => remaining.uuid),
+      ...getRemainingCards(state).map((remaining) => remaining.uuid),
     ])];
     markEffect(entry, card, `${card.name}：剩余 ${marked.length} 张牌已标记后置，本轮牌面不会降低`);
   }
@@ -964,7 +974,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
         .filter((item) => item.effect?.kind === "retention_growth_bonus")
         .reduce((sum, item) => safeAdd(sum, item.effect.amount ?? 0), 0));
       if (previous?.type === effect.previous_type) amount = safeAdd(amount, effect.previous_retain_bonus ?? 0);
-      if (state.round.postponed_uuids?.includes(card.uuid)) {
+      if (isCardPostponed(state, card)) {
         amount = safeAdd(amount, effect.postponed_retain_bonus ?? 0);
         if ((effect.postponed_retain_bonus ?? 0) !== 0) {
           state.round.postpone_effect_triggers = safeAdd(state.round.postpone_effect_triggers ?? 0, 1);
@@ -1002,7 +1012,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "copy_pile_dessert_destroy" && action === effect.trigger_action) {
-    const desserts = state.round.draw_pile.slice(0, -1).filter((owned) => owned.type === "甜点");
+    const desserts = getRemainingCards(state).filter((owned) => owned.type === "甜点");
     const dessert = desserts[Math.min(desserts.length - 1, Math.floor(random() * desserts.length))];
     if (dessert) {
       const generated = createGeneratedCard(state, card, dessert, {
@@ -1087,7 +1097,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "drain_pile_edible_to_self" && action === effect.trigger_action) {
-    const targets = state.round.draw_pile.slice(0, -1).filter((owned) => owned.edibility === "edible");
+    const targets = getRemainingCards(state).filter((owned) => owned.edibility === "edible");
     let changed = 0;
     const pointChanges = [];
     for (const target of targets) {
@@ -1139,7 +1149,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "swap_remaining_sides" && action === effect.trigger_action) {
-    state.round.draw_pile.slice(0, -1).forEach((remaining) => {
+    getRemainingCards(state).forEach((remaining) => {
       const eat = remaining.eat_points;
       const discard = remaining.discard_points;
       const protectedFromDecrease = state.round.protected_decrease_uuids?.includes(remaining.uuid);
@@ -1152,10 +1162,11 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   if (effect.kind === "celestial_sun" && action === effect.trigger_action) {
     state.round.reshuffle_charges = safeAdd(state.round.reshuffle_charges, effect.charges ?? 1);
     const removed = state.deck.length > 1 ? removePermanentCard(state, card.uuid) : null;
+    if (removed) entry.destroyed_self = true;
     markEffect(entry, card, `${card.name}：自动重洗 +${effect.charges ?? 1}${removed ? "，摧毁自身" : ""}`);
   }
 
-  if (effect.kind === "bonus_if_postponed" && action === effect.trigger_action && state.round.postponed_uuids?.includes(card.uuid)) {
+  if (effect.kind === "bonus_if_postponed" && action === effect.trigger_action && isCardPostponed(state, card)) {
     entry.effect_bonus = safeAdd(entry.effect_bonus, effect.bonus ?? 0);
     state.round.postpone_effect_triggers = safeAdd(state.round.postpone_effect_triggers ?? 0, 1);
     markEffect(entry, card, `${card.name}：后置兑现 +${effect.bonus ?? 0}`);
@@ -1163,7 +1174,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "purify_one_if_postponed"
     && action === effect.trigger_action
-    && state.round.postponed_uuids?.includes(card.uuid)) {
+    && isCardPostponed(state, card)) {
     const restored = restoreLargestRandomReduction(state, random);
     state.round.postpone_effect_triggers = safeAdd(state.round.postpone_effect_triggers ?? 0, 1);
     markEffect(entry, card, restored
@@ -1200,16 +1211,15 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "buff_marked_remaining" && action === effect.trigger_action) {
-    const marked = state.round.draw_pile.slice(0, -1)
-      .filter((remaining) => state.round.postponed_uuids?.includes(remaining.uuid));
+    const marked = getRemainingCards(state)
+      .filter((remaining) => isCardPostponed(state, remaining));
     marked.forEach((remaining) => addCardScoreBonus(state, remaining.uuid, effect.bonus ?? 2));
     markEffect(entry, card, `${card.name}：${marked.length} 张已后置牌本轮结算 +${effect.bonus ?? 2}`);
   }
 
   if (effect.kind === "destroy_marked_remaining" && action === effect.trigger_action) {
-    const target = state.round.draw_pile.slice(0, -1)
-      .reverse()
-      .find((remaining) => state.round.postponed_uuids?.includes(remaining.uuid));
+    const target = getRemainingCardsInPlayOrder(state)
+      .find((remaining) => isCardPostponed(state, remaining));
     const removed = target && state.deck.length > 1 ? removePermanentCard(state, target.uuid) : null;
     if (removed) removeRoundCard(state, removed.uuid);
     markEffect(entry, card, removed ? `${card.name}：摧毁已后置牌「${removed.name}」` : `${card.name}：牌堆中没有可摧毁的已后置牌`);
@@ -1238,6 +1248,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     const previous = state.round.actions.at(-1);
     const required = effect.requires_previous;
     if (required && (!previous || !matchesTarget(required, previous) || (required.action && previous.action !== required.action))) return;
+    if (!consumeOncePerRound(state, card, effect)) return;
     addBuff(state, {
       kind: effect.modifier === "flat" ? "flat" : "multiplier",
       action: effect.action,
@@ -1585,7 +1596,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "bonus_if_next" && action === effect.trigger_action) {
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     if (next && matchesTarget(effect, next)) {
       entry.effect_bonus = safeAdd(entry.effect_bonus, effect.bonus ?? 0);
       entry.effect_log = `${card.name}：下一张加成`;
@@ -1612,7 +1623,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "bonus_from_next_base" && action === effect.trigger_action) {
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     if (next) {
       const copied = Math.min(effect.max_bonus ?? GAME_CONFIG.max_score, Math.max(0, next.eat_points ?? 0, next.discard_points ?? 0));
       entry.effect_bonus = safeAdd(entry.effect_bonus, copied);
@@ -1660,7 +1671,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "bonus_if_neighbors" && action === effect.trigger_action) {
     const previous = state.round.actions.at(-1);
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     const previousMatches = previous && matchesTarget(effect, previous);
     const nextMatches = next && matchesTarget(effect, next);
     if (previousMatches && nextMatches) {
@@ -1672,7 +1683,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "bonus_if_exactly_one_neighbor" && action === effect.trigger_action) {
     const previous = state.round.actions.at(-1);
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     const matches = Number(Boolean(previous && matchesTarget(effect, previous)))
       + Number(Boolean(next && matchesTarget(effect, next)));
     if (matches === 1) {
@@ -1684,7 +1695,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "bonus_if_neighbor_pair" && action === effect.trigger_action) {
     const previous = state.round.actions.at(-1);
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     const ordered = previous?.type === effect.left_type && next?.type === effect.right_type;
     const reversed = effect.unordered && previous?.type === effect.right_type && next?.type === effect.left_type;
     if (ordered || reversed) {
@@ -1696,7 +1707,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "bonus_if_matching_neighbors" && action === effect.trigger_action) {
     const previous = state.round.actions.at(-1);
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     if (previous && next && previous.type === next.type) {
       entry.effect_bonus = safeAdd(entry.effect_bonus, effect.bonus ?? 0);
       entry.effect_log = `${card.name}：同类夹心`;
@@ -1706,7 +1717,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "bonus_if_neighbor_types_different" && action === effect.trigger_action) {
     const previous = state.round.actions.at(-1);
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     if (previous && next && previous.type !== next.type) {
       entry.effect_bonus = safeAdd(entry.effect_bonus, effect.bonus ?? 0);
       entry.effect_log = `${card.name}：异类夹心`;
@@ -1716,7 +1727,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "bonus_if_mixed_neighbors" && action === effect.trigger_action) {
     const previous = state.round.actions.at(-1);
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     const matches = Number(Boolean(previous && matchesTarget(effect, previous)))
       + Number(Boolean(next && matchesTarget(effect, next)));
     if (previous && next && matches === 1) {
@@ -1766,7 +1777,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "scale_by_remaining" && action === effect.trigger_action) {
-    const remaining = state.round.draw_pile.slice(0, -1).filter((owned) => matchesTarget(effect, owned)).length;
+    const remaining = getRemainingCards(state).filter((owned) => matchesTarget(effect, owned)).length;
     const bonus = Math.min(effect.max_bonus ?? GAME_CONFIG.max_score, remaining * (effect.multiplier ?? 1));
     entry.effect_bonus = safeAdd(entry.effect_bonus, bonus);
     if (bonus > 0) {
@@ -1777,7 +1788,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "generate_card" && action === effect.trigger_action) {
     const previous = state.round.actions.at(-1);
-    const next = state.round.draw_pile.at(-2);
+    const next = getNextCard(state);
     const previousMatches = !effect.requires_previous || (
       previous
       && matchesTarget(effect.requires_previous, previous)
@@ -1889,7 +1900,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "consume_next_card" && action === effect.trigger_action && state.deck.length > 1) {
-    const prey = state.round.draw_pile.at(-2);
+    const prey = getNextCard(state);
     if (prey && prey.uuid !== card.uuid && matchesTarget(effect, prey)) {
       const removed = removePermanentCard(state, prey.uuid);
       if (removed) {
@@ -1909,7 +1920,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   }
 
   if (effect.kind === "destroy_next_for_gold" && action === effect.trigger_action && state.deck.length > 1) {
-    const prey = state.round.draw_pile.at(-2);
+    const prey = getNextCard(state);
     if (prey && prey.uuid !== card.uuid) {
       const removed = removePermanentCard(state, prey.uuid);
       if (removed) {
@@ -2102,7 +2113,7 @@ export function createRoundEngine(options = {}) {
     const messages = [];
     const pointChanges = [];
     let triggered = false;
-    const next = () => [...state.round.draw_pile].reverse().find((remaining) => remaining.uuid !== card.uuid) ?? null;
+    const next = () => [...getRoundCardsExcept(state, card.uuid)].reverse().at(0) ?? null;
     const markAll = () => markRemainingPostponed(state, card.uuid);
     const note = (message) => {
       triggered = true;
@@ -2119,7 +2130,7 @@ export function createRoundEngine(options = {}) {
     }
 
     if (effect?.kind === "postpone_mark_all_trade") {
-      const remaining = state.round.draw_pile.filter((item) => item.uuid !== card.uuid);
+      const remaining = getRoundCardsExcept(state, card.uuid);
       markAll();
       const eatChange = changePermanentCard(state, card, "eat_points", -remaining.length);
       const discardChange = changePermanentCard(state, card, "discard_points", remaining.length);
@@ -2140,7 +2151,7 @@ export function createRoundEngine(options = {}) {
     }
 
     if (effect?.kind === "postpone_match_highest_eat") {
-      const remaining = state.round.draw_pile.filter((item) => item.uuid !== card.uuid);
+      const remaining = getRoundCardsExcept(state, card.uuid);
       if (remaining.length > 0) {
         const highest = Math.max(...remaining.map((item) => item.eat_points ?? 0));
         const change = setPermanentCardStat(state, card, "eat_points", highest);
@@ -2168,12 +2179,11 @@ export function createRoundEngine(options = {}) {
     }
 
     if (effect?.kind === "postpone_buff_animal") {
-      const animals = state.round.draw_pile.filter((item) => item.uuid !== card.uuid && item.type === "动物");
+      const animals = getRoundCardsExcept(state, card.uuid).filter((item) => item.type === "动物");
       const target = animals[Math.min(animals.length - 1, Math.floor(random() * animals.length))];
       if (target) {
         const change = changePermanentCard(state, target, "discard_points", 1);
-        state.round.postponed_uuids ??= [];
-        if (!state.round.postponed_uuids.includes(target.uuid)) state.round.postponed_uuids.push(target.uuid);
+        markCardsPostponed(state, [target]);
         pointChanges.push({ card_name: target.name, stat: "discard_points", amount: change });
         note(`${card.name}：动物「${target.name}」弃分永久 +${change}，并标记为已后置`);
       } else note(`${card.name}：牌堆中没有其他动物`);
@@ -2270,7 +2280,7 @@ export function createRoundEngine(options = {}) {
       state.round.quest_flat_modifier ?? 0,
       state.round.quest_action_modifiers?.[action] ?? 0,
       state.round.actions.length === 0 ? state.round.quest_first_action_modifier ?? 0 : 0,
-      state.round.draw_pile.length === 1 ? state.round.quest_last_action_modifier ?? 0 : 0,
+      getRemainingCardCount(state) === 0 ? state.round.quest_last_action_modifier ?? 0 : 0,
     ].reduce((sum, value) => safeAdd(sum, value), 0);
     const entry = {
       card_id: card.id,
