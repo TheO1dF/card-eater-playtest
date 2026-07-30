@@ -393,12 +393,14 @@ for (const viewport of selectedViewports) {
       equal_cards: Math.max(...widths) - Math.min(...widths) <= 1,
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
       reroll_tokens: document.querySelector("#draftRerollValue")?.textContent,
-      has_consumable: Boolean(document.querySelector(".item-draft-card.is-consumable")),
+      card_choice_id: [...document.querySelectorAll(".item-draft-card")].find((card) => /^A[1-8]$/.test(card.dataset.itemId))?.dataset.itemId ?? null,
+      has_category_choice: Boolean(document.querySelector('.item-draft-card[data-item-id="C19"]')),
+      has_persistent: Boolean(document.querySelector(".item-draft-card:not(.is-consumable)")),
     };
   })()`);
   let itemChoice = { shown: false };
-  if (itemDraft.has_consumable) {
-    await clickElement(".item-draft-card.is-consumable");
+  if (itemDraft.card_choice_id) {
+    await clickElement(`.item-draft-card[data-item-id="${itemDraft.card_choice_id}"]`);
     await waitFor('document.querySelector("#itemCardChoice")?.classList.contains("show") && document.querySelectorAll("#itemCardChoice .draft-card").length === 3');
     await wait(180);
     await capture(`${viewport.name}-item-card-choice`);
@@ -418,8 +420,12 @@ for (const viewport of selectedViewports) {
       };
     })()`);
     await clickElement("#itemCardChoice .draft-card");
+  } else if (itemDraft.has_category_choice) {
+    await clickElement('.item-draft-card[data-item-id="C19"]');
+    await waitFor('document.querySelector("#itemCategoryChoice")?.classList.contains("show") && document.querySelectorAll("#itemCategoryChoice .item-category-button").length >= 1');
+    await clickElement("#itemCategoryChoice .item-category-button");
   } else {
-    await clickElement(".item-draft-card:not(.is-consumable)");
+    await clickElement(itemDraft.has_persistent ? ".item-draft-card:not(.is-consumable)" : ".item-draft-card");
   }
   await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === "4/15"', 12000);
   const nextRound = await evaluate(`(() => ({
@@ -494,7 +500,7 @@ const failures = [
     entry.item_draft.count === 3 && entry.item_draft.equal_cards && entry.item_draft.item_ids.every((id) => /^(A[1-8]|B[1-3]|C(?:[1-9]|1\d|20|30))$/.test(id)) ? null : `${entry.viewport.name}: item draft invalid`,
     JSON.stringify(entry.item_draft.item_slots) === JSON.stringify(["relevant", "bridge", "wild"]) ? null : `${entry.viewport.name}: item draft slots are not relevant/bridge/wild`,
     entry.item_draft.inside_viewport ? null : `${entry.viewport.name}: item draft outside viewport`,
-    !entry.item_draft.has_consumable || (entry.item_choice.shown && entry.item_choice.count === 3 && entry.item_choice.equal_cards && entry.item_choice.inside_viewport && entry.item_choice.point_rows_horizontal) ? null : `${entry.viewport.name}: consumable item card choice is invalid`,
+    !entry.item_draft.card_choice_id || (entry.item_choice.shown && entry.item_choice.count === 3 && entry.item_choice.equal_cards && entry.item_choice.inside_viewport && entry.item_choice.point_rows_horizontal) ? null : `${entry.viewport.name}: consumable item card choice is invalid`,
     entry.next_round.round === "4/15" && entry.next_round.save_exists && entry.next_round.item_history >= 1 ? null : `${entry.viewport.name}: failed to reach saved round four with an item reward`,
     entry.card_art.failed_ids.length ? `${entry.viewport.name}: card art failed ${entry.card_art.failed_ids.join(",")}` : null,
   ]).filter(Boolean),
