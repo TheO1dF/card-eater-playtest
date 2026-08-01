@@ -498,11 +498,21 @@ export function createUI(root) {
     setText(get("#storyGuideMessage"), model.message ?? "我会陪你完成这一轮。");
     setText(get("#storyGuideObjective"), model.objective ?? "跟着高亮提示操作。");
     const gestures = get("#storyGestureLegend");
-    if (gestures) gestures.hidden = !model.show_gestures;
+    if (gestures) {
+      const gestureCopy = {
+        practice: ["☝", "按住卡牌 · 轻拖 · 松手"],
+        eat: ["↓", "向下拖 · 吃牌"],
+        postpone: ["↔", "向左或向右拖 · 后置"],
+        discard: ["↑", "向上拖 · 弃牌"],
+      }[model.gesture];
+      gestures.hidden = !gestureCopy;
+      gestures.className = `story-gesture-legend${model.gesture ? ` ${model.gesture}` : ""}`;
+      gestures.innerHTML = gestureCopy ? `<span><b>${gestureCopy[0]}</b>${gestureCopy[1]}</span>` : "";
+    }
     const progress = get("#storyGuideProgress");
-    progress.innerHTML = (model.progress ?? [])
-      .map((entry) => `<span class="${entry.done ? "done" : ""}">${entry.done ? "✓" : "○"} ${entry.label}</span>`)
-      .join("");
+    const current = Math.max(1, Math.min(model.progress?.current ?? 1, model.progress?.total ?? 1));
+    const total = Math.max(current, model.progress?.total ?? current);
+    progress.innerHTML = `<span>教学 ${current}/${total}</span><i><b style="width:${current / total * 100}%"></b></i>`;
     const next = get("#storyGuideNext");
     next.hidden = !model.can_continue;
     next.textContent = model.continue_label ?? "继续";

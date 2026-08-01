@@ -700,8 +700,8 @@ body:has(#welcomeOverlay.show) .game-shell {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 4px 10px;
-  min-height: 112px;
-  padding: 11px 13px;
+  min-height: 92px;
+  padding: 9px 11px;
   border: 3px solid #8c71a2;
   color: var(--paper);
   background: rgba(20,15,27,.97);
@@ -720,8 +720,8 @@ body:has(#welcomeOverlay.show) .game-shell {
   background: #18121f;
   transform: rotate(45deg);
 }
-.story-dialog > small { grid-column: 1 / -1; color: #a991ba; font-size: 8px; letter-spacing: .13em; }
-.story-dialog > strong { grid-column: 1 / -1; color: var(--gold); font-size: 14px; letter-spacing: .1em; }
+.story-dialog > small { grid-column: 1; color: #a991ba; font-size: 8px; letter-spacing: .13em; }
+.story-dialog > strong { grid-column: 2; grid-row: 1; color: var(--gold); font-size: 11px; letter-spacing: .08em; text-align: right; }
 .story-dialog > p {
   grid-column: 1 / -1;
   margin: 2px 0;
@@ -731,17 +731,19 @@ body:has(#welcomeOverlay.show) .game-shell {
   animation: storyTextIn 220ms steps(4, end) both;
 }
 .story-dialog > em { grid-column: 1 / -1; color: #8ee7ff; font-size: 8px; font-style: normal; line-height: 1.55; }
-.story-gesture-legend { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.story-gesture-legend { grid-column: 1 / -1; display: grid; }
 .story-gesture-legend[hidden] { display: none; }
-.story-gesture-legend span { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px; min-width: 0; padding: 5px 6px; border: 1px solid #594867; color: #e5d9ec; background: #100c17; font-size: 8px; line-height: 1.2; }
+.story-gesture-legend span { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; min-width: 0; padding: 5px 7px; border: 1px solid #594867; color: #e5d9ec; background: #100c17; font-size: 8px; line-height: 1.2; }
 .story-gesture-legend b { font-size: 12px; }
-.story-gesture-legend .discard b { color: var(--discard); }
-.story-gesture-legend .postpone b { color: #c897ff; }
-.story-gesture-legend .eat b { color: var(--eat); }
-.story-progress { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
-.story-progress span { padding: 3px 5px; border: 1px solid #544460; color: #a996b5; background: #100c17; font-size: 8px; }
-.story-progress span.done { border-color: #3f8f62; color: #8ff0aa; background: #15231d; }
-.story-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 6px; margin-top: 3px; }
+.story-gesture-legend.discard b { color: var(--discard); }
+.story-gesture-legend.postpone b { color: #c897ff; }
+.story-gesture-legend.eat b { color: var(--eat); }
+.story-gesture-legend.practice b { color: var(--gold); }
+.story-progress { grid-column: 1; display: grid; grid-template-columns: auto minmax(48px, 1fr); align-items: center; gap: 6px; margin-top: 2px; }
+.story-progress span { color: #a996b5; font-size: 7px; white-space: nowrap; }
+.story-progress i { height: 4px; overflow: hidden; border: 1px solid #544460; background: #100c17; }
+.story-progress i b { display: block; height: 100%; background: var(--eat); }
+.story-actions { grid-column: 2; display: flex; justify-content: flex-end; gap: 5px; margin-top: 2px; }
 .story-actions button { min-height: 28px; padding: 5px 9px; border: 1px solid #665275; color: #b7a7c2; background: #211829; cursor: pointer; font-size: 8px; font-weight: 900; }
 .story-actions .story-next { border-color: #c3993c; color: #2a1d24; background: var(--gold); }
 .tutorial-focus { outline: 3px solid #8ee7ff !important; outline-offset: 3px; animation: tutorialFocus 860ms steps(2, end) infinite; }
@@ -1437,14 +1439,14 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
   .story-card-avatar { width: 54px; height: 74px; border-width: 2px; }
   .story-card-avatar .game-sprite { width: 50px; height: 50px; margin-top: 12px; }
   .story-card-avatar i { width: 15px; height: 15px; border-width: 1px; font-size: 8px; }
-  .story-dialog { min-height: 84px; padding: 8px 9px; border-width: 2px; gap: 3px 7px; }
+  .story-dialog { min-height: 76px; padding: 7px 8px; border-width: 2px; gap: 3px 7px; }
   .story-dialog::before { left: -8px; bottom: 15px; width: 10px; height: 10px; border-width: 0 0 2px 2px; }
   .story-dialog > small { font-size: 7px; }
-  .story-dialog > strong { font-size: 12px; }
+  .story-dialog > strong { font-size: 10px; }
   .story-dialog > p { font-size: 10px; line-height: 1.5; }
   .story-dialog > em { font-size: 9px; }
   .story-gesture-legend span { padding: 4px; font-size: 8px; }
-  .story-progress span { padding: 2px 4px; font-size: 8px; }
+  .story-progress span { font-size: 7px; }
   .story-actions button { min-height: 27px; }
   .rule-help { grid-template-columns: 1fr; gap: 4px; }
   .target-banner { grid-template-columns: 1fr; }
@@ -1602,6 +1604,14 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
 :is(.action-zone b, .reshuffle-button, .deck-remove-token, .menu-objective, .target-banner span, .target-banner small) {
   font-size: calc(9px + var(--ui-copy-step));
 }
+
+/* Tutorial coachmarks stay compact even when the rest of the UI uses large copy. */
+html[data-font-size="large"] .story-dialog > small { font-size: 7px; }
+html[data-font-size="large"] .story-dialog > strong { font-size: 10px; }
+html[data-font-size="large"] .story-dialog > p { font-size: 11px; }
+html[data-font-size="large"] .story-dialog > em { font-size: 10px; }
+html[data-font-size="large"] .story-gesture-legend span { font-size: 9px; }
+html[data-font-size="large"] .story-actions button { min-height: 27px; font-size: 9px; }
 
 /* Every dealt card is a real play-stack instance: split, riffle, close, then reveal. */
 .deck-stage.is-dealing .stack-shadow { opacity: .72; filter: brightness(.92); }

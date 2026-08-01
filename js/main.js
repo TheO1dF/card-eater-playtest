@@ -47,6 +47,7 @@ let effectsEnabled = settings.effects;
 setBGMTheme(settings.home_theme, { immediate: true });
 const tutorial = {
   active: false,
+  goal_intro_acknowledged: false,
   goal_acknowledged: false,
   dragged_card: false,
   correct_eat: false,
@@ -94,46 +95,49 @@ function startSound() {
   if (musicEnabled) toggleBGM(true);
 }
 
-function tutorialProgress() {
-  return [
-    { label: "认识目标", done: tutorial.goal_acknowledged },
-    { label: "拖动卡牌", done: tutorial.dragged_card },
-    { label: "正确吃牌", done: tutorial.correct_eat },
-    { label: "查看得分", done: tutorial.score_acknowledged },
-    { label: "后置排牌", done: tutorial.postponed },
-    { label: "正确弃牌", done: tutorial.correct_discard },
-  ];
-}
+const tutorialProgress = (current) => ({ current, total: 8 });
 
 function renderTutorial() {
   if (!tutorial.active || state.phase !== GAME_PHASES.PLAYING) {
     ui.hideStoryGuide();
     return;
   }
-  const progress = tutorialProgress();
   const card = getCurrentCard(state);
-  if (!tutorial.goal_acknowledged) {
+  if (!tutorial.goal_intro_acknowledged) {
     ui.showStoryGuide({
       step: "goal",
-      chapter: "第一件事 · 分数决定胜负",
-      message: "先看左上角的总分。你必须在第 5、10、15 轮结束时，让累计分数分别达到 80、200、600；任何阶段没达标，本局就会结束。",
-      objective: "清空餐盘只是完成一轮，尽量拿到更高分才是首要目标。比较卡牌点数与效果，让每次吃、弃都更有价值。",
+      chapter: "先说怎么赢",
+      message: "这局最重要的事：拿分。",
+      objective: "清空餐盘只会结束一轮；分数够高，才能继续。",
       target: "#scoreValue",
-      progress,
+      progress: tutorialProgress(1),
       can_continue: true,
-      continue_label: "记住目标 · 学习出牌",
+      continue_label: "下一步",
+    });
+    return;
+  }
+  if (!tutorial.goal_acknowledged) {
+    ui.showStoryGuide({
+      step: "milestone",
+      chapter: "记住三个门槛",
+      message: "第 5 轮 80 分，第 10 轮 200 分，第 15 轮 600 分。",
+      objective: "任一门槛没达到，本局结束。现在先盯住：第 5 轮 80 分。",
+      target: "#scoreValue",
+      progress: tutorialProgress(2),
+      can_continue: true,
+      continue_label: "记住了",
     });
     return;
   }
   if (!tutorial.dragged_card) {
     ui.showStoryGuide({
       step: "drag",
-      chapter: "基本操作 · 牌可以直接拖动",
-      message: "按住中央最上层的卡牌，它会跟着你的手移动：向下拖是吃，向上拖是弃，向左或向右拖是后置。底部按钮也可以完成同样操作。",
-      objective: "先把当前牌轻轻拖出一小段再松手。没有越过判定距离时，卡牌会回到原位，不会结算。",
+      chapter: "先摸一下牌",
+      message: "卡牌可以直接拖动。",
+      objective: "按住最上面的牌，轻拖一小段再松手。它会回到原位。",
       target: ".game-card.is-active",
-      progress,
-      show_gestures: true,
+      progress: tutorialProgress(3),
+      gesture: "practice",
     });
     return;
   }
@@ -141,39 +145,39 @@ function renderTutorial() {
     const edible = card?.edibility === "edible";
     ui.showStoryGuide({
       step: "eat",
-      chapter: "第一口 · 先看食性与点数",
+      chapter: "现在学吃牌",
       message: edible
-        ? `「${card.name}」标有“可食用”。卡面右下是吃分、左下是弃分；现在向下拖动它，或点击“吃掉”。`
-        : `「${card?.name ?? "当前牌"}」标有“不可食用”。先左右拖动后置，去寻找一张可食用牌。`,
-      objective: edible ? "正确吃掉一张可食用牌，观察它带来的分数。" : "后置只改变牌序、不结算分数；稍后这张牌仍会回来。",
+        ? `「${card.name}」可以吃。向下拖动它。`
+        : `「${card?.name ?? "当前牌"}」不能吃。先左右拖动，把它后置。`,
+      objective: edible ? `右下角“吃 ${card.eat_points >= 0 ? "+" : ""}${card.eat_points}”是这张牌的基础吃分。` : "先找一张标有“可食用”的牌。",
       target: edible ? ".game-card.is-active" : "#postponeButton",
-      progress,
-      show_gestures: true,
+      progress: tutorialProgress(4),
+      gesture: edible ? "eat" : "postpone",
     });
     return;
   }
   if (!tutorial.score_acknowledged) {
     ui.showStoryGuide({
       step: "score",
-      chapter: "分数才是主菜 · 每一步都要赚",
-      message: "看，刚才的牌面点数与效果已经计入左上角“实时总分”。通关只看累计分数，不看你清盘有多快。",
-      objective: "正数会加分，负数会扣分；效果文字可能改变结果。之后尽量选择收益更高的吃法或弃法。",
+      chapter: "看一眼分数",
+      message: "刚才的得分，已经加到“实时总分”。",
+      objective: "正数加分，负数扣分；卡牌效果也会改变结果。",
       target: "#scoreValue",
-      progress,
+      progress: tutorialProgress(5),
       can_continue: true,
-      continue_label: "看懂了 · 学习后置",
+      continue_label: "继续",
     });
     return;
   }
   if (!tutorial.postponed) {
     ui.showStoryGuide({
       step: "postpone",
-      chapter: "理一理 · 暂时不想处理就后置",
-      message: "后置会把当前牌送到餐盘末尾，不吃、不弃，也不结算。你可以先处理更合适的牌，再回来处理它。",
-      objective: "把当前牌向左或向右拖过判定距离，或点击“后置”。每张实体牌通常每轮只能后置一次。",
+      chapter: "暂时不处理",
+      message: "向左或向右拖动，可以后置。",
+      objective: "后置不结算；这张牌会去餐盘末尾，稍后再回来。",
       target: ".game-card.is-active",
-      progress,
-      show_gestures: true,
+      progress: tutorialProgress(6),
+      gesture: "postpone",
     });
     return;
   }
@@ -181,31 +185,32 @@ function renderTutorial() {
     const inedible = card?.edibility === "inedible";
     ui.showStoryGuide({
       step: "discard",
-      chapter: "别硬吞 · 不可食用牌通常该弃",
+      chapter: "最后学弃牌",
       message: inedible
-        ? `「${card.name}」标有“不可食用”。向上拖动它，或点击“弃掉”；结算的是卡面左下的弃分。`
-        : "当前牌可以吃。先后置它，找到一张不可食用牌，再练习弃牌。",
-      objective: inedible ? "正确弃掉一张不可食用牌。注意：少数流派会故意违反食性，但那是之后的策略。" : "左右拖动后置当前牌，继续寻找不可食用牌。",
+        ? `「${card.name}」不能吃。向上拖动它。`
+        : "这张牌可以吃。先后置，找一张不可食用牌。",
+      objective: inedible ? `左下角“弃 ${card.discard_points >= 0 ? "+" : ""}${card.discard_points}”是这张牌的基础弃分。` : "找到不可食用牌，再练习向上弃牌。",
       target: inedible ? ".game-card.is-active" : "#postponeButton",
-      progress,
-      show_gestures: true,
+      progress: tutorialProgress(7),
+      gesture: inedible ? "discard" : "postpone",
     });
     return;
   }
   ui.showStoryGuide({
     step: "complete",
-    chapter: "准备开饭 · 为更高分构筑",
-    message: "你已经会向下吃、向上弃、左右后置了。清空餐盘后，可以选一张牌加入永久牌组，也可以免费刷新一次或直接跳过。",
-    objective: "每 3 轮还能选择一件道具。用新牌与道具形成配合，把累计分数推过 80、200、600，完成第 15 轮。",
-    progress,
+    chapter: "可以开饭了",
+    message: "你已经会吃、弃和后置了。",
+    objective: "轮末选择新牌和道具，让下一轮拿到更高分。",
+    progress: tutorialProgress(8),
     can_continue: true,
-    continue_label: "开始追求高分",
+    continue_label: "开始游戏",
   });
 }
 
 function startTutorial() {
   Object.assign(tutorial, {
     active: true,
+    goal_intro_acknowledged: false,
     goal_acknowledged: false,
     dragged_card: false,
     correct_eat: false,
@@ -218,7 +223,8 @@ function startTutorial() {
 
 function advanceTutorial() {
   if (!tutorial.active) return;
-  if (!tutorial.goal_acknowledged) tutorial.goal_acknowledged = true;
+  if (!tutorial.goal_intro_acknowledged) tutorial.goal_intro_acknowledged = true;
+  else if (!tutorial.goal_acknowledged) tutorial.goal_acknowledged = true;
   else if (tutorial.correct_eat && !tutorial.score_acknowledged) tutorial.score_acknowledged = true;
   else if (tutorial.correct_eat && tutorial.score_acknowledged && tutorial.postponed && tutorial.correct_discard) {
     finishTutorial();

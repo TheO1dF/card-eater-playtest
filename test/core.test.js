@@ -799,10 +799,10 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(html, /id="timerValue"/);
   assert.match(html, /首要目标：尽量获得高分/);
   assert.match(html, /id="storyGestureLegend"/);
-  assert.match(html, /上拖弃牌[\s\S]*左右后置[\s\S]*下拖吃牌/);
   assert.match(main, /createShopService|randomDraftRules|settleActiveRules|tickTimer/);
-  assert.match(main, /第一件事 · 分数决定胜负/);
-  assert.match(main, /清空餐盘只是完成一轮，尽量拿到更高分才是首要目标/);
+  assert.match(main, /这局最重要的事：拿分/);
+  assert.match(main, /第 5 轮 80 分，第 10 轮 200 分，第 15 轮 600 分/);
+  assert.match(main, /const tutorialProgress = \(current\) => \(\{ current, total: 8 \}\)/);
   assert.match(main, /progress\.progress >= 0\.16/);
   assert.match(gesture, /config\.canCommit/);
   assert.match(main, /developerMode|getCurrentUnlocks/);
@@ -814,6 +814,10 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(audio, /continuous-\$\{THEME_CROSSFADE_SECONDS\}s-crossfade/);
   assert.match(ui, /classList\.toggle\("is-unlocked"/);
   assert.match(ui, /首要目标：尽量获得高分/);
+  assert.match(ui, /按住卡牌 · 轻拖 · 松手/);
+  assert.match(ui, /向下拖 · 吃牌/);
+  assert.match(ui, /向左或向右拖 · 后置/);
+  assert.match(ui, /向上拖 · 弃牌/);
   assert.match(ui, /hasBlockingOverlay\(\)/);
   assert.match(styles, /\.overlay\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset:\s*0;[\s\S]*?z-index:\s*120;/);
   assert.match(styles, /\.welcome-overlay\s*\{[\s\S]*?inset:\s*0;/);
