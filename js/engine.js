@@ -876,9 +876,15 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     entry.fruit_combo = combo;
     entry.effect_log = `${card.name}：水果连击 ×${combo}`;
     if (combo >= (effect.grant_reroll_at ?? Number.POSITIVE_INFINITY)) {
-      const tokens = Math.max(1, effect.reroll_tokens ?? 1);
-      state.reroll_tokens = safeAdd(state.reroll_tokens ?? 0, tokens);
-      entry.reroll_tokens_gained = tokens;
+      if ((effect.shop_free_rerolls ?? 0) > 0) {
+        const rerolls = Math.max(1, effect.shop_free_rerolls);
+        state.round.shop_free_rerolls = safeAdd(state.round.shop_free_rerolls ?? 0, rerolls);
+        entry.shop_free_rerolls_gained = rerolls;
+      } else {
+        const tokens = Math.max(1, effect.reroll_tokens ?? 1);
+        state.reroll_tokens = safeAdd(state.reroll_tokens ?? 0, tokens);
+        entry.reroll_tokens_gained = tokens;
+      }
     }
 
     const generationReady = combo >= (effect.generate_at ?? Number.POSITIVE_INFINITY);
@@ -895,7 +901,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       const growth = changePermanentCard(state, card, "eat_points", effect.grow_amount ?? 0);
       if (growth) entry.permanent_change = { stat: "eat_points", amount: growth };
     }
-    markEffect(entry, card, `${card.name}：水果连击 ×${combo}，额外 +${bonus}${entry.reroll_tokens_gained ? `，刷新标记 +${entry.reroll_tokens_gained}` : ""}${entry.generated_card ? `，生成「${entry.generated_card}」` : ""}`);
+    markEffect(entry, card, `${card.name}：水果连击 ×${combo}，额外 +${bonus}${entry.reroll_tokens_gained ? `，刷新标记 +${entry.reroll_tokens_gained}` : ""}${entry.shop_free_rerolls_gained ? `，商店免费刷新 +${entry.shop_free_rerolls_gained}` : ""}${entry.generated_card ? `，生成「${entry.generated_card}」` : ""}`);
   }
 
   if (effect.kind === "fruit_combo_resume" && action === ACTIONS.EAT) {

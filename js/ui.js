@@ -543,12 +543,6 @@ export function createUI(root) {
       button.classList.toggle("is-selected", selected);
       button.setAttribute("aria-pressed", String(selected));
     });
-    const shop = catalogUsesEconomyCards();
-    setText(get("#catalogModeHint"), shop
-      ? "当前显示商店与条约商店使用的金币、付费和折扣效果。"
-      : "当前显示标准、备料、无尽与高难模式使用的卡牌效果。");
-    setText(get("#catalogDetailModeLabel"), shop ? "商店效果" : "标准效果");
-    setText(get("#catalogDetailModeHint"), shop ? "商店与条约商店模式" : "标准、备料、无尽与高难模式");
   }
 
   function renderCatalogList() {
@@ -1377,8 +1371,8 @@ export function createUI(root) {
       };
       nodes.cardDraftList.replaceChildren(...cards.map((card) => draftCardElement(card, callbacks.onChoose)));
       setText(get("#draftMessage"), prepMode
-        ? "三选一仍可免费刷新。整理牌组可调整唯一备料位；备料牌下一轮不会登场。"
-        : "三选一，也可以刷新或跳过。选牌前可先整理永久牌组。");
+        ? "整理牌组可调整唯一备料位；备料牌下一轮不会登场。"
+        : "");
       updateTokens();
       updatePrepPreview();
       setText(get("#draftRerollValue"), state.reroll_tokens ?? 0);
@@ -1435,7 +1429,7 @@ export function createUI(root) {
       renderHud(state);
       const removeCardCost = (state.round.shop_free_removals ?? 0) > 0 || (state.free_card_removals ?? 0) > 0
         ? 0
-        : Math.max(0, state.remove_card_cost - (state.mode === GAME_MODES.SHOP ? 1 : 0));
+        : state.remove_card_cost;
       setText(get("#shopGold"), state.gold ?? 0);
       setText(get("#shopDeleteCost"), removeCardCost === 0 ? "免费" : `$${removeCardCost}`);
       const plate = getPlateSummary(state.deck.length, state.plate_capacity);
@@ -1492,6 +1486,7 @@ export function createUI(root) {
     },
     closeShop() {
       closeDeleteConfirmation();
+      setText(get("#shopMessage"), "");
       nodes.shop.classList.remove("show");
     },
     setShopMessage(message, tone = "normal") {

@@ -746,8 +746,8 @@ test("轮末结算只有分数，没有合约或限时经济条目", () => {
   engine.recordAction(state, "eat", state.deck[0]);
   engine.recordAction(state, "discard", state.deck[1]);
   const result = engine.finalizeRound(state);
-  assert.equal(result.round_score, 3);
-  assert.equal(state.total_score, 3);
+  assert.equal(result.round_score, 4);
+  assert.equal(state.total_score, 4);
   assert.deepEqual(result.rule_results, []);
   assert.ok(result.breakdown.every((line) => !/金币|限时|合约|商店/.test(`${line.label}${line.text}`)));
 });
@@ -840,13 +840,28 @@ test("随机开局替换两张教学牌，备料位替代删牌并保证同类�
 test("苹果与梨使用新的水果连击规则，商店道具池带回经济道具", () => {
   assert.equal(getCardById("F001").effect.kind, "fruit_combo");
   assert.equal(getCardById("F009").effect.grant_reroll_at, 3);
+  assert.equal(getCardById("F009", { economy: true }).effect.shop_free_rerolls, 1);
+  assert.ok(createCardPool()
+    .filter((card) => card.effect?.kind === "fruit_combo")
+    .every((card) => card.effect.bonus_per_combo >= 1 && card.effect.max_bonus > 0), "所有水果连击牌都必须按当前连击数加分");
   const state = stateWith(["F001", "F001", "F009"]);
   const engine = createRoundEngine();
-  engine.recordAction(state, "eat", state.deck[0]);
-  engine.recordAction(state, "eat", state.deck[1]);
+  const firstApple = engine.recordAction(state, "eat", state.deck[0]);
+  const secondApple = engine.recordAction(state, "eat", state.deck[1]);
   const pear = engine.recordAction(state, "eat", state.deck[2]);
+  assert.equal(firstApple.effect_bonus, 1);
+  assert.equal(firstApple.points, 2);
+  assert.equal(secondApple.effect_bonus, 2);
+  assert.equal(secondApple.points, 3);
   assert.equal(pear.fruit_combo, 3);
+  assert.equal(pear.effect_bonus, 3);
+  assert.equal(pear.points, 4);
   assert.equal(state.reroll_tokens, 1);
+
+  const bananaState = stateWith(["F002"]);
+  const banana = engine.recordAction(bananaState, "eat", bananaState.deck[0]);
+  assert.equal(banana.effect_bonus, 1, "香蕉原有的水果连击加分不能被重复或移除");
+  assert.equal(banana.points, 2);
   const aboveThresholdState = stateWith(["F001", "F001", "F009", "F009"]);
   engine.recordAction(aboveThresholdState, "eat", aboveThresholdState.deck[0]);
   engine.recordAction(aboveThresholdState, "eat", aboveThresholdState.deck[1]);
@@ -854,6 +869,20 @@ test("苹果与梨使用新的水果连击规则，商店道具池带回经济�
   const aboveThresholdPear = engine.recordAction(aboveThresholdState, "eat", aboveThresholdState.deck[3]);
   assert.equal(aboveThresholdPear.fruit_combo, 4);
   assert.equal(aboveThresholdState.reroll_tokens, 2, "连击 3 与连击 4 的梨都应获得刷新标记");
+
+  const shopPearState = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.SHOP });
+  shopPearState.deck = ["F001", "F001", "F009"].map((id) => {
+    const card = getCardById(id, { economy: true });
+    return { ...card, uuid: nextId(card) };
+  });
+  engine.recordAction(shopPearState, "eat", shopPearState.deck[0]);
+  engine.recordAction(shopPearState, "eat", shopPearState.deck[1]);
+  const shopPear = engine.recordAction(shopPearState, "eat", shopPearState.deck[2]);
+  assert.equal(shopPear.fruit_combo, 3);
+  assert.equal(shopPear.effect_bonus, 3);
+  assert.equal(shopPear.points, 4);
+  assert.equal(shopPearState.reroll_tokens, 0, "商店梨不应生成无用的刷新标记");
+  assert.equal(shopPearState.round.shop_free_rerolls, 1, "商店梨应增加下一间商店的免费刷新次数");
 
   const starterComboState = stateWith(["F001"]);
   assert.equal(chooseItem(starterComboState, "C4").success, true);
@@ -882,7 +911,7 @@ test("商店模式恢复买牌、扩容、删牌三角，经济卡使用经典�
   assert.equal(getCardById("A009", { economy: true }).effect.kind, "destroy_self_raise_rarity");
 });
 
-test("普通商店四类商品统一便宜一金币，条约商店保持原价", () => {
+test("普通商店仅卡牌统一便宜一金币，其他服务与条约商店同价", () => {
   const normal = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.SHOP });
   const contract = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.CONTRACT_SHOP });
   normal.gold = 50;
@@ -894,13 +923,13 @@ test("普通商店四类商品统一便宜一金币，条约商店保持原价",
   const normalCard = service.repriceShopCards(normal, [baseCard])[0];
   const contractCard = service.repriceShopCards(contract, [baseCard])[0];
   assert.equal(normalCard.shop_price, Math.max(1, contractCard.shop_price - 1));
-  assert.equal(service.getPlateUpgradeStatus(normal).cost, service.getPlateUpgradeStatus(contract).cost - 1);
-  assert.equal(service.getRemoveCardCost(normal), 2);
+  assert.equal(service.getPlateUpgradeStatus(normal).cost, service.getPlateUpgradeStatus(contract).cost);
+  assert.equal(service.getRemoveCardCost(normal), 3);
   assert.equal(service.getRemoveCardCost(contract), 3);
   const normalItem = service.getShopItems(normal)[0];
   const contractItem = service.getShopItems(contract)[0];
   assert.equal(normalItem.id, contractItem.id);
-  assert.equal(normalItem.shop_price, contractItem.shop_price - 1);
+  assert.equal(normalItem.shop_price, contractItem.shop_price);
 });
 
 test("金币账本区分立即收入与轮末收入并保留具体来源", () => {

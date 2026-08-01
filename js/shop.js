@@ -26,13 +26,13 @@ export function createShopService(options = {}) {
   const random = options.random ?? Math.random;
   const createId = options.create_id ?? (() => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
 
-  const getNormalShopDiscount = (state) => state.mode === GAME_MODES.SHOP ? 1 : 0;
+  const getNormalShopCardDiscount = (state) => state.mode === GAME_MODES.SHOP ? 1 : 0;
 
   function getCardPriceModifiers(state) {
     const itemDiscount = state.items
       .filter((entry) => entry.effect?.kind === "shop_price_discount")
       .reduce((total, entry) => total + (entry.effect.amount ?? 0), 0);
-    return { discount: (state.round.shop_discount ?? 0) + itemDiscount + getNormalShopDiscount(state) };
+    return { discount: (state.round.shop_discount ?? 0) + itemDiscount + getNormalShopCardDiscount(state) };
   }
 
   function repriceShopCards(state, cards) {
@@ -108,7 +108,7 @@ export function createShopService(options = {}) {
     return offers.map((entry) => ({
       ...entry,
       shop_base_price: entry.shop_price,
-      shop_price: Math.max(1, entry.shop_price - getNormalShopDiscount(state)),
+      shop_price: entry.shop_price,
     }));
   }
 
@@ -196,7 +196,7 @@ export function createShopService(options = {}) {
   }
 
   function getPlateUpgradeStatus(state) {
-    const discount = getNormalShopDiscount(state) + state.items
+    const discount = state.items
       .filter((entry) => entry.effect?.kind === "plate_upgrade_discount")
       .reduce((total, entry) => total + (entry.effect.amount ?? 0), 0);
     const baseCost = getPlateUpgradeBaseCost(state.plate_upgrade_count);
@@ -226,7 +226,7 @@ export function createShopService(options = {}) {
     const roundFree = (state.round.shop_free_removals ?? 0) > 0;
     const earnedFree = (state.free_card_removals ?? 0) > 0;
     const free = roundFree || earnedFree;
-    const removalCost = free ? 0 : Math.max(0, state.remove_card_cost - getNormalShopDiscount(state));
+    const removalCost = free ? 0 : state.remove_card_cost;
     if (state.deck.length <= 1 || state.gold < removalCost) return false;
     const index = state.deck.findIndex((card) => card.uuid === cardUuid);
     if (index < 0) return false;
@@ -264,7 +264,7 @@ export function createShopService(options = {}) {
   function getRemoveCardCost(state) {
     return (state.round.shop_free_removals ?? 0) > 0 || (state.free_card_removals ?? 0) > 0
       ? 0
-      : Math.max(0, state.remove_card_cost - getNormalShopDiscount(state));
+      : state.remove_card_cost;
   }
 
   return {

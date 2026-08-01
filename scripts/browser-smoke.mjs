@@ -136,6 +136,8 @@ for (const viewport of selectedViewports) {
   const home = await evaluate(`(() => {
     const panel = document.querySelector(".home-panel")?.getBoundingClientRect();
     const actions = [...document.querySelectorAll(".home-actions > button")];
+    const logo = document.querySelector("#homeLogo")?.getBoundingClientRect();
+    const sigils = document.querySelector("#homeModeSigils")?.getBoundingClientRect();
     return {
       title: document.querySelector("#welcomeTitle")?.textContent,
       action_labels: actions.map((button) => button.querySelector("b")?.textContent),
@@ -149,6 +151,8 @@ for (const viewport of selectedViewports) {
       unlocked_sigils: document.querySelectorAll("#homeModeSigils .is-unlocked").length,
       cleared_sigils: document.querySelectorAll("#homeModeSigils .is-cleared").length,
       logo_has_annotation: Boolean(document.querySelector(".home-hero p")),
+      logo_sigil_gap: logo && sigils ? sigils.top - logo.bottom : -1,
+      sigil_actions_gap: sigils && actions[0] ? actions[0].getBoundingClientRect().top - sigils.bottom : -1,
       panel_border: parseFloat(getComputedStyle(document.querySelector(".home-panel")).borderTopWidth),
       shell_border: parseFloat(getComputedStyle(document.querySelector(".game-shell")).borderTopWidth),
       modes_locked: ["#endlessModeButton", "#hardModeButton"].every((selector) => document.querySelector(selector)?.disabled),
@@ -222,6 +226,8 @@ for (const viewport of selectedViewports) {
     const rain = document.querySelector("#homeCardRain");
     const rainRect = rain?.getBoundingClientRect();
     const logoRect = document.querySelector("#homeLogo")?.getBoundingClientRect();
+    const sigilRect = document.querySelector("#homeModeSigils")?.getBoundingClientRect();
+    const actionRect = document.querySelector(".home-actions > button")?.getBoundingClientRect();
     const footerRect = document.querySelector(".home-footer")?.getBoundingClientRect();
     const chooser = document.querySelector("#modeChooser");
     return {
@@ -237,6 +243,8 @@ for (const viewport of selectedViewports) {
       chooser_scroll_contained: chooser.scrollHeight <= chooser.clientHeight + 1 || getComputedStyle(chooser).overflowY === "auto",
       footer_inside: Boolean(footerRect && footerRect.top >= -1 && footerRect.bottom <= innerHeight + 1),
       logo_width_ratio: logoRect?.width / innerWidth || 0,
+      logo_sigil_gap: logoRect && sigilRect ? sigilRect.top - logoRect.bottom : -1,
+      sigil_actions_gap: sigilRect && actionRect ? actionRect.top - sigilRect.bottom : -1,
     };
   })()`);
   await capture(`${viewport.name}-home-day`);
@@ -625,6 +633,8 @@ const failures = [
     entry.home.rain_count >= 24 && entry.home.rain_unique_cards >= 16 && entry.home.logo_lines === 2 ? null : `${entry.viewport.name}: home card rain is not varied`,
     Math.abs(entry.home.rain_card_ratio - (1 / 1.34)) <= .02 && entry.home.rain_art_square && entry.home.rain_animation === "homeCardFall" ? null : `${entry.viewport.name}: home rain cards are distorted`,
     !entry.home.logo_has_annotation && entry.home.panel_border === 0 && entry.home.shell_border === 0 ? null : `${entry.viewport.name}: home logo still has annotation or frame`,
+    entry.home.logo_sigil_gap >= 4 && entry.home.logo_sigil_gap <= 28 ? null : `${entry.viewport.name}: home logo and mode sigils have the wrong closed spacing`,
+    entry.home.sigil_actions_gap >= 12 && entry.home.sigil_actions_gap <= 72 ? null : `${entry.viewport.name}: primary home actions are too far from the logo group`,
     entry.home.modes_locked ? null : `${entry.viewport.name}: advanced modes should start locked`,
     entry.home.unlocked_sigils === 1 && entry.home.cleared_sigils === 0 ? null : `${entry.viewport.name}: fresh home mode sigils have wrong unlock/clear state`,
     entry.overlay_layering.count >= 16 && entry.overlay_layering.all_fixed && entry.overlay_layering.all_cover_viewport && entry.overlay_layering.all_above_topbar ? null : `${entry.viewport.name}: one or more modal layers do not cover the viewport`,
@@ -634,6 +644,8 @@ const failures = [
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
     entry.home_theme.selected === "day" && entry.home_theme.saved === "day" && entry.home_theme.toggle_label.includes("白昼") && entry.home_theme.title_contrast >= 4.5 && entry.home_theme.copy_contrast >= 4.5 ? null : `${entry.viewport.name}: day home text is low contrast or theme did not save`,
     entry.home_theme.random_start_first && entry.home_theme.rain_anchored && entry.home_theme.rain_covers_viewport && entry.home_theme.home_scroll_locked && entry.home_theme.chooser_scroll_contained && entry.home_theme.footer_inside ? null : `${entry.viewport.name}: home mode chooser escapes its fixed background or has wrong ordering`,
+    entry.home_theme.logo_sigil_gap >= 4 && entry.home_theme.logo_sigil_gap <= 28 ? null : `${entry.viewport.name}: home logo and mode sigils overlap after opening the mode chooser`,
+    entry.home_theme.sigil_actions_gap >= 12 && entry.home_theme.sigil_actions_gap <= 72 ? null : `${entry.viewport.name}: primary home actions have poor spacing after opening the mode chooser`,
     entry.viewport.mobile && entry.home_theme.logo_width_ratio < .58 ? `${entry.viewport.name}: home logo is too small for the mobile composition` : null,
     entry.home_theme_audio.day.theme === "day" && entry.home_theme_audio.day.mode.includes("C major") && entry.home_theme_audio.night.theme === "night" && entry.home_theme_audio.night.mode.includes("E minor") && entry.home_theme_audio.night.transport_step >= entry.home_theme_audio.day.transport_step && entry.home_theme_audio.night.theme_transition.includes("continuous") ? null : `${entry.viewport.name}: day/night BGM did not crossfade on one continuous transport`,
     entry.home_progression.cleared_sigils === 6 && entry.home_progression.clear_count === "6" && entry.home_progression.god_visible && entry.home_progression.god_logo ? null : `${entry.viewport.name}: mode clears did not evolve the home logo`,

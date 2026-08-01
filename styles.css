@@ -759,6 +759,7 @@ body:has(#welcomeOverlay.show) .game-shell {
 .eyebrow { color: var(--gold); font-size: 9px; font-weight: 900; letter-spacing: .2em; }
 .modal-panel h1 { margin: 7px 0 8px; color: var(--paper); font-size: clamp(23px, 4vw, 34px); letter-spacing: .06em; }
 .modal-lead { margin: 0 0 18px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.modal-lead:empty { display: none; }
 .rule-help { display: grid; grid-template-columns: auto 1fr; gap: 9px; margin: -7px 0 11px; padding: 9px 11px; border-left: 3px solid #8f78a5; background: #191520; font-size: 8px; line-height: 1.5; }
 .rule-help b { color: var(--rare); }
 .rule-help span { color: #b8aabd; }
@@ -1052,8 +1053,7 @@ body:has(#welcomeOverlay.show) .game-shell {
 .setting-toggle b { color: var(--eat); }
 .setting-toggle.is-off b { color: var(--danger); }
 .font-size-setting { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; margin: 10px 0; padding: 10px 12px; border: 1px solid #584963; background: #1a1522; }
-.font-size-setting > span { display: grid; gap: 4px; }
-.font-size-setting small, .menu-wide-button small { color: var(--muted); font-size: 7px; line-height: 1.4; }
+.font-size-setting > span { display: grid; }
 .font-size-setting > div { display: flex; gap: 4px; }
 .font-size-setting button { min-width: 47px; min-height: 34px; border: 1px solid #6e5b7a; color: #b9a8c3; background: #282031; cursor: pointer; }
 .font-size-setting button.is-selected { border-color: var(--gold); color: #2f2315; background: var(--gold); font-weight: 900; }
@@ -1076,7 +1076,6 @@ body:has(#welcomeOverlay.show) .game-shell {
 .catalog-tools { display: flex; align-items: center; gap: 8px; margin: 7px 0 11px; padding: 8px 10px; border: 1px solid #594a64; background: #17121f; }
 .catalog-tools label, .catalog-tools span { color: #b9a8c3; font-size: 8px; }
 .catalog-tools span { margin-left: auto; color: var(--gold); font-weight: 900; }
-.catalog-tools > small { flex-basis: 100%; color: #a999b2; font-size: calc(7px + var(--ui-copy-step)); line-height: 1.5; }
 .catalog-tools select { min-height: 32px; padding: 5px 28px 5px 8px; border: 1px solid #796487; color: var(--paper); background: #2a2234; }
 .catalog-mode-switch { display: inline-grid; grid-template-columns: 1fr 1fr; min-width: 210px; border: 2px solid #695676; background: #120e18; }
 .catalog-mode-switch button { min-height: 32px; padding: 6px 10px; border: 0; color: #aa9ab4; background: transparent; font-size: calc(8px + var(--ui-copy-step)); font-weight: 900; cursor: pointer; }
@@ -1094,10 +1093,7 @@ body:has(#welcomeOverlay.show) .game-shell {
 .catalog-detail-overlay { z-index: 165; background: rgba(8,6,12,.96); }
 .catalog-detail-panel { width: min(850px, 100%); max-height: min(820px, 100%); overflow: auto; }
 .catalog-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
-.catalog-detail-mode-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -6px 0 18px; padding: 9px 10px; border-left: 4px solid var(--gold); background: #17121f; }
-.catalog-detail-mode-row > div:first-child { display: grid; gap: 3px; }
-.catalog-detail-mode-row b { color: var(--gold); font-size: calc(10px + var(--ui-copy-step)); }
-.catalog-detail-mode-row small { color: #aa9ab4; font-size: calc(7px + var(--ui-copy-step)); line-height: 1.4; }
+.catalog-detail-mode-row { display: flex; align-items: center; justify-content: flex-end; margin: -6px 0 18px; padding: 9px 10px; border-left: 4px solid var(--gold); background: #17121f; }
 .catalog-detail-layout { display: grid; grid-template-columns: var(--card-width) minmax(0, 1fr); align-items: center; gap: clamp(22px, 5vw, 54px); }
 .catalog-card-preview { position: relative; width: var(--card-width); height: var(--card-height); margin: 0 auto; }
 .catalog-preview-game-card { cursor: default; }
@@ -1170,7 +1166,7 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
 .home-atmosphere > i:nth-child(3) { width: min(48vw, 520px); border-style: dashed; transform: translate(-50%,-50%) rotate(-17deg); animation: homeOrbit 12s steps(36,end) infinite; }
 @keyframes homeStars { 50% { opacity: .3; } }
 @keyframes homeOrbit { to { transform: translate(-50%,-50%) rotate(343deg); } }
-.home-hero { position: relative; isolation: isolate; min-height: clamp(250px, 43vh, 390px); display: grid; place-items: center; overflow: visible; border: 0; background: transparent; }
+.home-hero { position: relative; isolation: isolate; min-height: clamp(250px, 43vh, 390px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; overflow: visible; border: 0; background: transparent; }
 .home-hero::after { content: none; }
 .home-logo { --logo-edge: #37243f; --logo-glow: rgba(255,155,86,.38); position: relative; z-index: 3; display: grid; place-items: center; color: #ffe078; font-size: clamp(78px, 13vw, 142px); font-weight: 900; letter-spacing: -.08em; line-height: .7; text-shadow: 5px 0 var(--logo-edge), -5px 0 var(--logo-edge), 0 5px var(--logo-edge), 0 -5px var(--logo-edge), 10px 11px 0 #08050c, 0 0 35px var(--logo-glow); transform: rotate(-2deg); animation: homeLogoFloat 2.8s steps(7, end) infinite; }
 .home-logo span:last-child { color: #ff9a58; letter-spacing: -.04em; }
@@ -1186,7 +1182,7 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
 .home-logo.is-god span { color: transparent; background: linear-gradient(90deg,#ff6d86,#ffd166,#70d38b,#8ee7ff,#d39cff,#ff6d86); background-size: 300% 100%; background-clip: text; -webkit-background-clip: text; animation: godLogoColor 1.8s steps(12,end) infinite; }
 @keyframes logoFlare { 50% { opacity: .38; transform: rotate(5deg) scale(1.06); } }
 @keyframes godLogoColor { to { background-position: 100% 0; } }
-.home-mode-sigils { position: absolute; z-index: 5; left: 50%; bottom: 8px; display: flex; gap: 8px; transform: translateX(-50%); }
+.home-mode-sigils { position: relative; z-index: 5; display: flex; flex: 0 0 auto; gap: 8px; }
 .home-mode-sigils i { width: 27px; height: 27px; display: grid; place-items: center; border: 2px solid #51435d; color: #62546b; background: rgba(14,10,18,.78); box-shadow: 3px 3px 0 rgba(6,4,9,.66); font-size: 11px; font-style: normal; font-weight: 900; opacity: .58; }
 .home-mode-sigils i.is-unlocked { opacity: .92; }
 .home-mode-sigils i.is-cleared { opacity: 1; background: color-mix(in srgb, currentColor 18%, rgba(14,10,18,.92)); box-shadow: 3px 3px 0 rgba(6,4,9,.66), 0 0 8px color-mix(in srgb, currentColor 72%, transparent); animation: sigilPulse 2.2s steps(6,end) infinite; }
@@ -1403,7 +1399,7 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
     padding: 10px;
     overflow: hidden;
   }
-  .home-hero { min-height: clamp(280px, 42dvh, 360px); flex: 1 1 auto; }
+  .home-hero { min-height: 0; flex: 0 0 clamp(250px, 30dvh, 270px); }
   .home-logo { font-size: clamp(88px, 27vw, 112px); }
   .home-card-art { width: 98px; height: 98px; }
   .home-cat { left: 0; }
@@ -1412,10 +1408,11 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
   .home-hero p { right: 8px; bottom: 8px; left: 8px; font-size: 7px; }
   .home-actions, .mode-chooser { flex: 0 0 auto; grid-template-columns: 1fr; }
   .mode-chooser { min-height: 0; max-height: min(53dvh, 430px); overflow: hidden auto; overscroll-behavior: contain; padding: 0 4px 6px; }
-  .home-panel:has(.mode-chooser:not([hidden])) .home-hero { min-height: 0; flex: 0 0 clamp(190px, 26dvh, 230px); }
+  .home-panel:has(.mode-chooser:not([hidden])) .home-hero { min-height: 0; flex: 0 0 clamp(205px, 27dvh, 240px); gap: 8px; }
+  .home-panel:has(.mode-chooser:not([hidden])) .home-logo { font-size: clamp(72px, 23vw, 92px); }
   .home-panel:has(.mode-chooser:not([hidden])) .mode-chooser { flex: 1 1 auto; max-height: none; }
   .home-actions > button, .mode-chooser .mode-button { min-height: 48px; }
-  .home-footer { flex: 0 0 auto; align-items: center; flex-direction: column; gap: 4px; }
+  .home-footer { flex: 0 0 auto; align-items: center; flex-direction: column; gap: 4px; margin-top: auto; }
   .unlocked-modes { grid-template-columns: 1fr; }
   .welcome-loop { grid-template-columns: 1fr; }
   .welcome-legend { margin-top: 10px; }
