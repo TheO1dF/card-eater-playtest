@@ -84,6 +84,11 @@ export function createGestureController(options = {}) {
 
   function resolve(action) {
     if (!element || !card || resolving) return false;
+    if (config.canCommit?.(action, card) === false) {
+      resetVisual();
+      config.onBlocked?.(action, card);
+      return false;
+    }
     resolving = true;
     const targetElement = element;
     const targetCard = card;

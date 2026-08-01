@@ -786,6 +786,7 @@ test("引力井弃置后摧毁自身并把下一目标延后一轮", () => {
 test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../js/main.js", import.meta.url), "utf8");
+  const gesture = await readFile(new URL("../js/gesture.js", import.meta.url), "utf8");
   const audio = await readFile(new URL("../js/audio.js", import.meta.url), "utf8");
   const ui = await readFile(new URL("../js/ui.js", import.meta.url), "utf8");
   const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
@@ -796,7 +797,14 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(html, /id="randomStartToggle"/);
   assert.ok(html.indexOf('class="random-start-toggle"') < html.indexOf('id="normalModeButton"'), "随机开局应位于模式列表顶部");
   assert.match(html, /id="timerValue"/);
+  assert.match(html, /首要目标：尽量获得高分/);
+  assert.match(html, /id="storyGestureLegend"/);
+  assert.match(html, /上拖弃牌[\s\S]*左右后置[\s\S]*下拖吃牌/);
   assert.match(main, /createShopService|randomDraftRules|settleActiveRules|tickTimer/);
+  assert.match(main, /第一件事 · 分数决定胜负/);
+  assert.match(main, /清空餐盘只是完成一轮，尽量拿到更高分才是首要目标/);
+  assert.match(main, /progress\.progress >= 0\.16/);
+  assert.match(gesture, /config\.canCommit/);
   assert.match(main, /developerMode|getCurrentUnlocks/);
   assert.match(main, /god: Boolean\(progression\.god\)/);
   assert.match(main, /ui\.hasBlockingOverlay\(\)/);
@@ -805,6 +813,7 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(audio, /E minor \/ mysterious add9/);
   assert.match(audio, /continuous-\$\{THEME_CROSSFADE_SECONDS\}s-crossfade/);
   assert.match(ui, /classList\.toggle\("is-unlocked"/);
+  assert.match(ui, /首要目标：尽量获得高分/);
   assert.match(ui, /hasBlockingOverlay\(\)/);
   assert.match(styles, /\.overlay\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset:\s*0;[\s\S]*?z-index:\s*120;/);
   assert.match(styles, /\.welcome-overlay\s*\{[\s\S]*?inset:\s*0;/);

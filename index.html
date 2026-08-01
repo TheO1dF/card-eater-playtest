@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#17121b" />
     <title>CardEater · 构筑你的餐盘</title>
     <link rel="icon" href="./assets/favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=47" />
+    <link rel="stylesheet" href="./styles.css?v=48" />
   </head>
   <body>
     <main class="app" id="app">
@@ -78,7 +78,7 @@
 
         <aside class="story-guide" id="storyGuide" role="status" aria-live="polite" aria-atomic="true" hidden>
           <div class="story-card-avatar" aria-hidden="true"><span class="game-sprite" style="--sprite-image:url('./assets/cards/v017/a001-v3.png?v=14');--sprite-x:50%;--sprite-y:50%;--sprite-size-x:100%;--sprite-size-y:100%;--sprite-scale:1;"></span><i>?</i></div>
-          <div class="story-dialog"><small id="storyGuideChapter">PROLOGUE · 会说话的牌</small><strong id="storyGuideSpeaker">咔嚓</strong><p id="storyGuideMessage">别怕，我只是比别的牌更爱说话。</p><em id="storyGuideObjective">跟着提示完成真实操作。</em><div class="story-progress" id="storyGuideProgress"></div><div class="story-actions"><button class="story-skip" id="storyGuideSkip" type="button">跳过教学</button><button class="story-next" id="storyGuideNext" type="button" hidden>完成教学</button></div></div>
+          <div class="story-dialog"><small id="storyGuideChapter">第一件事 · 分数决定胜负</small><strong id="storyGuideSpeaker">咔嚓</strong><p id="storyGuideMessage">清空餐盘只是一轮，拿到足够的累计分数才能通关。</p><em id="storyGuideObjective">先认识目标分数，再学习吃、弃与后置。</em><div class="story-gesture-legend" id="storyGestureLegend" aria-label="卡牌拖动方向" hidden><span class="discard"><b>↑</b> 上拖弃牌</span><span class="postpone"><b>↔</b> 左右后置</span><span class="eat"><b>↓</b> 下拖吃牌</span></div><div class="story-progress" id="storyGuideProgress"></div><div class="story-actions"><button class="story-skip" id="storyGuideSkip" type="button">跳过教学</button><button class="story-next" id="storyGuideNext" type="button" hidden>继续</button></div></div>
         </aside>
 
         <div class="overlay deck-overlay" id="deckStatus" role="dialog" aria-modal="true" aria-labelledby="deckStatusTitle">
@@ -97,7 +97,8 @@
             <div class="font-size-setting"><span><b>界面字号</b></span><div role="group" aria-label="界面字号"><button type="button" data-font-size="small">小</button><button type="button" data-font-size="medium">标准</button><button type="button" data-font-size="large">大</button></div></div>
             <button class="menu-wide-button" id="cardCatalogButton" type="button"><b>卡牌图鉴</b></button>
             <section class="unlock-progress" id="unlockProgress"><b>模式解锁进度</b><div id="unlockProgressList"></div></section>
-            <details class="menu-rules" id="menuRules"><summary>规则与细则</summary><div class="menu-objective" id="menuObjective">第 5 / 10 / 15 轮累计达到 80 / 200 / 600 分</div><div class="menu-mode-rules" id="menuModeRules"></div><ul>
+            <details class="menu-rules" id="menuRules"><summary>规则与细则</summary><div class="menu-objective" id="menuObjective">首要目标：尽量获得高分，并在第 5 / 10 / 15 轮累计达到 80 / 200 / 600 分</div><div class="menu-mode-rules" id="menuModeRules"></div><ul>
+              <li><b>如何操作</b><span>直接拖动最上层卡牌：向下吃、向上弃、向左或向右后置；也可以使用底部按钮。</span></li>
               <li><b>随机餐盘</b><span>每轮从永久牌组随机抽取不超过餐盘上限的卡牌；未登场牌下轮会重新参与抽取。</span></li>
               <li><b>吃与弃</b><span>可食用牌通常适合吃，不可食用牌通常适合弃；错误食性仍按牌面和效果结算。</span></li>
               <li><b>后置</b><span>把当前牌移到餐盘末尾，不结算、不占用行动；每轮每张实体牌限一次。</span></li>
@@ -108,7 +109,7 @@
               <li><b>餐盘扩容</b><span>成功完成第 5、10、15 轮时，餐盘上限永久 +1。</span></li>
               <li><b>自动保存</b><span>操作、结算和选择后自动保存，可从主界面继续。</span></li>
             </ul></details>
-            <button class="menu-wide-button" id="tutorialInfoButton" type="button"><b>重玩故事教学</b></button>
+            <button class="menu-wide-button" id="tutorialInfoButton" type="button"><b>重玩咔嚓新手教学</b></button>
             <button class="menu-wide-button menu-home-button" id="menuHomeButton" type="button"><b>保存并回到主界面</b></button>
             <button class="primary-button" id="gameMenuClose" type="button">返回游戏</button>
           </section>
@@ -159,7 +160,7 @@
         </div>
 
         <div class="overlay" id="shopTutorial" role="dialog" aria-modal="true" aria-labelledby="shopTutorialTitle">
-          <section class="modal-panel shop-tutorial-panel"><div class="eyebrow">咔嚓带来了经济系统</div><h1 id="shopTutorialTitle">商店模式教学</h1><p class="shop-tutorial-lead">先记住一件事：<b>吃牌就是最稳定的金币来源。</b></p><div class="shop-tutorial-steps"><span class="income-step"><b>1 · 基础金币</b><small><strong>每轮中，每张实体牌第一次被吃掉时获得 1 金币。</strong>同一张牌即使重洗后再次吃掉，也不会重复获得这份基础金币。</small></span><span><b>2 · 额外收入</b><small id="shopTutorialGoldBonus">带有“金币”说明的经济卡与道具可以追加收入。卡牌图鉴可切换查看商店效果。</small></span><span><b>3 · 花在哪里</b><small>买牌做强引擎、扩容让更多牌登场、删牌提高稳定性，三者共用同一份金币。</small></span><span><b>4 · 轮末变化</b><small>商店替代普通模式的免费选牌与免费扩容；离开商店后自动进入下一轮。</small></span></div><button class="primary-button" id="shopTutorialContinue" type="button">明白了 · 开始</button></section>
+          <section class="modal-panel shop-tutorial-panel"><div class="eyebrow">咔嚓带来了经济系统</div><h1 id="shopTutorialTitle">商店模式教学</h1><p class="shop-tutorial-lead"><b>首要目标仍然是拿高分并达成阶段分数。</b>金币不会直接帮你通关，它是强化牌组、让之后每轮获得更多分数的手段。</p><div class="shop-tutorial-steps"><span class="income-step"><b>1 · 基础金币</b><small><strong>每轮中，每张实体牌第一次被吃掉时获得 1 金币。</strong>同一张牌即使重洗后再次吃掉，也不会重复获得这份基础金币。</small></span><span><b>2 · 额外收入</b><small id="shopTutorialGoldBonus">带有“金币”说明的经济卡与道具可以追加收入。卡牌图鉴可切换查看商店效果。</small></span><span><b>3 · 把钱变成分数</b><small>买牌建立配合、扩容让更多强牌登场、删牌提高稳定性。三者共用金币，都应服务于更高得分。</small></span><span><b>4 · 轮末变化</b><small>商店替代普通模式的免费选牌与免费扩容；确认购买完成后离开商店，自动进入下一轮。</small></span></div><button class="primary-button" id="shopTutorialContinue" type="button">记住分数目标 · 开始</button></section>
         </div>
 
         <div class="overlay delete-confirm-overlay" id="deleteConfirm" role="alertdialog" aria-modal="true" aria-labelledby="deleteConfirmTitle">
@@ -167,6 +168,6 @@
         </div>
       </section>
     </main>
-    <script type="module" src="./js/main.js?v=47"></script>
+    <script type="module" src="./js/main.js?v=48"></script>
   </body>
 </html>

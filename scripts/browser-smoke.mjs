@@ -78,6 +78,22 @@ async function clickElement(selector) {
   await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: 1 });
 }
 
+async function dragElement(selector, deltaX, deltaY) {
+  const point = await evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    const rect = element?.getBoundingClientRect();
+    return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+  })()`);
+  if (!point) throw new Error(`Element not found: ${selector}`);
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: 1 });
+  await wait(80);
+  for (const ratio of [1 / 3, 2 / 3, 1]) {
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x + deltaX * ratio, y: point.y + deltaY * ratio, button: "left", buttons: 1 });
+    await wait(80);
+  }
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x + deltaX, y: point.y + deltaY, button: "left", clickCount: 1 });
+}
+
 async function capture(name) {
   const result = await send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false });
   await writeFile(resolve(outputDir, `${name}.png`), Buffer.from(result.data, "base64"));
@@ -126,8 +142,56 @@ for (const viewport of selectedViewports) {
     localStorage.removeItem("cardeater.active-run.v2");
     localStorage.removeItem("cardeater.settings.v1");
     localStorage.removeItem("cardeater.progression.v1");
+    localStorage.removeItem("cardeater.story-tutorial.v1");
+  })()`);
+  await send("Page.reload", { ignoreCache: true });
+  await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
+  await wait(180);
+
+  await clickElement("#newGameButton");
+  await waitFor('!document.querySelector("#modeChooser")?.hidden');
+  await clickElement("#normalModeButton");
+  await waitFor('document.querySelector("#storyGuide")?.dataset.step === "goal" && !document.querySelector("#storyGuide")?.hidden', 12000);
+  await wait(320);
+  const tutorialGoal = await evaluate(`(() => {
+    const guide = document.querySelector("#storyGuide")?.getBoundingClientRect();
+    return {
+      chapter: document.querySelector("#storyGuideChapter")?.textContent,
+      message: document.querySelector("#storyGuideMessage")?.textContent,
+      objective: document.querySelector("#storyGuideObjective")?.textContent,
+      continue_label: document.querySelector("#storyGuideNext")?.textContent,
+      score_focused: document.querySelector("#scoreValue")?.classList.contains("tutorial-focus"),
+      inside_viewport: Boolean(guide && guide.left >= -1 && guide.right <= innerWidth + 1 && guide.top >= -1 && guide.bottom <= innerHeight + 1),
+      horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    };
+  })()`);
+  await wait(320);
+  await capture(`${viewport.name}-tutorial-goal`);
+  await clickElement("#storyGuideNext");
+  await waitFor('document.querySelector("#storyGuide")?.dataset.step === "drag" && !document.querySelector("#storyGestureLegend")?.hidden');
+  const cardsBeforePracticeDrag = await evaluate('document.querySelectorAll("#cardStack .game-card").length');
+  const activeCardBeforePracticeDrag = await evaluate('document.querySelector(".game-card.is-active")?.dataset.cardUuid');
+  await dragElement(".game-card.is-active", 18, 0);
+  await waitFor('document.querySelector("#storyGuide")?.dataset.step !== "drag"');
+  const tutorialDrag = await evaluate(`(() => ({
+    step: document.querySelector("#storyGuide")?.dataset.step,
+    legend_visible: !document.querySelector("#storyGestureLegend")?.hidden,
+    legend_text: document.querySelector("#storyGestureLegend")?.textContent?.replace(/\\s+/g, " ").trim(),
+    dragged_done: [...document.querySelectorAll("#storyGuideProgress span")].some((entry) => entry.textContent.includes("拖动卡牌") && entry.classList.contains("done")),
+    card_count_unchanged: document.querySelectorAll("#cardStack .game-card").length === ${cardsBeforePracticeDrag},
+    active_card_unchanged: document.querySelector(".game-card.is-active")?.dataset.cardUuid === ${JSON.stringify(activeCardBeforePracticeDrag)},
+    gesture_prompt_cleared: document.querySelector("#swipeStatus")?.textContent === "" && parseFloat(getComputedStyle(document.querySelector("#swipeStatus")).opacity) < .01,
+    focus_visible: Boolean(document.querySelector(".tutorial-focus")),
+  }))()`);
+  await wait(120);
+  await capture(`${viewport.name}-tutorial-drag`);
+  await evaluate(`(() => {
+    localStorage.removeItem("cardeater.active-run.v2");
     localStorage.setItem("cardeater.story-tutorial.v1", "complete");
   })()`);
+  await send("Page.reload", { ignoreCache: true });
+  await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
+  await evaluate('localStorage.removeItem("cardeater.active-run.v2")');
   await send("Page.reload", { ignoreCache: true });
   await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
   await wait(180);
@@ -299,8 +363,8 @@ for (const viewport of selectedViewports) {
   await waitFor('!document.querySelector("#modeChooser")?.hidden');
   await capture(`${viewport.name}-mode-select`);
   await clickElement("#normalModeButton");
-  await waitFor('Boolean(document.querySelector(".deal-layer"))');
-  await wait(720);
+  await waitFor('getComputedStyle(document.querySelector("#cardStack")).animationName === "shuffleDeckSettle"');
+  await wait(320);
   await capture(`${viewport.name}-deal`);
   const dealing = await evaluate(`(() => {
     const layer = document.querySelector(".deal-layer");
@@ -369,6 +433,7 @@ for (const viewport of selectedViewports) {
       rule_count: document.querySelectorAll("#menuRules li").length,
       has_home: Boolean(document.querySelector("#menuHomeButton")?.getBoundingClientRect().height),
       has_autosave_rule: text.includes("自动保存"),
+      has_score_priority: document.querySelector("#menuObjective")?.textContent?.includes("首要目标") ?? false,
       objective: document.querySelector("#menuObjective")?.textContent?.trim() ?? "",
       forbidden_terms: ["金币", "商店", "限时经济", "任务选择"].filter((term) => text.includes(term)),
       viewport_cover: Boolean(overlayRect && overlayRect.left <= .5 && overlayRect.top <= .5 && overlayRect.right >= innerWidth - .5 && overlayRect.bottom >= innerHeight - .5),
@@ -617,7 +682,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, home, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, summary_target: summaryTarget, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, tutorial_goal: tutorialGoal, tutorial_drag: tutorialDrag, home, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, summary_target: summaryTarget, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -627,6 +692,8 @@ socket.close();
 const failures = [
   ...browserErrors,
   ...reports.flatMap((entry) => [
+    entry.tutorial_goal.chapter === "第一件事 · 分数决定胜负" && entry.tutorial_goal.message.includes("80、200、600") && entry.tutorial_goal.objective.includes("更高分") && entry.tutorial_goal.score_focused && entry.tutorial_goal.inside_viewport && !entry.tutorial_goal.horizontal_overflow ? null : `${entry.viewport.name}: score-first tutorial goal is missing or outside viewport`,
+    entry.tutorial_drag.legend_visible && entry.tutorial_drag.legend_text.includes("上拖弃牌") && entry.tutorial_drag.legend_text.includes("左右后置") && entry.tutorial_drag.legend_text.includes("下拖吃牌") && entry.tutorial_drag.dragged_done && entry.tutorial_drag.card_count_unchanged && entry.tutorial_drag.active_card_unchanged && entry.tutorial_drag.gesture_prompt_cleared && entry.tutorial_drag.focus_visible ? null : `${entry.viewport.name}: drag tutorial did not recognize a safe practice drag`,
     entry.home.title === "CardEater" ? null : `${entry.viewport.name}: wrong home title`,
     JSON.stringify(entry.home.action_labels) === JSON.stringify(["新游戏", "继续", "菜单"]) ? null : `${entry.viewport.name}: wrong home actions`,
     entry.home.continue_disabled ? null : `${entry.viewport.name}: continue should start disabled`,
@@ -669,7 +736,7 @@ const failures = [
     entry.playing.has_gold || entry.playing.timer_visible ? `${entry.viewport.name}: standard mode shows economy HUD` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
     entry.score_stress.score_inside && entry.score_stress.postpone_inside && entry.score_stress.card_inside && entry.score_stress.font_mode === "large" ? null : `${entry.viewport.name}: large-font score/postpone content overflows`,
-    entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule && entry.menu.objective.includes("80 / 200 / 600") ? null : `${entry.viewport.name}: menu rules or milestone targets are incomplete`,
+    entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule && entry.menu.has_score_priority && entry.menu.objective.includes("80 / 200 / 600") ? null : `${entry.viewport.name}: menu rules or milestone targets are incomplete`,
     entry.menu.viewport_cover && entry.menu.top_edge_owned && entry.menu.panel_inside && entry.menu.background_action_blocked ? null : `${entry.viewport.name}: menu layer leaks the background or allows gameplay input`,
     entry.menu.forbidden_terms.length ? `${entry.viewport.name}: legacy terms ${entry.menu.forbidden_terms.join(",")}` : null,
     entry.catalog.count === 89 && entry.catalog.effects_present && entry.catalog.effects_inside && entry.catalog.inspectable && entry.catalog.point_rows_horizontal && entry.catalog.standard_selected && entry.catalog.viewport_cover ? null : `${entry.viewport.name}: catalog summaries are clipped, uncovered, or not inspectable`,

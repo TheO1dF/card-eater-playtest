@@ -720,22 +720,29 @@ body:has(#welcomeOverlay.show) .game-shell {
   background: #18121f;
   transform: rotate(45deg);
 }
-.story-dialog > small { grid-column: 1 / -1; color: #a991ba; font-size: 6px; letter-spacing: .16em; }
-.story-dialog > strong { grid-column: 1 / -1; color: var(--gold); font-size: 13px; letter-spacing: .12em; }
+.story-dialog > small { grid-column: 1 / -1; color: #a991ba; font-size: 8px; letter-spacing: .13em; }
+.story-dialog > strong { grid-column: 1 / -1; color: var(--gold); font-size: 14px; letter-spacing: .1em; }
 .story-dialog > p {
   grid-column: 1 / -1;
   margin: 2px 0;
   color: #f6ebd4;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.65;
   animation: storyTextIn 220ms steps(4, end) both;
 }
-.story-dialog > em { grid-column: 1 / -1; color: #8ee7ff; font-size: 7px; font-style: normal; line-height: 1.5; }
+.story-dialog > em { grid-column: 1 / -1; color: #8ee7ff; font-size: 8px; font-style: normal; line-height: 1.55; }
+.story-gesture-legend { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.story-gesture-legend[hidden] { display: none; }
+.story-gesture-legend span { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px; min-width: 0; padding: 5px 6px; border: 1px solid #594867; color: #e5d9ec; background: #100c17; font-size: 8px; line-height: 1.2; }
+.story-gesture-legend b { font-size: 12px; }
+.story-gesture-legend .discard b { color: var(--discard); }
+.story-gesture-legend .postpone b { color: #c897ff; }
+.story-gesture-legend .eat b { color: var(--eat); }
 .story-progress { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
-.story-progress span { padding: 3px 5px; border: 1px solid #544460; color: #81718b; background: #100c17; font-size: 6px; }
+.story-progress span { padding: 3px 5px; border: 1px solid #544460; color: #a996b5; background: #100c17; font-size: 8px; }
 .story-progress span.done { border-color: #3f8f62; color: #8ff0aa; background: #15231d; }
 .story-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 6px; margin-top: 3px; }
-.story-actions button { min-height: 25px; padding: 4px 8px; border: 1px solid #665275; color: #b7a7c2; background: #211829; cursor: pointer; font-size: 6px; font-weight: 900; }
+.story-actions button { min-height: 28px; padding: 5px 9px; border: 1px solid #665275; color: #b7a7c2; background: #211829; cursor: pointer; font-size: 8px; font-weight: 900; }
 .story-actions .story-next { border-color: #c3993c; color: #2a1d24; background: var(--gold); }
 .tutorial-focus { outline: 3px solid #8ee7ff !important; outline-offset: 3px; animation: tutorialFocus 860ms steps(2, end) infinite; }
 @keyframes storyGuideEnter { from { opacity: 0; transform: translateX(-18px); } to { opacity: 1; transform: translateX(0); } }
@@ -1432,11 +1439,13 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
   .story-card-avatar i { width: 15px; height: 15px; border-width: 1px; font-size: 8px; }
   .story-dialog { min-height: 84px; padding: 8px 9px; border-width: 2px; gap: 3px 7px; }
   .story-dialog::before { left: -8px; bottom: 15px; width: 10px; height: 10px; border-width: 0 0 2px 2px; }
-  .story-dialog > strong { font-size: 11px; }
-  .story-dialog > p { font-size: 8px; line-height: 1.45; }
-  .story-dialog > em { font-size: 6px; }
-  .story-progress span { padding: 2px 4px; }
-  .story-actions button { min-height: 23px; }
+  .story-dialog > small { font-size: 7px; }
+  .story-dialog > strong { font-size: 12px; }
+  .story-dialog > p { font-size: 10px; line-height: 1.5; }
+  .story-dialog > em { font-size: 9px; }
+  .story-gesture-legend span { padding: 4px; font-size: 8px; }
+  .story-progress span { padding: 2px 4px; font-size: 8px; }
+  .story-actions button { min-height: 27px; }
   .rule-help { grid-template-columns: 1fr; gap: 4px; }
   .target-banner { grid-template-columns: 1fr; }
   .target-banner strong { text-align: left; }

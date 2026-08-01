@@ -497,6 +497,8 @@ export function createUI(root) {
     setText(get("#storyGuideSpeaker"), model.speaker ?? "咔嚓");
     setText(get("#storyGuideMessage"), model.message ?? "我会陪你完成这一轮。");
     setText(get("#storyGuideObjective"), model.objective ?? "跟着高亮提示操作。");
+    const gestures = get("#storyGestureLegend");
+    if (gestures) gestures.hidden = !model.show_gestures;
     const progress = get("#storyGuideProgress");
     progress.innerHTML = (model.progress ?? [])
       .map((entry) => `<span class="${entry.done ? "done" : ""}">${entry.done ? "✓" : "○"} ${entry.label}</span>`)
@@ -992,8 +994,8 @@ export function createUI(root) {
         const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode);
         const targetRoadmap = [5, 10, 15].map((round) => formatScore(getMilestoneTarget(round, state.mode))).join(" / ");
         setText(get("#menuObjective"), milestone.endless
-          ? `第 5 / 10 / 15 轮目标 ${targetRoadmap} · 无尽第 ${state.current_round} 轮 · 累计 ${formatScore(state.total_score)} 分`
-          : `第 5 / 10 / 15 轮目标 ${targetRoadmap} · 当前：第 ${milestone.round} 轮达到 ${formatScore(milestone.target)} 分（已有 ${formatScore(state.total_score)}）`);
+          ? `首要目标：尽量获得高分 · 前 15 轮阶段目标 ${targetRoadmap} · 无尽第 ${state.current_round} 轮累计 ${formatScore(state.total_score)} 分`
+          : `首要目标：尽量获得高分 · 第 5 / 10 / 15 轮累计目标 ${targetRoadmap} · 当前需在第 ${milestone.round} 轮达到 ${formatScore(milestone.target)} 分（已有 ${formatScore(state.total_score)}）`);
         const modeRules = {
           [GAME_MODES.PREP]: "备料模式：没有删牌标记。轮末可把一张牌放入备料位；它下一轮不登场，并保证候选中至少一张同类别牌。存放满一轮后可永久移除。",
           [GAME_MODES.SHOP]: "商店模式：轮末不进行免费卡牌/道具三选一，也不免费扩容；吃牌赚取金币，在商店中权衡买牌、扩容和删牌。",
@@ -1004,7 +1006,7 @@ export function createUI(root) {
         };
         setText(get("#menuModeRules"), modeRules[state.mode] ?? "");
       } else {
-        setText(get("#menuObjective"), "对局中会在每次操作、选牌与轮次结算后自动保存。");
+        setText(get("#menuObjective"), "首要目标：尽量获得高分，并在阶段轮次达到累计目标；对局会在操作、选牌与轮次结算后自动保存。");
         setText(get("#menuModeRules"), "完成对局会推进模式解锁；失败也计入游玩局数。所有模式的通关都计入通用通关进度。");
       }
       get("#menuHomeButton").hidden = !state;
