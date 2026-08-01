@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import { GAME_CONFIG, GAME_MODES, getFinalRound, getNextMilestone, isPlateUpgradeRound } from "../js/config.js";
-import { CARD_LIBRARY, createCardPool, createInitialDeck, getCardById } from "../js/data.js";
+import { CARD_LIBRARY, createCardPool, createInitialDeck, createShopCardPool, getCardById } from "../js/data.js";
 import { createDraftService } from "../js/draft.js";
 import { createRoundEngine } from "../js/engine.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "../js/plate.js";
@@ -17,7 +17,9 @@ import {
   markCardsPostponed,
 } from "../js/round-pile.js";
 import { CARD_EFFECT_CONTRACTS } from "../js/card-effect-contracts.js";
-import { migrateRunState } from "../js/platform.js";
+import { browserPlatform, migrateRunState } from "../js/platform.js";
+import { createShopService } from "../js/shop.js";
+import { getRoundGoldSources, grantRoundGold, queueRoundGold, sumRoundGoldSources } from "../js/economy.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
 import {
   activateCategoryRoundItem,
@@ -25,6 +27,7 @@ import {
   applyRoundItemSetup,
   chooseItem,
   createItemPool,
+  createShopItemPool,
   getItemActionOverrides,
   getItemCardOffers,
   getItemFinalMultipliers,
@@ -87,6 +90,11 @@ test("试验版通常为 15 轮，并在第 5/10/15 轮检查 80/200/600", () =>
   assert.equal(getNextMilestone(1, {}, GAME_MODES.HARD).target, 96);
 });
 
+test("条约限时经济使用 12 秒与 8 秒两档", () => {
+  assert.equal(GAME_CONFIG.contract_time_limit_ms, 12_000);
+  assert.equal(GAME_CONFIG.contract_fast_time_limit_ms, 8_000);
+});
+
 test("旧自动存档迁移后保留对局并切换到稀有度道具状态", () => {
   const saved = {
     schema_version: 20,
@@ -97,7 +105,7 @@ test("旧自动存档迁移后保留对局并切换到稀有度道具状态", ()
     round: { postponed_uuids: ["pear-saved"] },
   };
   const migrated = migrateRunState(saved);
-  assert.equal(migrated.schema_version, 23);
+  assert.equal(migrated.schema_version, GAME_CONFIG.schema_version);
   assert.equal(migrated.current_round, 4);
   assert.equal(migrated.total_score, 72);
   assert.equal(migrated.deck[0].uuid, "pear-saved");
@@ -122,10 +130,10 @@ test("当前版本存档也会修复后置 UUID 与次数不一致", () => {
   assert.ok(reconciled.round.postponed_uuids.includes(state.deck[1].uuid));
 });
 
-test("状态机从开局直接出牌，轮末只进入三选一", () => {
+test("状态机支持轻量选牌流程，也支持条约与商店分支", () => {
   const state = createInitialPlayerState({ create_id: nextId });
   assert.equal(state.phase, GAME_PHASES.INIT);
-  assert.equal(state.gold, undefined);
+  assert.equal(state.gold, 0);
   assert.equal(state.delete_tokens, 1);
   assert.equal(state.reroll_tokens, 0);
   assert.equal(state.free_rerolls, 1);
@@ -135,17 +143,30 @@ test("状态机从开局直接出牌，轮末只进入三选一", () => {
   transitionPhase(state, GAME_PHASES.NEXT_ROUND);
   transitionPhase(state, GAME_PHASES.PLAYING);
   assert.deepEqual(state.phase_history.map(({ to }) => to), ["Playing", "Scoring", "CardDraft", "NextRound", "Playing"]);
+  const shop = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.CONTRACT_SHOP });
+  transitionPhase(shop, GAME_PHASES.RULE_DRAFT);
+  transitionPhase(shop, GAME_PHASES.PLAYING);
+  transitionPhase(shop, GAME_PHASES.SCORING);
+  transitionPhase(shop, GAME_PHASES.SHOP);
+  assert.equal(shop.phase, GAME_PHASES.SHOP);
 });
 
 test("初始餐盘上限为 10，且每轮只随机登场餐盘上限数量", () => {
   const state = createInitialPlayerState({ create_id: nextId });
   assert.equal(state.plate_capacity, 10);
   const cards = [...state.deck, owned("F001", "extra-a"), owned("K001", "extra-b"), owned("D001", "extra-c"), owned("A001", "extra-d"), owned("B001", "extra-e")];
-  const round = takeRoundDrawPile(cards, state.plate_capacity);
+  const round = takeRoundDrawPile(cards, state.plate_capacity, () => 0);
+  const alternateRound = takeRoundDrawPile(cards, state.plate_capacity, () => 0.999999);
   assert.equal(round.draw_pile.length, 10);
   assert.equal(round.action_budget, 10);
   assert.equal(round.reserve_count, 2);
   assert.equal(round.reserve_cards.length, 2);
+  assert.notDeepEqual(
+    round.draw_pile.map((card) => card.uuid),
+    alternateRound.draw_pile.map((card) => card.uuid),
+    "超出餐盘上限时，登场集合必须由本轮随机抽样决定",
+  );
+  assert.equal(new Set([...round.draw_pile, ...round.reserve_cards].map((card) => card.uuid)).size, cards.length);
 });
 
 test("轮末奖励固定三选一，可选牌或跳过", () => {
@@ -215,11 +236,15 @@ test("89 张卡保留八类结构与唯一美术，玩家文案不再自动堆�
   }
 });
 
-test("卡池不再包含经济角色或金币、商店、计时效果说明", () => {
+test("普通卡池保持轻量，经济效果只在商店卡池回归", () => {
   const cards = createCardPool();
-  const forbidden = /金币|商店|刷新|价格|计时|限时|合约/;
+  const forbidden = /金币|商店|价格|计时|限时|合约/;
   assert.equal(cards.filter((card) => card.role === "economy").length, 0);
   assert.deepEqual(cards.filter((card) => forbidden.test(card.effect?.description ?? "")).map((card) => card.id), []);
+  const economy = createShopCardPool({ economy: true });
+  assert.ok(economy.some((card) => card.role === "economy"));
+  assert.match(economy.find((card) => card.id === "F013").effect.description, /金币/);
+  assert.equal(economy.find((card) => card.id === "K006").name, "收费炸鸡桶");
 });
 
 test("初始牌组仍是七张教学牌，四张可食用、三张不可食用", () => {
@@ -228,7 +253,8 @@ test("初始牌组仍是七张教学牌，四张可食用、三张不可食用",
   assert.equal(deck.filter((card) => card.edibility === "edible").length, 4);
   assert.equal(deck.filter((card) => card.edibility === "inedible").length, 3);
   assert.equal(new Set(deck.map((card) => card.uuid)).size, 7);
-  assert.ok(deck.some((card) => card.id === "F009"), "初始牌组应包含梨子");
+  assert.ok(deck.some((card) => card.id === "F001"), "初始牌组应回调为苹果");
+  assert.equal(deck.some((card) => card.id === "F009"), false, "初始牌组不再包含梨子");
   assert.equal(deck.some((card) => card.id === "F003"), false, "初始牌组不再包含西瓜");
 });
 
@@ -711,7 +737,7 @@ test("留存爆发可以产出删牌标记，不经过金币", () => {
   const result = engine.recordAction(state, "eat", state.round.draw_pile[0]);
   assert.equal(state.delete_tokens, 1);
   assert.equal(result.points, 20);
-  assert.equal(state.gold, undefined);
+  assert.equal(state.gold, 0);
 });
 
 test("轮末结算只有分数，没有合约或限时经济条目", () => {
@@ -756,13 +782,29 @@ test("引力井弃置后摧毁自身并把下一目标延后一轮", () => {
   assert.match(result.effect_triggered, /目标结算延后 1 轮/);
 });
 
-test("菜单与主循环源码不再包含商店、任务选择、金币或计时 UI", async () => {
+test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const main = await readFile(new URL("../js/main.js", import.meta.url), "utf8");
+  const audio = await readFile(new URL("../js/audio.js", import.meta.url), "utf8");
   const ui = await readFile(new URL("../js/ui.js", import.meta.url), "utf8");
   const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  assert.doesNotMatch(html, /id="shopPanel"|id="ruleDraft"|id="questDraft"|id="goldValue"|id="timerValue"/);
-  assert.doesNotMatch(main, /createShopService|randomDraftRules|randomDraftQuests|tickTimer/);
+  assert.match(html, /id="shopPanel"/);
+  assert.match(html, /id="ruleDraft"/);
+  assert.match(html, /id="prepModeButton"/);
+  assert.match(html, /id="randomStartToggle"/);
+  assert.match(html, /id="timerValue"/);
+  assert.match(main, /createShopService|randomDraftRules|tickTimer/);
+  assert.match(main, /developerMode|getCurrentUnlocks/);
+  assert.match(main, /god: Boolean\(progression\.god\)/);
+  assert.match(main, /ui\.hasBlockingOverlay\(\)/);
+  assert.match(main, /setBGMTheme\(settings\.home_theme/);
+  assert.match(audio, /C major \/ warm lydian/);
+  assert.match(audio, /E minor \/ mysterious add9/);
+  assert.match(audio, /continuous-\$\{THEME_CROSSFADE_SECONDS\}s-crossfade/);
+  assert.match(ui, /classList\.toggle\("is-unlocked"/);
+  assert.match(ui, /hasBlockingOverlay\(\)/);
+  assert.match(styles, /\.overlay\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset:\s*0;[\s\S]*?z-index:\s*120;/);
+  assert.match(html, /id="developerModeNotice"/);
   assert.match(html, /id="cardDraft"/);
   assert.match(html, /id="tokenValue"/);
   assert.match(html, /id="newGameButton"/);
@@ -772,4 +814,141 @@ test("菜单与主循环源码不再包含商店、任务选择、金币或计�
   assert.doesNotMatch(`${main}\n${ui}`, /\.vibrate\(|navigator\.vibrate/);
   assert.match(html, /id="itemDraft"/);
   assert.match(main, /saveGame\(\)/);
+});
+
+test("随机开局替换两张教学牌，备料位替代删牌并保证同类候选", () => {
+  const baseline = createInitialDeck({ create_id: nextId });
+  const randomDeck = createInitialDeck({ create_id: nextId, random_start: true, random: () => 0 });
+  assert.equal(randomDeck.length, 7);
+  assert.equal(randomDeck.filter((card, index) => card.id !== baseline[index].id).length, 2);
+
+  const state = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.PREP });
+  const service = createDraftService({ random: () => 0, create_id: nextId });
+  state.phase = GAME_PHASES.CARD_DRAFT;
+  const stored = service.storePrepCard(state, state.deck[0].uuid);
+  assert.equal(stored.success, true);
+  assert.equal(state.deck.length, 6);
+  assert.equal(service.removeCard(state, state.deck[0].uuid).reason, "prep_mode");
+  assert.ok(service.getOffers(state).some((card) => card.type === stored.card.type));
+  assert.equal(service.removePrepCard(state).reason, "not_ready");
+  state.current_round += 1;
+  assert.equal(service.removePrepCard(state).success, true);
+});
+
+test("苹果与梨使用新的水果连击规则，商店道具池带回经济道具", () => {
+  assert.equal(getCardById("F001").effect.kind, "fruit_combo");
+  assert.equal(getCardById("F009").effect.grant_reroll_at, 3);
+  const state = stateWith(["F001", "F001", "F009"]);
+  const engine = createRoundEngine();
+  engine.recordAction(state, "eat", state.deck[0]);
+  engine.recordAction(state, "eat", state.deck[1]);
+  const pear = engine.recordAction(state, "eat", state.deck[2]);
+  assert.equal(pear.fruit_combo, 3);
+  assert.equal(state.reroll_tokens, 1);
+  const aboveThresholdState = stateWith(["F001", "F001", "F009", "F009"]);
+  engine.recordAction(aboveThresholdState, "eat", aboveThresholdState.deck[0]);
+  engine.recordAction(aboveThresholdState, "eat", aboveThresholdState.deck[1]);
+  engine.recordAction(aboveThresholdState, "eat", aboveThresholdState.deck[2]);
+  const aboveThresholdPear = engine.recordAction(aboveThresholdState, "eat", aboveThresholdState.deck[3]);
+  assert.equal(aboveThresholdPear.fruit_combo, 4);
+  assert.equal(aboveThresholdState.reroll_tokens, 2, "连击 3 与连击 4 的梨都应获得刷新标记");
+
+  const starterComboState = stateWith(["F001"]);
+  assert.equal(chooseItem(starterComboState, "C4").success, true);
+  resetRoundState(starterComboState);
+  applyRoundItemSetup(starterComboState);
+  starterComboState.round.draw_pile = starterComboState.deck.map((card) => ({ ...card }));
+  const firstFruit = engine.recordAction(starterComboState, "eat", starterComboState.round.draw_pile[0]);
+  assert.equal(firstFruit.fruit_combo, 2, "初始连击 1 后首次触发应直接显示 ×2");
+  assert.ok(createShopItemPool().some((item) => item.effect.kind === "shop_price_discount"));
+});
+
+test("商店模式恢复买牌、扩容、删牌三角，经济卡使用经典效果", () => {
+  const state = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.SHOP });
+  const service = createShopService({ random: () => 0, create_id: nextId });
+  state.gold = 50;
+  const offers = service.getShopCards(state);
+  assert.equal(offers.length, 3);
+  assert.equal(service.buyCard(state, offers[0]), true);
+  const afterBuy = state.gold;
+  assert.equal(service.buyPlateUpgrade(state).success, true);
+  assert.ok(state.gold < afterBuy);
+  const beforeRemove = state.deck.length;
+  assert.equal(service.removeCard(state, state.deck[0].uuid), true);
+  assert.equal(state.deck.length, beforeRemove - 1);
+  assert.equal(getCardById("D007", { economy: true }).effect.burst_discount, 3);
+  assert.equal(getCardById("A009", { economy: true }).effect.kind, "destroy_self_raise_rarity");
+});
+
+test("普通商店四类商品统一便宜一金币，条约商店保持原价", () => {
+  const normal = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.SHOP });
+  const contract = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.CONTRACT_SHOP });
+  normal.gold = 50;
+  contract.gold = 50;
+  normal.remove_card_cost = 3;
+  contract.remove_card_cost = 3;
+  const service = createShopService({ random: () => 0, create_id: nextId });
+  const baseCard = getCardById("F001", { economy: true });
+  const normalCard = service.repriceShopCards(normal, [baseCard])[0];
+  const contractCard = service.repriceShopCards(contract, [baseCard])[0];
+  assert.equal(normalCard.shop_price, Math.max(1, contractCard.shop_price - 1));
+  assert.equal(service.getPlateUpgradeStatus(normal).cost, service.getPlateUpgradeStatus(contract).cost - 1);
+  assert.equal(service.getRemoveCardCost(normal), 2);
+  assert.equal(service.getRemoveCardCost(contract), 3);
+  const normalItem = service.getShopItems(normal)[0];
+  const contractItem = service.getShopItems(contract)[0];
+  assert.equal(normalItem.id, contractItem.id);
+  assert.equal(normalItem.shop_price, contractItem.shop_price - 1);
+});
+
+test("金币账本区分立即收入与轮末收入并保留具体来源", () => {
+  const state = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.CONTRACT_SHOP });
+  const action = {};
+  assert.equal(grantRoundGold(state, action, "风险经纪人", 2), 2);
+  assert.equal(queueRoundGold(state, "投币吸管", 1, "item"), 1);
+  assert.equal(state.gold, 2);
+  assert.equal(action.gold_change, 2);
+  assert.equal(state.round.pending_gold_bonus, 1);
+  assert.equal(sumRoundGoldSources(state, "immediate"), 2);
+  assert.equal(sumRoundGoldSources(state, "settlement"), 1);
+  assert.deepEqual(getRoundGoldSources(state).map(({ label, amount, timing, kind }) => ({ label, amount, timing, kind })), [
+    { label: "风险经纪人", amount: 2, timing: "immediate", kind: "card" },
+    { label: "投币吸管", amount: 1, timing: "settlement", kind: "item" },
+  ]);
+});
+
+test("无尽模式允许重复道具，餐盘与百万分终点都有明确边界", () => {
+  const state = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.ENDLESS });
+  assert.equal(chooseItem(state, "C7").success, true);
+  assert.equal(chooseItem(state, "C7").success, true);
+  assert.equal(state.items.filter((item) => item.id === "C7").length, 2);
+  assert.equal(chooseItem(state, "C14").success, true);
+  assert.equal(chooseItem(state, "C14").success, true);
+  assert.equal(getPostponeLimit(state), 3);
+  assert.equal(GAME_CONFIG.endless_max_plate_capacity, 16);
+  assert.equal(GAME_CONFIG.endless_victory_score, 1_000_000);
+});
+
+test("解锁进度按完成局数、任意通关与商店通关分别累计", () => {
+  const values = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+  assert.equal(browserPlatform.get_unlocks().random_start, false);
+  browserPlatform.record_run_progress({ outcome: "defeat", mode: GAME_MODES.NORMAL });
+  assert.equal(browserPlatform.get_unlocks().random_start, true);
+  browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.HARD });
+  assert.equal(browserPlatform.get_unlocks().prep, true);
+  assert.equal(browserPlatform.get_unlocks().shop, true);
+  browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.SHOP });
+  assert.equal(browserPlatform.get_unlocks().contract_shop, true);
+  browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.ENDLESS });
+  assert.equal(browserPlatform.get_unlocks().god, true);
+  assert.deepEqual(browserPlatform.load_progression().mode_victories, { hard: 1, shop: 1, endless: 1 });
+  const settings = browserPlatform.save_settings({ home_theme: "day", random_start: true });
+  assert.equal(settings.home_theme, "day");
+  assert.equal(browserPlatform.load_settings().home_theme, "day");
+  delete globalThis.localStorage;
 });

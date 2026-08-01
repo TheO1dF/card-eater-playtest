@@ -43,15 +43,15 @@ function card(definition) {
 // Expandable card pool. Draft rarity controls when complex cards enter the run.
 const CARD_DEFS = [
   // 水果：基础水果负责教学，其余水果围绕【水果连击】。
-  card({ id: "F001", name: "苹果", flavor: "一颗普通的苹果。", rarity: "普通", type: "水果", edibility: EDIBLE, eat_points: 1, discard_points: -1, role: BASELINE, shop_price_adjustment: -2, synergy_tags: ["水果", "基础"], effect: null }),
+  card({ id: "F001", name: "苹果", flavor: "一颗普通的苹果。", rarity: "普通", type: "水果", edibility: EDIBLE, eat_points: 1, discard_points: -1, role: BASELINE, shop_price_adjustment: -2, synergy_tags: ["水果", "连击", "基础"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 0, max_bonus: 0 } }),
   card({ id: "F002", name: "香蕉", rarity: "普通", type: "水果", edibility: EDIBLE, eat_points: 1, discard_points: -1, role: ENGINE, synergy_tags: ["水果", "连击", "生成"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1；连击达到 3 或以上时生成 1 张苹果，本轮限 1 次", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 1, max_bonus: 6, generate_at: 3, generate_card_id: "F001", once_per_round: true } }),
-  card({ id: "F003", name: "西瓜", rarity: "稀有", type: "水果", edibility: EDIBLE, eat_points: 2, discard_points: -1, role: PAYOFF, synergy_tags: ["水果", "连击", "收割"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1；连击达到 3 时再额外 +3", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 1, max_bonus: 6, threshold: 3, threshold_bonus: 3 } }),
+  card({ id: "F003", name: "西瓜", rarity: "稀有", type: "水果", edibility: EDIBLE, eat_points: 2, discard_points: -1, role: PAYOFF, synergy_tags: ["水果", "连击", "收割"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1；连击达到 3 或以上时再额外 +3", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 1, max_bonus: 6, threshold: 3, threshold_bonus: 3 } }),
   card({ id: "F004", name: "草莓", rarity: "罕见", type: "水果", edibility: EDIBLE, eat_points: 1, discard_points: -1, role: SETUP, synergy_tags: ["水果", "连击", "加速"], effect: { kind: "fruit_combo", description: "吃：水果连击 +2；本牌额外获得当前连击数的分数（最多 +8）", trigger_action: "eat", combo_gain: 2, bonus_per_combo: 1, max_bonus: 8 } }),
-  card({ id: "F005", name: "金苹果", rarity: "普通", type: "水果", edibility: EDIBLE, eat_points: 2, discard_points: -1, role: ENGINE, synergy_tags: ["水果", "连击", "成长"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1；连击达到 4 时，自身吃分永久 +1", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 1, max_bonus: 8, grow_at: 4, grow_amount: 1 } }),
+  card({ id: "F005", name: "金苹果", rarity: "普通", type: "水果", edibility: EDIBLE, eat_points: 2, discard_points: -1, role: ENGINE, synergy_tags: ["水果", "连击", "成长"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1；连击达到 4 或以上时，自身吃分永久 +1", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 1, max_bonus: 8, grow_at: 4, grow_amount: 1 } }),
   card({ id: "F006", name: "腐烂苹果", rarity: "罕见", type: "水果", edibility: EDIBLE, eat_points: -1, discard_points: -2, role: SACRIFICE, synergy_tags: ["水果", "连击", "牺牲"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1；若连击前为 0，本牌额外 +4，否则按连击正常加分", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 1, max_bonus: 6, opener_bonus: 4 } }),
-  card({ id: "F007", name: "水果拼盘", rarity: "稀有", type: "水果", edibility: EDIBLE, eat_points: 2, discard_points: -1, role: ENGINE, synergy_tags: ["水果", "连击", "生成", "弱化"], effect: { kind: "fruit_combo", description: "吃：水果连击 +2；连击达到 4 时，本轮首次随机生成 1 张【弱化】水果", trigger_action: "eat", combo_gain: 2, bonus_per_combo: 1, max_bonus: 10, generate_at: 4, generate_random_type: "水果", generate_weakened: true, once_per_round: true } }),
-  card({ id: "F008", name: "火龙果", rarity: "传奇", type: "水果", edibility: EDIBLE, eat_points: 3, discard_points: -2, role: PAYOFF, synergy_tags: ["水果", "连击", "爆发"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1；连击达到 5 时，水果连击加分翻倍", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 1, max_bonus: 12, double_at: 5 } }),
-  card({ id: "F009", name: "梨", art_file: "cards/f009-v2.png", rarity: "普通", type: "水果", edibility: EDIBLE, eat_points: 1, discard_points: -1, role: ENGINE, shop_price_adjustment: -1, synergy_tags: ["水果", "连击"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 0, max_bonus: 0 } }),
+  card({ id: "F007", name: "水果拼盘", rarity: "稀有", type: "水果", edibility: EDIBLE, eat_points: 2, discard_points: -1, role: ENGINE, synergy_tags: ["水果", "连击", "生成", "弱化"], effect: { kind: "fruit_combo", description: "吃：水果连击 +2；连击达到 4 或以上时，本轮首次随机生成 1 张【弱化】水果", trigger_action: "eat", combo_gain: 2, bonus_per_combo: 1, max_bonus: 10, generate_at: 4, generate_random_type: "水果", generate_weakened: true, once_per_round: true } }),
+  card({ id: "F008", name: "火龙果", rarity: "传奇", type: "水果", edibility: EDIBLE, eat_points: 3, discard_points: -2, role: PAYOFF, synergy_tags: ["水果", "连击", "爆发"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1；连击达到 5 或以上时，水果连击加分翻倍", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 1, max_bonus: 12, double_at: 5 } }),
+  card({ id: "F009", name: "梨", art_file: "cards/f009-v2.png", rarity: "普通", type: "水果", edibility: EDIBLE, eat_points: 1, discard_points: -1, role: ENGINE, shop_price_adjustment: -1, synergy_tags: ["水果", "连击", "刷新"], effect: { kind: "fruit_combo", description: "吃：水果连击 +1；连击达到 3 或以上时获得 1 枚刷新标记", trigger_action: "eat", combo_gain: 1, bonus_per_combo: 0, max_bonus: 0, grant_reroll_at: 3, reroll_tokens: 1 } }),
   card({ id: "F010", name: "糖渍梅", art_file: "cards/f010-v2.png", rarity: "罕见", type: "水果", edibility: EDIBLE, eat_points: 1, discard_points: -1, role: SETUP, synergy_tags: ["水果", "连击", "修复"], effect: { kind: "fruit_combo_resume", description: "吃：水果连击 +1；若本轮曾中断连击，则从本轮最高连击恢复（恢复值最多为 5），每轮限 1 次", trigger_action: "eat", combo_gain: 1, max_resume: 5, bonus_per_combo: 1, max_bonus: 3, once_per_round: true } }),
   card({ id: "F011", name: "风干柿子", rarity: "罕见", type: "水果", edibility: EDIBLE, eat_points: 0, discard_points: -1, role: PAYOFF, synergy_tags: ["水果", "连击", "追溯"], effect: { kind: "fruit_history_bonus", description: "吃：额外增加本轮此前已吃水果数量的分数（最多 +4）", trigger_action: "eat", max_bonus: 4 } }),
   card({ id: "F012", name: "石榴", rarity: "稀有", type: "水果", edibility: EDIBLE, eat_points: 2, discard_points: -1, role: ENGINE, synergy_tags: ["水果", "摧毁", "生成"], effect: { kind: "destroy_generate_many", description: "吃：摧毁自身；下回合在牌组中生成 2 张梨", trigger_action: "eat", card_id: "F009", count: 2 } }),
@@ -101,7 +101,7 @@ const CARD_DEFS = [
   // 动物：基础动物负责教学，其余动物摧毁、成长或生成生态。
   card({ id: "A001", name: "橘猫", flavor: "是一只可爱的猫。", rarity: "普通", type: "动物", edibility: INEDIBLE, eat_points: -1, discard_points: 2, role: BASELINE, shop_price_adjustment: -2, synergy_tags: ["动物", "基础"], effect: null }),
   card({ id: "A002", name: "贪吃狗", rarity: "普通", type: "动物", edibility: INEDIBLE, eat_points: -2, discard_points: 2, role: ENGINE, synergy_tags: ["动物", "吞食", "可食用"], effect: { kind: "consume_previous_card", description: "弃：摧毁上一张可食用牌，自身弃分永久成长 1～2", trigger_action: "discard", target_edibility: EDIBLE, grow_stat: "discard_points", max_growth: 2 } }),
-  card({ id: "A003", name: "疲惫猴子", art_file: "cards/a003-v2.png", rarity: "罕见", type: "动物", edibility: INEDIBLE, eat_points: -2, discard_points: 3, role: ENGINE, synergy_tags: ["动物", "生成", "水果", "弱化", "衰减"], effect: { kind: "generate_by_decay", description: "每轮首次弃：生成 1 张【弱化】香蕉，自身弃分永久 -1；降到 0 时摧毁自身", trigger_action: "discard", card_id: "F002", decay_stat: "discard_points", decay: 1, destroy_at: 0, once_per_round: true } }),
+  card({ id: "A003", name: "疲惫猴子", art_file: "cards/a003-v2.png", rarity: "罕见", type: "动物", edibility: INEDIBLE, eat_points: -2, discard_points: 3, role: ENGINE, synergy_tags: ["动物", "生成", "水果", "弱化", "衰减"], effect: { kind: "generate_by_decay", description: "每轮首次弃：生成 1 张【弱化】香蕉，自身弃分永久 -1；降到 0 或以下时摧毁自身", trigger_action: "discard", card_id: "F002", decay_stat: "discard_points", decay: 1, destroy_at: 0, once_per_round: true } }),
   card({ id: "A004", name: "兔子", rarity: "普通", type: "动物", edibility: INEDIBLE, eat_points: -1, discard_points: 1, role: PAYOFF, synergy_tags: ["动物", "兔子", "规模"], effect: { kind: "scale_by_deck", description: "弃：牌组中每有 1 张兔子，额外 +1（最多 +12）", trigger_action: "discard", target_id: "A004", divisor: 1, multiplier: 1, max_bonus: 12 } }),
   card({ id: "A005", name: "饕餮", rarity: "传奇", type: "动物", edibility: INEDIBLE, eat_points: -3, discard_points: 3, role: ENGINE, synergy_tags: ["动物", "吞食", "成长"], effect: { kind: "consume_next_card", description: "弃：摧毁牌堆中下一张牌，自身弃分按其较高绝对牌面永久成长 1～4", trigger_action: "discard", grow_stat: "discard_points", max_growth: 4 } }),
   card({ id: "A006", name: "蜕皮蛇", art_file: "cards/a006-v2.png", rarity: "稀有", type: "动物", edibility: INEDIBLE, eat_points: -2, discard_points: 2, role: ENGINE, synergy_tags: ["动物", "转移", "成长"], effect: { kind: "drain_pile_edible_to_self", description: "弃：牌堆中所有可食用牌吃分永久 -1，自身弃分永久 +2", trigger_action: "discard", target_loss: 1, self_gain: 2 } }),
@@ -150,7 +150,7 @@ const CARD_DEFS = [
 
 // Seven unique teaching cards: four edible, three inedible. Both fruits teach
 // the combo immediately; three effect-free cards keep the opening readable.
-const STARTER_IDS = Object.freeze(["F002", "F009", "K001", "D001", "A001", "A008", "A004"]);
+const STARTER_IDS = Object.freeze(["F002", "F001", "K001", "D001", "A001", "A008", "A004"]);
 
 function cloneCard(source) {
   return {
@@ -175,20 +175,68 @@ export const CARD_LIBRARY = Object.freeze(CARD_DEFS.reduce((library, source) => 
   return library;
 }, {}));
 
+const ECONOMY_OVERRIDES = Object.freeze({
+  F013: { role: ECONOMY, synergy_tags: ["水果", "经济"], effect: { kind: "gain_gold", description: "吃：获得 1 金币", trigger_action: "eat", gold: 1 } },
+  K003: { eat_points: 5, role: SACRIFICE, synergy_tags: ["快餐", "厌食", "付费"], effect: { kind: "anorexia", description: "吃：支付 1 金币（不足时本次 -3 分）；随后吃分永久 -1、弃分永久 +1", trigger_action: "eat", eat_loss: 1, discard_gain: 1, eat_gold_cost: 1, unpaid_score_penalty: 3 } },
+  K005: { role: ECONOMY, synergy_tags: ["快餐", "厌食", "经济"], effect: { kind: "anorexia", description: "吃后自身吃分永久 -1、弃分永久 +1；弃：获得 2 金币", trigger_action: "eat", eat_loss: 1, discard_gain: 1, discard_gold: 2 } },
+  K006: { name: "收费炸鸡桶", role: ENGINE, synergy_tags: ["快餐", "厌食", "经济", "转化"], effect: { kind: "bidirectional_anorexia", description: "弃：获得 1 金币，吃分永久 -2；吃：减少 1 金币，吃分永久 +2", eat_gold_cost: 1, eat_growth: 2, discard_gold: 1, discard_eat_loss: 2 } },
+  K009: { role: ECONOMY, synergy_tags: ["快餐", "计时", "经济"], effect: { kind: "early_time_gold", description: "吃：若在本轮 8 秒内吃下，获得 3 金币", trigger_action: "eat", time_limit_ms: 8000, gold: 3 } },
+  D005: { role: ECONOMY, synergy_tags: ["甜点", "留存", "经济"], effect: { kind: "retention", description: "弃：吃分永久 +2；8+ 吃下时点数翻倍、获得 3 金币并摧毁自身", retain: 2, burst_threshold: 8, burst_multiplier: 2, burst_gold: 3, destroy_after_burst: true } },
+  D007: { role: ECONOMY, synergy_tags: ["甜点", "留存", "商店"], effect: { kind: "retention", description: "弃：吃分永久 +2；10+ 吃下时点数翻倍、随后商店卡价 -3，并摧毁自身", retain: 2, burst_threshold: 10, burst_multiplier: 2, burst_discount: 3, destroy_after_burst: true } },
+  B007: { name: "押金瓶", role: ECONOMY, synergy_tags: ["饮料", "后置", "经济", "成长"], effect: { kind: "postpone_decay_gold", description: "若本轮后置：自身吃分与弃分永久各 -1，获得 2 金币", gold: 2, amount: 1 } },
+  B011: { role: ECONOMY, synergy_tags: ["饮料", "计时", "经济", "摧毁"], effect: { kind: "slow_finish_gold_destroy", description: "吃后摧毁自身；若本轮超过 20 秒完成则获得 1 金币，超过 30 秒则改为 2 金币", trigger_action: "eat" } },
+  A011: { role: ECONOMY, synergy_tags: ["动物", "经济", "刷新"], effect: { kind: "discard_pay_for_reroll", description: "弃：减少 1 金币；随后的商店获得 1 次免费刷新", trigger_action: "discard", gold_cost: 1, rerolls: 1 } },
+  A012: { role: ECONOMY, synergy_tags: ["动物", "商店", "经济", "规模"], effect: { kind: "force_weakest_shop_type", description: "每轮首次弃：下一间商店的同类货架强制为当前牌组持有张数最少的类别；并列时随机", trigger_action: "discard", once_per_round: true } },
+  A009: { role: ECONOMY, synergy_tags: ["动物", "摧毁", "商店"], effect: { kind: "destroy_self_raise_rarity", description: "弃置后摧毁自身；商店出现稀有牌的概率永久提高", trigger_action: "discard", rarity_bonus: 0.25 } },
+  P001: { role: ECONOMY, synergy_tags: ["人物", "水果", "经济"], effect: { kind: "gold_from_history", description: "每轮首次弃：本轮此前每吃 1 张水果，结算金币 +1（最多 +8）", trigger_action: "discard", history_action: "eat", target_type: "水果", divisor: 1, gold: 1, max_gold: 8, once_per_round: true } },
+  P002: { name: "债务经纪人", role: ECONOMY, synergy_tags: ["人物", "经济", "牺牲"], effect: { kind: "discard_for_gold", description: "每轮首次弃：承受 -3 分，立即获得 3 金币", trigger_action: "discard", gold: 3, once_per_round: true } },
+  P010: { role: SETUP, synergy_tags: ["人物", "硬吃", "蓄势", "经济"], effect: { kind: "prime_review", description: "弃：判定下一次出牌；错误食性则本牌弃分永久 -1 且获得 2 金币，正确食性则那张牌额外 +3", trigger_action: "discard", correct_bonus: 3, wrong_gold: 2, self_loss: 1 } },
+  U003: { name: "打折券", role: ECONOMY, synergy_tags: ["通用", "经济", "商店"], effect: { kind: "shop_discount", description: "每轮首次弃：随后商店所有卡牌价格 -1（最低 1）", trigger_action: "discard", discount: 1, once_per_round: true } },
+  U006: { role: ECONOMY, synergy_tags: ["通用", "商店", "经济"], effect: { kind: "force_shop_price_four", description: "每轮首次弃：随后商店最贵的卡牌价格降为 4；刷新后失效", trigger_action: "discard", price: 4, once_per_round: true } },
+  U007: { name: "预购券", role: ECONOMY, synergy_tags: ["通用", "经济", "摧毁"], effect: { kind: "eat_reroll_or_discard_delete", description: "吃：获得 1 次免费刷新；弃：摧毁自身，获得 1 次免费卡牌删除" } },
+});
+
+function economyVariant(source) {
+  const override = ECONOMY_OVERRIDES[source.id];
+  if (!override) return cloneCard(source);
+  return {
+    ...cloneCard(source),
+    ...override,
+    synergy_tags: [...(override.synergy_tags ?? source.synergy_tags ?? [])],
+    effect: normalizeEffect(override.effect),
+    base_eat_points: override.eat_points ?? source.base_eat_points,
+    base_discard_points: override.discard_points ?? source.base_discard_points,
+  };
+}
+
 export function createInitialDeck(options = {}) {
   const createId = options.create_id ?? fallbackId;
-  return STARTER_IDS.map((id, index) => {
+  const ids = [...STARTER_IDS];
+  if (options.random_start) {
+    const random = options.random ?? Math.random;
+    const positions = [...ids.keys()];
+    for (let index = positions.length - 1; index > 0; index -= 1) {
+      const target = Math.floor(random() * (index + 1));
+      [positions[index], positions[target]] = [positions[target], positions[index]];
+    }
+    const candidates = CARD_DEFS.filter((entry) => entry.rarity === "普通" && !ids.includes(entry.id));
+    for (const position of positions.slice(0, 2)) {
+      if (candidates.length === 0) break;
+      ids[position] = candidates.splice(Math.floor(random() * candidates.length), 1)[0].id;
+    }
+  }
+  return ids.map((id, index) => {
     const source = CARD_LIBRARY[id];
     return { ...cloneCard(source), uuid: createId(source, index) };
   });
 }
 
-export function createCardPool() { return CARD_DEFS.map(cloneCard); }
+export function createCardPool(options = {}) { return CARD_DEFS.map(options.economy ? economyVariant : cloneCard); }
 
 // Compatibility alias for data exporters from the classic prototype.
-export function createShopCardPool() { return createCardPool(); }
+export function createShopCardPool(options = {}) { return createCardPool(options); }
 
-export function getCardById(id) {
+export function getCardById(id, options = {}) {
   const source = CARD_LIBRARY[id];
-  return source ? cloneCard(source) : null;
+  return source ? (options.economy ? economyVariant(source) : cloneCard(source)) : null;
 }

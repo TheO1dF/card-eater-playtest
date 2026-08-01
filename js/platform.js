@@ -2,7 +2,78 @@ const RECORD_KEY = "cardeater.run-history.v1";
 const TUTORIAL_KEY = "cardeater.story-tutorial.v1";
 const SETTINGS_KEY = "cardeater.settings.v1";
 const RUN_SAVE_KEY = "cardeater.active-run.v2";
-const DEFAULT_SETTINGS = Object.freeze({ music: true, effects: true, font_size: "medium" });
+const PROGRESSION_KEY = "cardeater.progression.v1";
+const SHOP_TUTORIAL_KEY = "cardeater.shop-tutorial.v1";
+const DEFAULT_SETTINGS = Object.freeze({ music: true, effects: true, font_size: "medium", random_start: false, home_theme: "night" });
+
+const EMPTY_PROGRESSION = Object.freeze({ runs_played: 0, victories: 0, shop_victories: 0, endless_victories: 0, god: false, mode_victories: Object.freeze({}) });
+
+function normalizeProgression(value = {}) {
+  return { ...EMPTY_PROGRESSION, ...value, mode_victories: { ...(value?.mode_victories ?? {}) } };
+}
+
+function getModeVictories(records) {
+  return records.reduce((counts, record) => {
+    if (record?.outcome === "victory" && record?.mode) counts[record.mode] = (counts[record.mode] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function loadProgression() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PROGRESSION_KEY) ?? "null");
+    if (saved) {
+      const progress = normalizeProgression(saved);
+      if (Object.keys(progress.mode_victories).length === 0) progress.mode_victories = getModeVictories(loadRecords());
+      return progress;
+    }
+  } catch { /* Fall through to legacy records. */ }
+  const records = loadRecords();
+  const modeVictories = getModeVictories(records);
+  return normalizeProgression({
+    ...EMPTY_PROGRESSION,
+    runs_played: records.length,
+    victories: records.filter((record) => record?.outcome === "victory").length,
+    shop_victories: records.filter((record) => record?.outcome === "victory" && record?.mode === "shop").length,
+    endless_victories: records.filter((record) => record?.outcome === "victory" && record?.mode === "endless").length,
+    god: records.some((record) => record?.outcome === "victory" && record?.mode === "endless"),
+    mode_victories: modeVictories,
+  });
+}
+
+function saveProgression(value) {
+  const safe = normalizeProgression(value);
+  try { localStorage.setItem(PROGRESSION_KEY, JSON.stringify(safe)); } catch { /* Storage may be disabled. */ }
+  return safe;
+}
+
+function recordRunProgress(record) {
+  const progress = loadProgression();
+  progress.runs_played += 1;
+  if (record?.outcome === "victory") {
+    progress.victories += 1;
+    if (record?.mode) progress.mode_victories[record.mode] = (progress.mode_victories[record.mode] ?? 0) + 1;
+  }
+  if (record?.outcome === "victory" && record?.mode === "shop") progress.shop_victories += 1;
+  if (record?.outcome === "victory" && record?.mode === "endless") {
+    progress.endless_victories += 1;
+    progress.god = true;
+  }
+  return saveProgression(progress);
+}
+
+function getUnlocks() {
+  const progress = loadProgression();
+  return {
+    random_start: progress.runs_played >= 1,
+    prep: progress.runs_played >= 2,
+    shop: progress.victories >= 1,
+    contract_shop: progress.shop_victories >= 1,
+    endless: progress.victories >= 1,
+    hard: progress.victories >= 1,
+    god: Boolean(progress.god),
+  };
+}
 
 function makeId(card, index = 0) {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -47,6 +118,8 @@ function loadSettings() {
       music: stored?.music !== false,
       effects: stored?.effects !== false,
       font_size: fontSize,
+      random_start: stored?.random_start === true,
+      home_theme: ["day", "night"].includes(stored?.home_theme) ? stored.home_theme : "night",
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -58,6 +131,8 @@ function saveSettings(settings = {}) {
     music: settings.music !== false,
     effects: settings.effects !== false,
     font_size: ["small", "medium", "large"].includes(settings.font_size) ? settings.font_size : "medium",
+    random_start: settings.random_start === true,
+    home_theme: ["day", "night"].includes(settings.home_theme) ? settings.home_theme : "night",
   };
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(safe)); } catch { /* Storage may be disabled. */ }
   return safe;
@@ -115,7 +190,31 @@ export function migrateRunState(state) {
       if (count > 0 && !state.round.postponed_uuids.includes(uuid)) state.round.postponed_uuids.push(uuid);
     }
   }
-  return state.schema_version === 23 ? state : null;
+  if (state.schema_version === 23) {
+    state.schema_version = 24;
+    state.random_start ??= false;
+    state.prep_slot ??= null;
+    state.gold ??= 0;
+    state.remove_card_cost ??= 0;
+    state.free_card_removals ??= 0;
+    state.shop_lock_requested ??= false;
+    state.shop_lock_carry ??= false;
+    state.pending_shop ??= null;
+    state.rare_shop_weight_bonus ??= 0;
+    state.rule_history ??= [];
+  }
+  if (state.schema_version === 24 && state.round) {
+    state.round.gold_sources ??= [];
+    state.round.postponed_uuids ??= [];
+    state.round.postpone_counts ??= {};
+    for (const uuid of state.round.postponed_uuids) {
+      state.round.postpone_counts[uuid] = Math.max(1, state.round.postpone_counts[uuid] ?? 0);
+    }
+    for (const [uuid, count] of Object.entries(state.round.postpone_counts)) {
+      if (count > 0 && !state.round.postponed_uuids.includes(uuid)) state.round.postponed_uuids.push(uuid);
+    }
+  }
+  return state.schema_version === 24 ? state : null;
 }
 
 function loadRun() {
@@ -138,6 +237,11 @@ export const browserPlatform = Object.freeze({
   load_records: loadRecords,
   save_record: saveRecord,
   has_completed_run: hasCompletedRun,
+  load_progression: loadProgression,
+  record_run_progress: recordRunProgress,
+  get_unlocks: getUnlocks,
+  load_shop_tutorial_complete: () => { try { return localStorage.getItem(SHOP_TUTORIAL_KEY) === "complete"; } catch { return false; } },
+  save_shop_tutorial_complete: () => { try { localStorage.setItem(SHOP_TUTORIAL_KEY, "complete"); } catch { /* noop */ } return true; },
   load_tutorial_complete: loadTutorialComplete,
   save_tutorial_complete: saveTutorialComplete,
   load_settings: loadSettings,

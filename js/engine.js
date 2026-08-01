@@ -14,6 +14,7 @@ import {
   shouldEchoDrinkEffect,
 } from "./items.js";
 import { formatScore, safeAdd, safeMultiply, safeProduct } from "./numbers.js";
+import { grantRoundGold, queueRoundGold } from "./economy.js";
 import {
   getFinalRemainingCard,
   getCurrentCard,
@@ -300,7 +301,7 @@ function grantFirstDrinkItemGold(state) {
     const key = `item:${item.id}:drink-gold`;
     if (state.round.effect_trigger_counts[key]) continue;
     state.round.effect_trigger_counts[key] = 1;
-    state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, item.effect.gold ?? 0);
+    queueRoundGold(state, item.name, item.effect.gold ?? 0, "item");
   }
 }
 
@@ -394,7 +395,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       if (removed) entry.destroyed_self = true;
       markEffect(entry, card, `${card.name}：${removed ? "摧毁自身，" : "双层吸管复现效果，"}删牌标记 +${tokens}`);
     } else {
-      markEffect(entry, card, `${card.name}：最后一张牌不会摧毁，也不会获得 token`);
+      markEffect(entry, card, `${card.name}：最后一张牌不会摧毁，也不会获得删牌标记`);
     }
   }
 
@@ -469,8 +470,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     const elapsed = state.round.live_elapsed_ms ?? state.round.elapsed_ms ?? Number.POSITIVE_INFINITY;
     if (elapsed <= (effect.time_limit_ms ?? 0)) {
       const gold = Math.max(0, effect.gold ?? 0);
-      state.gold = safeAdd(state.gold, gold);
-      entry.gold_change = safeAdd(entry.gold_change ?? 0, gold);
+      grantRoundGold(state, entry, card.name, gold);
       markEffect(entry, card, `${card.name}：${(elapsed / 1000).toFixed(1)} 秒内吃下，金币 +${gold}`);
     }
   }
@@ -875,6 +875,11 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     entry.effect_bonus = safeAdd(entry.effect_bonus, bonus);
     entry.fruit_combo = combo;
     entry.effect_log = `${card.name}：水果连击 ×${combo}`;
+    if (combo >= (effect.grant_reroll_at ?? Number.POSITIVE_INFINITY)) {
+      const tokens = Math.max(1, effect.reroll_tokens ?? 1);
+      state.reroll_tokens = safeAdd(state.reroll_tokens ?? 0, tokens);
+      entry.reroll_tokens_gained = tokens;
+    }
 
     const generationReady = combo >= (effect.generate_at ?? Number.POSITIVE_INFINITY);
     if (generationReady && consumeOncePerRound(state, card, effect)) {
@@ -890,7 +895,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       const growth = changePermanentCard(state, card, "eat_points", effect.grow_amount ?? 0);
       if (growth) entry.permanent_change = { stat: "eat_points", amount: growth };
     }
-    markEffect(entry, card, `${card.name}：水果连击 ×${combo}，额外 +${bonus}${entry.generated_card ? `，生成「${entry.generated_card}」` : ""}`);
+    markEffect(entry, card, `${card.name}：水果连击 ×${combo}，额外 +${bonus}${entry.reroll_tokens_gained ? `，刷新标记 +${entry.reroll_tokens_gained}` : ""}${entry.generated_card ? `，生成「${entry.generated_card}」` : ""}`);
   }
 
   if (effect.kind === "fruit_combo_resume" && action === ACTIONS.EAT) {
@@ -992,6 +997,10 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       if ((effect.burst_delete_tokens ?? 0) > 0) {
         state.delete_tokens = safeAdd(state.delete_tokens ?? 0, effect.burst_delete_tokens);
       }
+      if ((effect.burst_gold ?? 0) > 0) {
+        grantRoundGold(state, entry, card.name, effect.burst_gold);
+      }
+      state.round.shop_discount = safeAdd(state.round.shop_discount ?? 0, effect.burst_discount ?? 0);
       if (effect.reset_after_eat) {
         const permanentCard = state.deck.find((item) => item.uuid === card.uuid);
         if (permanentCard) resetPermanentCardPoints(state, permanentCard);
@@ -1000,7 +1009,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
         const removed = state.deck.length > 1 ? removePermanentCard(state, card.uuid) : null;
         if (removed) entry.destroyed_self = true;
       }
-      markEffect(entry, card, `${card.name}：留存爆发 ×${multiplier}${burstBonus ? `，额外 +${burstBonus}` : ""}${effect.burst_delete_tokens ? `，删牌标记 +${effect.burst_delete_tokens}` : ""}${effect.destroy_after_burst ? "，摧毁自身" : effect.reset_after_eat ? "，牌面重置" : ""}`);
+      markEffect(entry, card, `${card.name}：留存爆发 ×${multiplier}${burstBonus ? `，额外 +${burstBonus}` : ""}${effect.burst_delete_tokens ? `，删牌标记 +${effect.burst_delete_tokens}` : ""}${effect.burst_gold ? `，金币 +${effect.burst_gold}` : ""}${effect.burst_discount ? `，商店卡价 -${effect.burst_discount}` : ""}${effect.destroy_after_burst ? "，摧毁自身" : effect.reset_after_eat ? "，牌面重置" : ""}`);
     }
   }
 
@@ -1031,7 +1040,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "drink_consume" && action === ACTIONS.EAT) {
     if (effect.cleanse_deck) state.deck.forEach((owned) => restoreReducedPermanentCardPoints(state, owned));
-    state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, effect.gold ?? 0);
+    queueRoundGold(state, card.name, effect.gold ?? 0);
     grantFirstDrinkItemGold(state);
     state.round.reshuffle_charges = safeAdd(state.round.reshuffle_charges, effect.reshuffle_charges ?? 0);
     if (effect.buff_add || effect.buff_multiplier) addBuff(state, {
@@ -1061,8 +1070,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "discard_for_gold" && action === effect.trigger_action && consumeOncePerRound(state, card, effect)) {
     const gold = Math.max(0, effect.gold ?? 0);
-    state.gold = safeAdd(state.gold, gold);
-    entry.gold_change = safeAdd(entry.gold_change ?? 0, gold);
+    grantRoundGold(state, entry, card.name, gold);
     markEffect(entry, card, `${card.name}：牺牲分数，金币立即 +${gold}`);
   }
 
@@ -1227,7 +1235,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "bank_interest" && action === effect.trigger_action && consumeOncePerRound(state, card, effect)) {
     const gold = Math.min(effect.max_gold ?? GAME_CONFIG.max_score, Math.floor(state.gold / Math.max(1, effect.divisor ?? 10)));
-    state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, gold);
+    queueRoundGold(state, card.name, gold);
     markEffect(entry, card, `${card.name}：存款利息 +${gold} 金币`);
   }
 
@@ -1387,11 +1395,11 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
 
   if (effect.kind === "gold_economy") {
     if (action === ACTIONS.DISCARD && consumeOncePerRound(state, card, effect)) {
-      state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, effect.discard_add_gold ?? 0);
+      queueRoundGold(state, card.name, effect.discard_add_gold ?? 0);
       markEffect(entry, card, `${card.name}：结算金币 +${effect.discard_add_gold ?? 0}`);
     }
     if (action === ACTIONS.EAT) {
-      state.gold = safeAdd(state.gold, effect.eat_destroy_add_gold ?? 0);
+      grantRoundGold(state, entry, card.name, effect.eat_destroy_add_gold ?? 0);
       removePermanentCard(state, card.uuid);
       markEffect(entry, card, `${card.name}：金币 +${effect.eat_destroy_add_gold ?? 0}，摧毁自身`);
     }
@@ -1422,7 +1430,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     && consumeOncePerRound(state, card, effect)) {
     const count = state.deck.filter((owned) => owned.type === effect.target_type).length;
     const gold = Math.min(effect.max_gold ?? GAME_CONFIG.max_score, Math.floor(count / effect.divisor) * (effect.gold ?? 0));
-    state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, gold);
+    queueRoundGold(state, card.name, gold);
     markEffect(entry, card, `${card.name}：${count} 张${effect.target_type}，结算金币 +${gold}`);
   }
 
@@ -1431,7 +1439,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
     && consumeOncePerRound(state, card, effect)) {
     const reserve = state.round.reserve_count ?? 0;
     const gold = reserve > 0 ? Math.min(effect.max_gold ?? 1, 1 + Math.floor((reserve - 1) / (effect.step ?? 4))) : 0;
-    state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, gold);
+    queueRoundGold(state, card.name, gold);
     markEffect(entry, card, reserve > 0 ? `${card.name}：${reserve} 张未登场牌，结算金币 +${gold}` : `${card.name}：没有未登场牌`);
   }
 
@@ -1493,7 +1501,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       effect.max_gold ?? GAME_CONFIG.max_score,
       Math.floor(count / Math.max(1, effect.divisor ?? 1)) * (effect.gold ?? 0),
     );
-    state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, gold);
+    queueRoundGold(state, card.name, gold);
     markEffect(entry, card, `${card.name}：追溯 ${count} 张，结算金币 +${gold}`);
   }
 
@@ -1856,7 +1864,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       const removed = removePermanentCard(state, previous.card_uuid);
       if (removed) {
         const gold = effect.rarity_gold?.[removed.rarity] ?? 0;
-        state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, gold);
+        queueRoundGold(state, card.name, gold);
         markEffect(entry, card, `${card.name} 摧毁「${removed.name}」，结算金币 +${gold}`);
       }
     }
@@ -1894,8 +1902,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
   if (effect.kind === "gain_gold"
     && action === effect.trigger_action
     && consumeOncePerRound(state, card, effect)) {
-    state.gold = safeAdd(state.gold, effect.gold ?? 0);
-    entry.gold_change = safeAdd(entry.gold_change ?? 0, effect.gold ?? 0);
+    grantRoundGold(state, entry, card.name, effect.gold ?? 0);
     markEffect(entry, card, `${card.name}：金币 +${effect.gold ?? 0}`);
   }
 
@@ -1925,7 +1932,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       const removed = removePermanentCard(state, prey.uuid);
       if (removed) {
         const gold = effect.rarity_gold?.[removed.rarity] ?? 0;
-        state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, gold);
+        queueRoundGold(state, card.name, gold);
         state.round.consume_next_uuid = prey.uuid;
         markEffect(entry, card, `${card.name} 摧毁「${removed.name}」，结算金币 +${gold}`);
       }
@@ -1945,7 +1952,7 @@ function applyCardEffect(state, action, card, entry, random = Math.random) {
       const triggers = Math.min(effect.max_triggers, Math.floor(discardCount / effect.count));
       const gold = safeMultiply(triggers, effect.gold ?? 0);
       state.round.effect_trigger_counts[key] = 1;
-      state.round.pending_gold_bonus = safeAdd(state.round.pending_gold_bonus, gold);
+      queueRoundGold(state, card.name, gold);
       if (gold > 0) markEffect(entry, card, `${card.name}：回收 ${discardCount} 张，金币 +${gold}`);
     }
   }

@@ -1,4 +1,4 @@
-import { GAME_CONFIG } from "./config.js";
+import { GAME_CONFIG, GAME_MODES } from "./config.js";
 import { createShopCardPool, getCardById } from "./data.js";
 import { addItem, createShopItemPool, getItemById } from "./items.js";
 import { getRarityPrice, getShopWeight, RARITY_MODEL } from "./balance.js";
@@ -26,11 +26,13 @@ export function createShopService(options = {}) {
   const random = options.random ?? Math.random;
   const createId = options.create_id ?? (() => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
 
+  const getNormalShopDiscount = (state) => state.mode === GAME_MODES.SHOP ? 1 : 0;
+
   function getCardPriceModifiers(state) {
     const itemDiscount = state.items
       .filter((entry) => entry.effect?.kind === "shop_price_discount")
       .reduce((total, entry) => total + (entry.effect.amount ?? 0), 0);
-    return { discount: (state.round.shop_discount ?? 0) + itemDiscount };
+    return { discount: (state.round.shop_discount ?? 0) + itemDiscount + getNormalShopDiscount(state) };
   }
 
   function repriceShopCards(state, cards) {
@@ -47,7 +49,7 @@ export function createShopService(options = {}) {
   }
 
   function getEligibleCardPool(state) {
-    return createShopCardPool().filter((card) => {
+    return createShopCardPool({ economy: true }).filter((card) => {
       if ((card.min_shop_round ?? 1) > state.current_round) return false;
       return true;
     });
@@ -103,14 +105,18 @@ export function createShopService(options = {}) {
     while (offers.length < GAME_CONFIG.shop_item_offer_count && pool.length > 0) {
       offers.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
     }
-    return offers.map((entry) => ({ ...entry, shop_price: entry.shop_price }));
+    return offers.map((entry) => ({
+      ...entry,
+      shop_base_price: entry.shop_price,
+      shop_price: Math.max(1, entry.shop_price - getNormalShopDiscount(state)),
+    }));
   }
 
   function getBuyCardStatus(state, card) {
     if (!card || !Number.isFinite(card.shop_price)) return { ok: false, reason: "invalid_offer" };
     if (state.deck.length >= GAME_CONFIG.max_deck_size) return { ok: false, reason: "deck_full" };
     if (state.gold < card.shop_price) return { ok: false, reason: "insufficient_gold" };
-    const cleanCard = getCardById(card.id);
+    const cleanCard = getCardById(card.id, { economy: true });
     if (!cleanCard) return { ok: false, reason: "missing_card" };
     return { ok: true, reason: null, card: cleanCard };
   }
@@ -190,7 +196,7 @@ export function createShopService(options = {}) {
   }
 
   function getPlateUpgradeStatus(state) {
-    const discount = state.items
+    const discount = getNormalShopDiscount(state) + state.items
       .filter((entry) => entry.effect?.kind === "plate_upgrade_discount")
       .reduce((total, entry) => total + (entry.effect.amount ?? 0), 0);
     const baseCost = getPlateUpgradeBaseCost(state.plate_upgrade_count);
@@ -220,7 +226,7 @@ export function createShopService(options = {}) {
     const roundFree = (state.round.shop_free_removals ?? 0) > 0;
     const earnedFree = (state.free_card_removals ?? 0) > 0;
     const free = roundFree || earnedFree;
-    const removalCost = free ? 0 : state.remove_card_cost;
+    const removalCost = free ? 0 : Math.max(0, state.remove_card_cost - getNormalShopDiscount(state));
     if (state.deck.length <= 1 || state.gold < removalCost) return false;
     const index = state.deck.findIndex((card) => card.uuid === cardUuid);
     if (index < 0) return false;
@@ -247,9 +253,10 @@ export function createShopService(options = {}) {
     const offers = groups.flat().filter(Boolean);
     const target = offers.reduce((highest, offer) => !highest || offer.shop_price > highest.shop_price ? offer : highest, null);
     state.round.shop_force_price_four_applied = true;
-    if (!target || target.shop_price <= 4) return null;
-    target.shop_price = 4;
-    target.shop_discount = Math.max(target.shop_discount ?? 0, (target.shop_base_price ?? 4) - 4);
+    const forcedPrice = state.mode === GAME_MODES.SHOP ? 3 : 4;
+    if (!target || target.shop_price <= forcedPrice) return null;
+    target.shop_price = forcedPrice;
+    target.shop_discount = Math.max(target.shop_discount ?? 0, (target.shop_base_price ?? forcedPrice) - forcedPrice);
     target.forced_price = true;
     return target;
   }
@@ -257,7 +264,7 @@ export function createShopService(options = {}) {
   function getRemoveCardCost(state) {
     return (state.round.shop_free_removals ?? 0) > 0 || (state.free_card_removals ?? 0) > 0
       ? 0
-      : state.remove_card_cost;
+      : Math.max(0, state.remove_card_cost - getNormalShopDiscount(state));
   }
 
   return {

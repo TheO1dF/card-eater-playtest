@@ -1,4 +1,4 @@
-import { GAME_CONFIG } from "./config.js";
+import { GAME_CONFIG, GAME_MODES } from "./config.js";
 import { createCardPool } from "./data.js";
 
 const RARITY_WEIGHT = Object.freeze({ "普通": 54, "罕见": 28, "稀有": 14, "传奇": 4 });
@@ -27,8 +27,12 @@ export function createDraftService(options = {}) {
       pool = createCardPool().filter((card) => (card.min_draft_round ?? 1) <= state.current_round);
     }
     const offers = [];
-    const forcedType = state.next_draft_forced_type;
-    if (forcedType && count > 0) {
+    const forcedTypes = [...new Set([
+      state.mode === GAME_MODES.PREP ? state.prep_slot?.card?.type : null,
+      state.next_draft_forced_type,
+    ].filter(Boolean))];
+    for (const forcedType of forcedTypes) {
+      if (offers.length >= count) break;
       const forcedPool = pool.filter((card) => card.type === forcedType);
       if (forcedPool.length > 0) {
         const chosen = forcedPool[weightedIndex(forcedPool, random)];
@@ -74,6 +78,7 @@ export function createDraftService(options = {}) {
 
   function removeCard(state, cardUuid) {
     if (state.phase !== "CardDraft") return { success: false, reason: "wrong_phase" };
+    if (state.mode === GAME_MODES.PREP) return { success: false, reason: "prep_mode" };
     if ((state.delete_tokens ?? 0) < 1) return { success: false, reason: "no_token" };
     if (state.deck.length <= 1) return { success: false, reason: "last_card" };
     const index = state.deck.findIndex((card) => card.uuid === cardUuid);
@@ -84,5 +89,37 @@ export function createDraftService(options = {}) {
     return { success: true, card: removed, tokens: state.delete_tokens };
   }
 
-  return { getOffers, addCard, skip, reroll, removeCard };
+  function storePrepCard(state, cardUuid) {
+    if (state.mode !== GAME_MODES.PREP || state.phase !== "CardDraft") return { success: false, reason: "wrong_mode" };
+    if (state.deck.length <= 1) return { success: false, reason: "last_card" };
+    const index = state.deck.findIndex((card) => card.uuid === cardUuid);
+    if (index < 0) return { success: false, reason: "not_found" };
+    const previous = state.prep_slot?.card ?? null;
+    if (previous) state.deck.push(previous);
+    const [card] = state.deck.splice(index, 1);
+    state.prep_slot = { card, stored_round: state.current_round, ready_round: state.current_round + 1 };
+    return { success: true, card, returned: previous, ready_round: state.prep_slot.ready_round };
+  }
+
+  function retrievePrepCard(state) {
+    if (state.mode !== GAME_MODES.PREP || state.phase !== "CardDraft") return { success: false, reason: "wrong_mode" };
+    const card = state.prep_slot?.card;
+    if (!card) return { success: false, reason: "empty" };
+    state.deck.push(card);
+    state.prep_slot = null;
+    return { success: true, card };
+  }
+
+  function removePrepCard(state) {
+    if (state.mode !== GAME_MODES.PREP || state.phase !== "CardDraft") return { success: false, reason: "wrong_mode" };
+    const slot = state.prep_slot;
+    if (!slot?.card) return { success: false, reason: "empty" };
+    if (state.current_round < (slot.ready_round ?? Number.POSITIVE_INFINITY)) return { success: false, reason: "not_ready" };
+    const card = slot.card;
+    state.prep_slot = null;
+    state.remove_count += 1;
+    return { success: true, card };
+  }
+
+  return { getOffers, addCard, skip, reroll, removeCard, storePrepCard, retrievePrepCard, removePrepCard };
 }

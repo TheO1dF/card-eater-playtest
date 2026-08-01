@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#17121b" />
     <title>CardEater · 构筑你的餐盘</title>
     <link rel="icon" href="./assets/favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=36" />
+    <link rel="stylesheet" href="./styles.css?v=43" />
   </head>
   <body>
     <main class="app" id="app">
@@ -14,6 +14,7 @@
         <header class="topbar">
           <div class="brand"><span class="brand-mark">CE</span><span><b>CARD EATER</b><small id="phaseValue">准备中</small></span></div>
           <div class="topbar-actions">
+            <button class="icon-button rule-info-button" id="ruleInfoButton" type="button" aria-label="查看本轮合约" hidden>约</button>
             <button class="icon-button item-info-button" id="itemInfoButton" type="button" aria-label="查看永久道具">具</button>
             <button class="icon-button deck-info-button" id="deckInfoButton" type="button" aria-label="查看永久牌组">组</button>
             <button class="icon-button menu-button" id="menuButton" type="button" aria-label="打开游戏菜单">☰</button>
@@ -22,8 +23,8 @@
 
         <section class="hud" aria-label="本局数据">
           <div class="hud-cell"><span>轮次</span><strong id="roundValue">1/15</strong></div>
-          <div class="hud-cell"><span id="scoreLabel">总分</span><strong id="scoreValue">0</strong><small id="scoreDelta" hidden>本轮 +0</small></div>
-          <div class="hud-cell token-cell"><span>删牌标记</span><strong id="tokenValue">1</strong><small>轮末使用</small></div>
+          <div class="hud-cell"><span id="scoreLabel">总分</span><strong id="scoreValue">0</strong><div class="hud-subline"><small id="scoreDelta" hidden>本轮 +0</small><small class="timer-inline" id="timerCell" hidden>限时 <b id="timerValue">0.0s</b></small></div></div>
+          <div class="hud-cell token-cell"><span id="resourceLabel">删牌标记</span><strong id="tokenValue">1</strong><small id="resourceHint">轮末使用</small></div>
           <div class="hud-cell"><span id="remainingLabel">餐盘</span><strong id="remainingValue">7/7</strong></div>
         </section>
 
@@ -49,9 +50,11 @@
 
         <div class="overlay welcome-overlay show" id="welcomeOverlay" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
           <div class="home-card-rain" id="homeCardRain" aria-hidden="true"></div>
+          <div class="home-atmosphere" aria-hidden="true"><i></i><i></i><i></i></div>
           <section class="welcome-panel home-panel">
             <div class="home-hero" aria-labelledby="welcomeTitle">
-              <div class="home-logo"><span>CARD</span><span>EATER</span></div>
+              <div class="home-logo" id="homeLogo"><span>CARD</span><span>EATER</span><i class="home-logo-flare" aria-hidden="true"></i><b class="god-badge" id="godBadge" hidden>GOD</b></div>
+              <div class="home-mode-sigils" id="homeModeSigils" aria-label="模式解锁与通关徽记"><i data-home-mode="normal" title="标准模式">◆</i><i data-home-mode="prep" title="备料模式">▣</i><i data-home-mode="shop" title="商店模式">$</i><i data-home-mode="contract_shop" title="条约商店">✦</i><i data-home-mode="hard" title="高难模式">▲</i><i data-home-mode="endless" title="无尽模式">∞</i></div>
               <h1 id="welcomeTitle">CardEater</h1>
             </div>
             <div class="home-actions">
@@ -61,10 +64,15 @@
             </div>
             <div class="mode-chooser" id="modeChooser" hidden>
               <button class="mode-button" id="normalModeButton" type="button"><b>标准模式</b><small>15 轮 · 目标 80 / 200 / 600</small></button>
+              <button class="mode-button prep-mode-button" id="prepModeButton" type="button"><b>备料模式</b><small>游玩 2 局解锁 · 单格备料替代删牌</small></button>
+              <button class="mode-button shop-mode-button" id="shopModeButton" type="button"><b>商店模式</b><small>通关 1 次解锁 · 经济、买牌、扩容与删牌</small></button>
+              <button class="mode-button contract-mode-button" id="contractShopModeButton" type="button"><b>条约商店</b><small>通关商店模式 1 次解锁 · 每轮三选一合约</small></button>
               <button class="mode-button endless-mode-button" id="endlessModeButton" type="button"><b>无尽模式</b><small>通关后解锁 · 第 15 轮后继续</small></button>
               <button class="mode-button hard-mode-button" id="hardModeButton" type="button"><b>高难模式</b><small>通关后解锁 · 小餐盘与更高目标</small></button>
+              <label class="random-start-toggle"><input id="randomStartToggle" type="checkbox" /><span><b>随机开局</b><small id="randomStartHint">游玩 1 局后解锁 · 随机替换初始牌组中的两张牌</small></span></label>
+              <div class="developer-mode-notice" id="developerModeNotice" hidden>DEV MODE · 全模式已解锁</div>
             </div>
-            <div class="home-footer"><span>BEST <strong id="welcomeBestScore">--</strong></span></div>
+            <div class="home-footer"><span>BEST <strong id="welcomeBestScore">--</strong></span><button class="home-theme-toggle" id="homeThemeToggle" type="button" aria-label="切换主界面昼夜色调">☾ 夜间</button></div>
           </section>
         </div>
 
@@ -77,7 +85,7 @@
           <section class="modal-panel deck-status-panel">
             <div class="eyebrow">PERMANENT DECK</div><h1 id="deckStatusTitle">我的永久牌组</h1>
             <div class="deck-status-summary" id="deckStatusSummary"></div><div class="deck-capacity-summary" id="deckCapacitySummary"></div><div class="deck-status-list" id="deckStatusList"></div>
-            <p class="modal-lead" id="deckRemovalHint">出牌阶段只能查看；轮末三选一时可消耗 token 删除卡牌。</p>
+            <p class="modal-lead" id="deckRemovalHint">出牌阶段只能查看；轮末三选一时可消耗删牌标记删除卡牌。</p>
             <button class="primary-button" id="deckStatusClose" type="button">返回游戏</button>
           </section>
         </div>
@@ -88,7 +96,8 @@
             <div class="settings-grid"><button class="setting-toggle" id="musicToggle" type="button" aria-pressed="true"><span>音乐</span><b>开启</b></button><button class="setting-toggle" id="effectsToggle" type="button" aria-pressed="true"><span>音效</span><b>开启</b></button></div>
             <div class="font-size-setting"><span><b>界面字号</b><small>只调整说明文字与操作控件</small></span><div role="group" aria-label="界面字号"><button type="button" data-font-size="small">小</button><button type="button" data-font-size="medium">标准</button><button type="button" data-font-size="large">大</button></div></div>
             <button class="menu-wide-button" id="cardCatalogButton" type="button"><b>卡牌图鉴</b><small>查看完整卡池、数值与效果</small></button>
-            <details class="menu-rules" id="menuRules"><summary>规则与细则</summary><div class="menu-objective" id="menuObjective">第 5 / 10 / 15 轮累计达到 80 / 200 / 600 分</div><ul>
+            <section class="unlock-progress" id="unlockProgress"><b>模式解锁进度</b><div id="unlockProgressList"></div></section>
+            <details class="menu-rules" id="menuRules"><summary>规则与细则</summary><div class="menu-objective" id="menuObjective">第 5 / 10 / 15 轮累计达到 80 / 200 / 600 分</div><div class="menu-mode-rules" id="menuModeRules"></div><ul>
               <li><b>随机餐盘</b><span>每轮从永久牌组随机抽取不超过餐盘上限的卡牌；未登场牌下轮会重新参与抽取。</span></li>
               <li><b>吃与弃</b><span>可食用牌通常适合吃，不可食用牌通常适合弃；错误食性仍按牌面和效果结算。</span></li>
               <li><b>后置</b><span>把当前牌移到餐盘末尾，不结算、不占用行动；每轮每张实体牌限一次。</span></li>
@@ -110,23 +119,23 @@
         </div>
 
         <div class="overlay catalog-overlay" id="cardCatalog" role="dialog" aria-modal="true" aria-labelledby="cardCatalogTitle">
-          <section class="modal-panel catalog-panel"><div class="catalog-heading"><div><div class="eyebrow">FULL CARD LIBRARY</div><h1 id="cardCatalogTitle">卡牌图鉴</h1></div><button class="shop-reroll-button" id="cardCatalogClose" type="button">返回菜单</button></div><div class="catalog-tools"><label for="catalogTypeFilter">类别</label><select id="catalogTypeFilter"><option value="all">全部类别</option></select><span id="catalogSummary">0 张卡牌</span></div><div class="catalog-grid" id="catalogList"></div></section>
+          <section class="modal-panel catalog-panel"><div class="catalog-heading"><div><div class="eyebrow">FULL CARD LIBRARY</div><h1 id="cardCatalogTitle">卡牌图鉴</h1></div><button class="shop-reroll-button" id="cardCatalogClose" type="button">返回菜单</button></div><div class="catalog-tools"><label for="catalogTypeFilter">类别</label><select id="catalogTypeFilter"><option value="all">全部类别</option></select><div class="catalog-mode-switch" role="group" aria-label="切换卡牌效果版本"><button type="button" data-catalog-mode="standard" aria-pressed="true">标准效果</button><button type="button" data-catalog-mode="shop" aria-pressed="false">商店效果</button></div><span id="catalogSummary">0 张卡牌</span><small id="catalogModeHint">当前显示标准、备料、无尽与高难模式使用的卡牌效果。</small></div><div class="catalog-grid" id="catalogList"></div></section>
         </div>
 
         <div class="overlay catalog-detail-overlay" id="catalogCardDetail" role="dialog" aria-modal="true" aria-labelledby="catalogCardDetailTitle">
-          <section class="modal-panel catalog-detail-panel"><div class="catalog-detail-heading"><div><div class="eyebrow">CARD DETAIL</div><h1 id="catalogCardDetailTitle">卡牌详情</h1></div><button class="shop-reroll-button" id="catalogCardDetailClose" type="button">返回图鉴</button></div><div class="catalog-detail-layout"><div class="catalog-card-preview" id="catalogCardPreview"></div><div class="catalog-detail-copy" id="catalogCardDetailCopy"></div></div></section>
+          <section class="modal-panel catalog-detail-panel"><div class="catalog-detail-heading"><div><div class="eyebrow">CARD DETAIL</div><h1 id="catalogCardDetailTitle">卡牌详情</h1></div><button class="shop-reroll-button" id="catalogCardDetailClose" type="button">返回图鉴</button></div><div class="catalog-detail-mode-row"><div><b id="catalogDetailModeLabel">标准效果</b><small id="catalogDetailModeHint">标准、备料、无尽与高难模式</small></div><div class="catalog-mode-switch" role="group" aria-label="在卡牌详情中切换效果版本"><button type="button" data-catalog-mode="standard" aria-pressed="true">标准效果</button><button type="button" data-catalog-mode="shop" aria-pressed="false">商店效果</button></div></div><div class="catalog-detail-layout"><div class="catalog-card-preview" id="catalogCardPreview"></div><div class="catalog-detail-copy" id="catalogCardDetailCopy"></div></div></section>
         </div>
 
         <div class="overlay" id="roundSummary" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
-          <section class="modal-panel summary-panel"><div class="eyebrow" id="summaryEyebrow">ROUND CLEAR</div><h1 id="summaryTitle">本轮结算</h1><p class="modal-lead" id="summaryTip">卡牌效果与牌面已经结算。</p><div class="milestone-summary"><span id="summaryMilestoneRounds">距离第 5 轮目标还有 4 轮</span><strong id="summaryMilestoneScore">累计 0 / 目标 80 分</strong><div class="milestone-meter"><i id="summaryMilestoneFill"></i></div></div><div class="receipt" id="summaryBreakdownList"></div><button class="primary-button" id="summaryContinueBtn" type="button">选择一张新牌</button></section>
+          <section class="modal-panel summary-panel"><div class="eyebrow" id="summaryEyebrow">ROUND CLEAR</div><h1 id="summaryTitle">本轮结算</h1><p class="modal-lead" id="summaryTip">卡牌效果与牌面已经结算。</p><div class="milestone-summary"><span id="summaryMilestoneRounds">距离第 5 轮目标还有 4 轮</span><strong id="summaryMilestoneScore">累计 0 / 目标 80 分</strong><div class="milestone-meter"><i id="summaryMilestoneFill"></i></div></div><div class="receipt" id="summaryBreakdownList"></div><div class="unlock-progress summary-unlocks" id="summaryUnlockProgress" hidden><b>解锁进度</b><div id="summaryUnlockProgressList"></div></div><button class="primary-button" id="summaryContinueBtn" type="button">选择一张新牌</button></section>
         </div>
 
         <div class="overlay" id="cardDraft" role="dialog" aria-modal="true" aria-labelledby="cardDraftTitle">
-          <section class="modal-panel shop-panel-inner draft-reward-panel"><div class="shop-heading"><div><div class="eyebrow">BETWEEN ROUNDS</div><h1 id="cardDraftTitle">选择一张加入牌组</h1></div><div class="draft-wallets"><div class="shop-wallet"><span>删牌标记</span><strong id="draftTokenValue">0</strong></div><div class="shop-wallet"><span>刷新标记</span><strong id="draftRerollValue">0</strong></div></div></div><p class="modal-lead" id="draftMessage">三选一，也可以刷新或跳过。选牌前可先整理永久牌组。</p><div class="shop-grid draft-reward-grid" id="cardDraftList"></div><div class="draft-actions"><button class="shop-reroll-button" id="draftManageDeck" type="button">整理牌组</button><button class="shop-reroll-button" id="draftReroll" type="button">刷新 · 0</button><button class="primary-button" id="draftSkip" type="button">跳过 · 不加牌</button></div></section>
+          <section class="modal-panel shop-panel-inner draft-reward-panel"><div class="shop-heading"><div><div class="eyebrow">BETWEEN ROUNDS</div><h1 id="cardDraftTitle">选择一张加入牌组</h1></div><div class="draft-wallets"><div class="shop-wallet"><span id="draftResourceLabel">删牌标记</span><strong id="draftTokenValue">0</strong></div><div class="shop-wallet"><span>刷新标记</span><strong id="draftRerollValue">0</strong></div></div></div><p class="modal-lead" id="draftMessage">三选一，也可以刷新或跳过。选牌前可先整理永久牌组。</p><div class="prep-slot-preview" id="prepSlotPreview" hidden></div><div class="shop-grid draft-reward-grid" id="cardDraftList"></div><div class="draft-actions"><button class="shop-reroll-button" id="draftManageDeck" type="button">整理牌组</button><button class="shop-reroll-button" id="draftReroll" type="button">刷新 · 0</button><button class="primary-button" id="draftSkip" type="button">跳过 · 不加牌</button></div></section>
         </div>
 
         <div class="overlay item-draft-overlay" id="itemDraft" role="dialog" aria-modal="true" aria-labelledby="itemDraftTitle">
-          <section class="modal-panel item-draft-panel"><div class="eyebrow" id="itemDraftRound">第 3 轮赠礼</div><h1 id="itemDraftTitle">选择一件道具</h1><p class="modal-lead">道具拥有稀有度。永久道具持续生效；标有“一次性”的道具会在选择后立即使用。</p><div class="item-draft-grid" id="itemDraftList"></div></section>
+          <section class="modal-panel item-draft-panel"><div class="eyebrow" id="itemDraftRound">第 3 轮赠礼</div><h1 id="itemDraftTitle">选择一件道具</h1><p class="modal-lead">道具拥有稀有度。永久道具持续生效；标有“一次性”的道具会在选择后立即使用。</p><div class="item-draft-grid" id="itemDraftList"></div><button class="shop-reroll-button item-skip-button" id="itemDraftSkip" type="button">跳过 · 不领取道具</button></section>
         </div>
 
         <div class="overlay item-choice-overlay" id="itemCardChoice" role="dialog" aria-modal="true" aria-labelledby="itemCardChoiceTitle">
@@ -137,11 +146,27 @@
           <section class="modal-panel item-category-panel"><div class="eyebrow">一次性道具</div><h1 id="itemCategoryChoiceTitle">选择下一轮强化类别</h1><p class="modal-lead" id="itemCategoryChoiceLead">该类别所有牌结算时额外 +4 分。</p><div class="item-category-grid" id="itemCategoryChoiceList"></div></section>
         </div>
 
+        <div class="overlay" id="ruleDraft" role="dialog" aria-modal="true" aria-labelledby="ruleDraftTitle">
+          <section class="modal-panel draft-panel"><div class="eyebrow">ROUND <span id="draftRoundValue">01</span> · CONTRACT PICK</div><h1 id="ruleDraftTitle">选择本轮条约</h1><p class="modal-lead">本轮达成即可获得金币；未完成没有惩罚，下一轮重新选择。</p><div class="rule-help"><b>限时经济</b><span>12 秒内清盘 +1 金币；8 秒内清盘 +2 金币。可与条约奖励叠加。</span></div><div class="target-banner"><span>阶段目标</span><strong id="draftTargetText">第 5 轮累计达到 80 分</strong><small id="draftTargetProgress">当前 0 分</small><i><b id="draftTargetFill"></b></i></div><div class="option-grid" id="ruleDraftList"></div></section>
+        </div>
+
+        <div class="overlay collection-overlay" id="ruleStatus" role="dialog" aria-modal="true" aria-labelledby="ruleStatusTitle">
+          <section class="modal-panel collection-status-panel"><div class="eyebrow">ROUND CONTRACT</div><h1 id="ruleStatusTitle">本轮条约</h1><div class="collection-status-summary" id="ruleStatusSummary"></div><div class="collection-status-list" id="ruleStatusList"></div><button class="primary-button" id="ruleStatusClose" type="button">返回游戏</button></section>
+        </div>
+
+        <div class="overlay" id="shopPanel" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
+          <section class="modal-panel shop-panel-inner"><div class="shop-heading"><div><div class="eyebrow">BETWEEN ROUNDS</div><h1 id="shopTitle">咔嚓夜市</h1></div><div class="shop-wallet"><span>金币</span><strong id="shopGold">0</strong></div></div><p class="modal-lead" id="shopMessage">在买牌、扩容与删牌之间分配金币。</p><div class="shop-plate-summary" id="shopPlateSummary"></div><div class="plate-upgrade-row"><span><b>永久餐盘扩容</b><small id="shopPlateUpgradeDetail"></small></span><button class="shop-reroll-button" id="shopPlateUpgrade" type="button">永久扩容 +1</button></div><div class="shop-section-title"><span>本轮商品</span></div><div class="shop-grid" id="shopOfferList"></div><div class="shop-section-title"><span id="shopThemeTitle">同类专柜</span></div><div class="shop-grid shop-theme-grid" id="shopThemeOfferList"></div><div class="shop-section-title"><span>道具</span></div><div class="shop-item-grid" id="shopItemOfferList"></div><div class="shop-reroll-row"><button class="shop-reroll-button" id="shopReroll" type="button">刷新商品</button><button class="shop-lock-button" id="shopLock" type="button">◇ 锁定下轮商店</button></div><div class="shop-section-title"><span>我的牌组</span><small>删牌费用 <b id="shopDeleteCost">0</b></small></div><div class="deck-manager" id="shopDeckList"></div><button class="primary-button" id="shopContinue" type="button">结束商店 · 下一轮</button></section>
+        </div>
+
+        <div class="overlay" id="shopTutorial" role="dialog" aria-modal="true" aria-labelledby="shopTutorialTitle">
+          <section class="modal-panel shop-tutorial-panel"><div class="eyebrow">咔嚓带来了经济系统</div><h1 id="shopTutorialTitle">商店模式教学</h1><p class="shop-tutorial-lead">先记住一件事：<b>吃牌就是最稳定的金币来源。</b></p><div class="shop-tutorial-steps"><span class="income-step"><b>1 · 基础金币</b><small><strong>每轮中，每张实体牌第一次被吃掉时获得 1 金币。</strong>同一张牌即使重洗后再次吃掉，也不会重复获得这份基础金币。</small></span><span><b>2 · 额外收入</b><small id="shopTutorialGoldBonus">带有“金币”说明的经济卡与道具可以追加收入。卡牌图鉴可切换查看商店效果。</small></span><span><b>3 · 花在哪里</b><small>买牌做强引擎、扩容让更多牌登场、删牌提高稳定性，三者共用同一份金币。</small></span><span><b>4 · 轮末变化</b><small>商店替代普通模式的免费选牌与免费扩容；离开商店后自动进入下一轮。</small></span></div><button class="primary-button" id="shopTutorialContinue" type="button">明白了 · 开始</button></section>
+        </div>
+
         <div class="overlay delete-confirm-overlay" id="deleteConfirm" role="alertdialog" aria-modal="true" aria-labelledby="deleteConfirmTitle">
           <section class="modal-panel delete-confirm-panel"><div class="eyebrow">使用一枚删牌标记</div><h1 id="deleteConfirmTitle">确认删除这张牌？</h1><div class="delete-confirm-card" id="deleteConfirmCard"></div><p id="deleteConfirmWarning">删除不可撤销。</p><div class="delete-confirm-actions"><button class="shop-reroll-button" id="deleteConfirmCancel" type="button">取消</button><button class="primary-button danger-action" id="deleteConfirmAccept" type="button">确认删除</button></div></section>
         </div>
       </section>
     </main>
-    <script type="module" src="./js/main.js?v=36"></script>
+    <script type="module" src="./js/main.js?v=43"></script>
   </body>
 </html>

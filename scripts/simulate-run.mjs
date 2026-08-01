@@ -82,8 +82,8 @@ export function simulateRun({ seed = 1, verbose = false, enforce_milestones = tr
     state.current_round = round;
     resetRoundState(state);
     engine.applyRoundStartEffects(state);
-    const deck = shuffle(structuredClone(state.deck), random);
-    Object.assign(state.round, takeRoundDrawPile(deck, state.plate_capacity));
+    const deck = structuredClone(state.deck);
+    Object.assign(state.round, takeRoundDrawPile(deck, state.plate_capacity, random));
     playPlate(state, engine, random);
     const result = engine.finalizeRound(state);
     const milestone = engine.levelProgressCheck(state);

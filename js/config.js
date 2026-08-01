@@ -1,5 +1,5 @@
 export const GAME_CONFIG = Object.freeze({
-  schema_version: 23,
+  schema_version: 24,
   total_rounds: 15,
   draft_size: 3,
   item_draft_interval: 3,
@@ -14,6 +14,16 @@ export const GAME_CONFIG = Object.freeze({
   max_actions_per_round: 400,
   initial_plate_capacity: 10,
   max_plate_capacity: 160,
+  endless_max_plate_capacity: 16,
+  endless_victory_score: 1_000_000,
+  delete_cost_step: 3,
+  shop_offer_count: 3,
+  shop_item_offer_count: 2,
+  shop_reroll_base_cost: 2,
+  shop_reroll_cost_step: 1,
+  plate_upgrade_base_cost: 2,
+  contract_time_limit_ms: 12_000,
+  contract_fast_time_limit_ms: 8_000,
   max_score: 9_000_000_000_000_000,
 });
 
@@ -21,13 +31,25 @@ export const GAME_MODES = Object.freeze({
   NORMAL: "normal",
   ENDLESS: "endless",
   HARD: "hard",
+  PREP: "prep",
+  SHOP: "shop",
+  CONTRACT_SHOP: "contract_shop",
 });
 
 export const MODE_LABELS = Object.freeze({
   [GAME_MODES.NORMAL]: "标准模式",
   [GAME_MODES.ENDLESS]: "无尽模式",
   [GAME_MODES.HARD]: "高难模式",
+  [GAME_MODES.PREP]: "备料模式",
+  [GAME_MODES.SHOP]: "商店模式",
+  [GAME_MODES.CONTRACT_SHOP]: "条约商店模式",
 });
+
+export function isShopMode(mode) {
+  return mode === GAME_MODES.SHOP || mode === GAME_MODES.CONTRACT_SHOP;
+}
+
+export function isPrepMode(mode) { return mode === GAME_MODES.PREP; }
 
 export function isPlateUpgradeRound(round) {
   return Number.isInteger(round)

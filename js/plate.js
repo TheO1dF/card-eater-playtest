@@ -9,8 +9,14 @@ export function getPlateDrawBudget(deckSize, plateCapacity) {
   return Math.min(count(deckSize), count(plateCapacity));
 }
 
-export function takeRoundDrawPile(shuffledDeck, plateCapacity) {
-  const cards = [...shuffledDeck];
+export function takeRoundDrawPile(deck, plateCapacity, random = Math.random) {
+  const cards = [...deck];
+  for (let index = cards.length - 1; index > 0; index -= 1) {
+    const roll = Number(random());
+    const normalized = Number.isFinite(roll) ? Math.min(0.999999999999, Math.max(0, roll)) : 0;
+    const target = Math.floor(normalized * (index + 1));
+    [cards[index], cards[target]] = [cards[target], cards[index]];
+  }
   const actionBudget = getPlateDrawBudget(cards.length, plateCapacity);
   const reserve = cards.slice(actionBudget);
   return {

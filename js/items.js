@@ -1,6 +1,7 @@
-import { GAME_CONFIG } from "./config.js";
+import { GAME_CONFIG, GAME_MODES } from "./config.js";
 import { createShopCardPool, getCardById } from "./data.js";
 import { safeAdd } from "./numbers.js";
+import { queueRoundGold } from "./economy.js";
 import { getRemainingCardCount } from "./round-pile.js";
 
 const CARD_POOL_ITEMS = Object.freeze([
@@ -65,7 +66,17 @@ const definitions = [
 ];
 
 export const ITEM_LIBRARY = Object.freeze(definitions.map((entry, index) => defineItem(entry, index)));
-const ITEM_BY_ID = Object.freeze(Object.fromEntries(ITEM_LIBRARY.map((entry) => [entry.id, entry])));
+const ECONOMY_ITEM_LIBRARY = Object.freeze([
+  { id: "E101", name: "投币吸管", rarity: "普通", role: "饮料经济", shop_price: 4, min_shop_round: 2, max_shop_round: 8, description: "每轮第一次吃掉并摧毁饮料时，结算金币 +1。", effect: { kind: "drink_first_gold", gold: 1 } },
+  { id: "E102", name: "工会徽章", rarity: "普通", role: "人物经济", shop_price: 4, min_shop_round: 2, max_shop_round: 10, description: "每轮第一次弃掉人物牌时，结算金币 +1。", effect: { kind: "first_type_gold", target_type: "人物", action: "discard", gold: 1 } },
+  { id: "E103", name: "优惠打印机", rarity: "罕见", role: "刷新经济", shop_price: 6, min_shop_round: 3, description: "每间商店获得 1 次免费刷新。", effect: { kind: "free_shop_reroll", count: 1 } },
+  { id: "E104", name: "夜市会员卡", rarity: "罕见", role: "商店经济", shop_price: 8, min_shop_round: 4, description: "商店卡牌价格永久 -1，最低仍为 1 金币。", effect: { kind: "shop_price_discount", amount: 1 } },
+  { id: "E105", name: "餐盘量尺", rarity: "普通", role: "扩容经济", shop_price: 5, min_shop_round: 2, description: "餐盘扩容费用永久 -1，最低仍为 1 金币。", effect: { kind: "plate_upgrade_discount", amount: 1 } },
+  { id: "E106", name: "连击钱旗", rarity: "罕见", role: "水果经济", shop_price: 5, min_shop_round: 3, description: "每轮水果连击首次达到 3 或以上时，结算金币 +1。", effect: { kind: "fruit_combo_first_gold", threshold: 3, gold: 1 } },
+  { id: "E107", name: "苦差零钱袋", rarity: "罕见", role: "风险刷新", shop_price: 5, min_shop_round: 3, description: "每轮首次选择牌面负分的一侧时，随后商店获得 1 次免费刷新。", effect: { kind: "negative_action_free_reroll", count: 1 } },
+].map((entry, index) => defineItem({ ...entry, builds: ["economy"] }, index + 8)));
+const ALL_ITEMS = Object.freeze([...ITEM_LIBRARY, ...ECONOMY_ITEM_LIBRARY]);
+const ITEM_BY_ID = Object.freeze(Object.fromEntries(ALL_ITEMS.map((entry) => [entry.id, entry])));
 
 function cloneItem(source) {
   return source ? { ...source, builds: [...(source.builds ?? [])], effect: { ...source.effect } } : null;
@@ -79,12 +90,18 @@ function createOwnedItem(source, saved = {}) {
     last_trigger_round: Number(saved.last_trigger_round) || 0,
     selected_type: saved.selected_type ?? null,
     applies_round: Number(saved.applies_round) || null,
+    instance_id: saved.instance_id ?? `${source.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
   };
 }
 
 export function getItemById(id) { return cloneItem(ITEM_BY_ID[id]); }
 export function createItemPool() { return ITEM_LIBRARY.map(cloneItem); }
-export function createShopItemPool() { return createItemPool(); }
+export function createShopItemPool() {
+  const price = { "普通": 5, "罕见": 7, "稀有": 10, "传奇": 14 };
+  return [...ITEM_LIBRARY.filter((entry) => !entry.consumable && entry.effect.kind !== "delete_every_rounds"), ...ECONOMY_ITEM_LIBRARY]
+    .map(cloneItem)
+    .map((entry) => ({ ...entry, shop_price: entry.shop_price ?? price[entry.rarity] ?? 6 }));
+}
 export function getCurrentItemDescription(entry) { return entry?.description ?? ""; }
 export function getItemLevelLabel(entry) { return entry?.consumable ? "一次性" : entry?.rarity ?? "道具"; }
 export function getItemProgressText() { return "获得后立即生效"; }
@@ -124,7 +141,7 @@ function weightedTake(pool, predicate, selected, random) {
 }
 
 export function randomDraftItems(state, count = 3, random = Math.random) {
-  const seen = new Set([
+  const seen = state.mode === GAME_MODES.ENDLESS ? new Set() : new Set([
     ...(state.items ?? []).map((entry) => entry.id),
     ...(state.item_history ?? []).map((entry) => entry.item_id),
   ]);
@@ -154,7 +171,7 @@ export function hydrateOwnedItems(state) {
 }
 
 export function addItem(state, id, saved = {}) {
-  if (state.items.some((entry) => entry.id === id)) return false;
+  if (state.mode !== GAME_MODES.ENDLESS && state.items.some((entry) => entry.id === id)) return false;
   const source = ITEM_BY_ID[id];
   if (!source || source.consumable) return false;
   state.items.push(createOwnedItem(source, saved));
@@ -169,7 +186,7 @@ function recordItemHistory(state, entry, consumed) {
 export function chooseItem(state, selection) {
   const entry = typeof selection === "string" ? getItemById(selection) : cloneItem(selection);
   if (!entry) return { success: false, reason: "not_found" };
-  if ((state.item_history ?? []).some((history) => history.item_id === entry.id) || state.items.some((owned) => owned.id === entry.id)) {
+  if (state.mode !== GAME_MODES.ENDLESS && ((state.item_history ?? []).some((history) => history.item_id === entry.id) || state.items.some((owned) => owned.id === entry.id))) {
     return { success: false, reason: "duplicate" };
   }
   if (entry.effect.kind === "card_pool_choice") {
@@ -264,6 +281,35 @@ export function resolveItemActionEffects(state, action, card) {
       case "category_round_choice":
         if (item.applies_round === state.current_round && card.type === item.selected_type) addBonus(result, item, item.effect.bonus ?? 4);
         break;
+      case "first_type_gold": {
+        const key = `item:${item.instance_id ?? item.id}:gold`;
+        if (action === item.effect.action && card.type === item.effect.target_type && !state.round.effect_trigger_counts[key]) {
+          state.round.effect_trigger_counts[key] = 1;
+          queueRoundGold(state, item.name, item.effect.gold ?? 1, "item");
+          result.messages.push(`${item.name}：金币 +${item.effect.gold ?? 1}`);
+        }
+        break;
+      }
+      case "fruit_combo_first_gold": {
+        const nextCombo = (state.round.fruit_combo ?? 0) + (card.effect?.combo_gain ?? 1);
+        const key = `item:${item.instance_id ?? item.id}:gold`;
+        if (action === "eat" && card.type === "水果" && nextCombo >= (item.effect.threshold ?? 3) && !state.round.effect_trigger_counts[key]) {
+          state.round.effect_trigger_counts[key] = 1;
+          queueRoundGold(state, item.name, item.effect.gold ?? 1, "item");
+          result.messages.push(`${item.name}：金币 +${item.effect.gold ?? 1}`);
+        }
+        break;
+      }
+      case "negative_action_free_reroll": {
+        const printed = action === "eat" ? card.eat_points : card.discard_points;
+        const key = `item:${item.instance_id ?? item.id}:reroll`;
+        if (printed < 0 && !state.round.effect_trigger_counts[key]) {
+          state.round.effect_trigger_counts[key] = 1;
+          state.round.shop_free_rerolls = safeAdd(state.round.shop_free_rerolls, item.effect.count ?? 1);
+          result.messages.push(`${item.name}：商店免费刷新 +${item.effect.count ?? 1}`);
+        }
+        break;
+      }
       default:
         break;
     }
@@ -410,12 +456,15 @@ function returnExiledCards(state) {
 export function applyRoundItemSetup(state) {
   hydrateOwnedItems(state);
   const messages = returnExiledCards(state);
-  const starter = state.items.find((item) => item.effect.kind === "fruit_combo_start");
-  if (starter) {
-    state.round.fruit_combo = starter.effect.amount ?? 1;
+  const starters = state.items.filter((item) => item.effect.kind === "fruit_combo_start");
+  if (starters.length > 0) {
+    state.round.fruit_combo = starters.reduce((sum, item) => sum + (item.effect.amount ?? 1), 0);
     state.round.best_fruit_combo = Math.max(state.round.best_fruit_combo ?? 0, state.round.fruit_combo);
-    messages.push(`${starter.name}：水果连击从 ${state.round.fruit_combo} 开始`);
+    messages.push(`半熟果盘：水果连击从 ${state.round.fruit_combo} 开始`);
   }
+  state.round.shop_free_rerolls = safeAdd(state.round.shop_free_rerolls ?? 0, state.items
+    .filter((item) => item.effect.kind === "free_shop_reroll")
+    .reduce((sum, item) => sum + (item.effect.count ?? 1), 0));
   return messages;
 }
 
@@ -510,7 +559,7 @@ export function getItemRoundEndEffects(state, random = Math.random) {
 export function getPostponeLimit(state) {
   const extraUses = (state.items ?? []).reduce((total, entry) => {
     if (entry.effect.kind !== "extra_postpone" && entry.effect.kind !== "unlimited_postpone") return total;
-    return Math.max(total, Math.max(0, Math.floor(entry.effect.extra_uses ?? 1)));
+    return safeAdd(total, Math.max(0, Math.floor(entry.effect.extra_uses ?? 1)));
   }, 0);
   return 1 + extraUses;
 }

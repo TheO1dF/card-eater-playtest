@@ -125,6 +125,7 @@ for (const viewport of selectedViewports) {
     localStorage.removeItem("cardeater.run-history.v1");
     localStorage.removeItem("cardeater.active-run.v2");
     localStorage.removeItem("cardeater.settings.v1");
+    localStorage.removeItem("cardeater.progression.v1");
     localStorage.setItem("cardeater.story-tutorial.v1", "complete");
   })()`);
   await send("Page.reload", { ignoreCache: true });
@@ -145,6 +146,8 @@ for (const viewport of selectedViewports) {
       rain_art_square: (() => { const rect = document.querySelector(".home-rain-art")?.getBoundingClientRect(); return Boolean(rect && Math.abs(rect.width - rect.height) <= 1); })(),
       rain_animation: getComputedStyle(document.querySelector(".home-rain-card")).animationName,
       logo_lines: document.querySelectorAll(".home-logo span").length,
+      unlocked_sigils: document.querySelectorAll("#homeModeSigils .is-unlocked").length,
+      cleared_sigils: document.querySelectorAll("#homeModeSigils .is-cleared").length,
       logo_has_annotation: Boolean(document.querySelector(".home-hero p")),
       panel_border: parseFloat(getComputedStyle(document.querySelector(".home-panel")).borderTopWidth),
       shell_border: parseFloat(getComputedStyle(document.querySelector(".game-shell")).borderTopWidth),
@@ -153,6 +156,99 @@ for (const viewport of selectedViewports) {
       horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     };
   })()`);
+  const overlayLayering = await evaluate(`(() => {
+    const topbarZ = Number.parseInt(getComputedStyle(document.querySelector(".topbar")).zIndex, 10);
+    const overlays = [...document.querySelectorAll(".overlay")].map((overlay) => {
+      const inlineDisplay = overlay.style.display;
+      overlay.style.display = "grid";
+      const style = getComputedStyle(overlay);
+      const rect = overlay.getBoundingClientRect();
+      const result = {
+        id: overlay.id,
+        position: style.position,
+        z: Number.parseInt(style.zIndex, 10),
+        covers: rect.left <= .5 && rect.top <= .5 && rect.right >= innerWidth - .5 && rect.bottom >= innerHeight - .5,
+      };
+      overlay.style.display = inlineDisplay;
+      return result;
+    });
+    return {
+      count: overlays.length,
+      all_fixed: overlays.every((overlay) => overlay.position === "fixed"),
+      all_cover_viewport: overlays.every((overlay) => overlay.covers),
+      all_above_topbar: overlays.every((overlay) => overlay.z > topbarZ),
+      failures: overlays.filter((overlay) => overlay.position !== "fixed" || !overlay.covers || overlay.z <= topbarZ),
+    };
+  })()`);
+  await clickElement("#homeMenuButton");
+  await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
+  await wait(220);
+  await capture(`${viewport.name}-home-menu`);
+  const homeMenu = await evaluate(`(() => {
+    const overlay = document.querySelector("#gameMenu");
+    const rect = overlay?.getBoundingClientRect();
+    const panel = overlay?.querySelector(".modal-panel")?.getBoundingClientRect();
+    return {
+      viewport_cover: Boolean(rect && rect.left <= .5 && rect.top <= .5 && rect.right >= innerWidth - .5 && rect.bottom >= innerHeight - .5),
+      top_edge_owned: overlay?.contains(document.elementFromPoint(innerWidth / 2, 1)) ?? false,
+      panel_inside: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+      welcome_remains_underneath: document.querySelector("#welcomeOverlay")?.classList.contains("show") ?? false,
+    };
+  })()`);
+  await clickElement("#gameMenuClose");
+  await waitFor('!document.querySelector("#gameMenu")?.classList.contains("show")');
+  await clickElement("#homeThemeToggle");
+  await waitFor('document.querySelector("#welcomeOverlay")?.dataset.homeTheme === "day"');
+  await clickElement("#newGameButton");
+  await waitFor('!document.querySelector("#modeChooser")?.hidden');
+  const homeTheme = await evaluate(`(() => {
+    const rgb = (value) => (value.match(/[\\d.]+/g) || []).slice(0, 3).map(Number);
+    const luminance = (value) => {
+      const channels = rgb(value).map((channel) => {
+        const normalized = channel / 255;
+        return normalized <= .03928 ? normalized / 12.92 : ((normalized + .055) / 1.055) ** 2.4;
+      });
+      return .2126 * channels[0] + .7152 * channels[1] + .0722 * channels[2];
+    };
+    const contrast = (foreground, background) => {
+      const light = Math.max(luminance(foreground), luminance(background));
+      const dark = Math.min(luminance(foreground), luminance(background));
+      return (light + .05) / (dark + .05);
+    };
+    const button = document.querySelector("#normalModeButton");
+    const background = getComputedStyle(button).backgroundColor;
+    return {
+      selected: document.querySelector("#welcomeOverlay")?.dataset.homeTheme,
+      saved: JSON.parse(localStorage.getItem("cardeater.settings.v1") || "{}").home_theme,
+      toggle_label: document.querySelector("#homeThemeToggle")?.textContent?.trim(),
+      title_contrast: contrast(getComputedStyle(button.querySelector("b")).color, background),
+      copy_contrast: contrast(getComputedStyle(button.querySelector("small")).color, background),
+    };
+  })()`);
+  await capture(`${viewport.name}-home-day`);
+  await waitFor('import("./js/audio.js").then(({ getAudioStatus }) => { const status = getAudioStatus(); return status.context_state === "running" && status.bgm_playing && status.theme === "day"; })');
+  const dayThemeAudio = await evaluate(`import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus())`);
+  await wait(220);
+  await clickElement("#homeThemeToggle");
+  await waitFor('document.querySelector("#welcomeOverlay")?.dataset.homeTheme === "night"');
+  await waitFor('import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus().theme === "night")');
+  const nightThemeAudio = await evaluate(`import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus())`);
+  const homeThemeAudio = { day: dayThemeAudio, night: nightThemeAudio };
+
+  await evaluate(`localStorage.setItem("cardeater.progression.v1", JSON.stringify({ runs_played: 8, victories: 6, shop_victories: 1, endless_victories: 1, god: true, mode_victories: { normal: 1, prep: 1, shop: 1, contract_shop: 1, hard: 1, endless: 1 } }))`);
+  await send("Page.reload", { ignoreCache: true });
+  await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
+  const homeProgression = await evaluate(`(() => ({
+    cleared_sigils: document.querySelectorAll("#homeModeSigils .is-cleared").length,
+    clear_count: document.querySelector("#homeLogo")?.dataset.clearCount,
+    god_visible: !document.querySelector("#godBadge")?.hidden,
+    god_logo: document.querySelector("#homeLogo")?.classList.contains("is-god"),
+  }))()`);
+  await wait(360);
+  await capture(`${viewport.name}-home-god`);
+  await evaluate('localStorage.removeItem("cardeater.progression.v1")');
+  await send("Page.reload", { ignoreCache: true });
+  await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
   const homeAudio = await evaluate(`import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus())`);
   await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await wait(80);
@@ -217,7 +313,7 @@ for (const viewport of selectedViewports) {
     delete_markers: document.querySelector("#tokenValue")?.textContent,
     inventory_below_hud: (() => { const inventory = document.querySelector(".inventory-bar")?.getBoundingClientRect(); const hud = document.querySelector(".hud")?.getBoundingClientRect(); return Boolean(inventory && hud && inventory.top >= hud.bottom + 4); })(),
     has_gold: Boolean(document.querySelector("#goldValue")),
-    has_timer: Boolean(document.querySelector("#timerValue")),
+    timer_visible: (() => { const cell = document.querySelector("#timerCell"); return Boolean(cell && !cell.hidden && getComputedStyle(cell).display !== "none"); })(),
     card_copy_size: parseFloat(getComputedStyle(document.querySelector(".card-effect")).fontSize),
     hud_label_size: parseFloat(getComputedStyle(document.querySelector(".hud-cell span")).fontSize),
     text_size_adjust: getComputedStyle(document.documentElement).webkitTextSizeAdjust,
@@ -237,20 +333,31 @@ for (const viewport of selectedViewports) {
 
   await clickElement("#menuButton");
   await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
+  await wait(220);
   await evaluate('document.querySelector(\'[data-font-size="large"]\')?.click()');
   await waitFor('document.documentElement.dataset.fontSize === "large"');
   await evaluate('document.querySelector("#menuRules").open = true');
   await capture(`${viewport.name}-menu`);
   const menu = await evaluate(`(() => {
     const text = document.querySelector("#menuRules")?.textContent?.replace(/\\s+/g, " ").trim() ?? "";
+    const overlay = document.querySelector("#gameMenu");
+    const overlayRect = overlay?.getBoundingClientRect();
+    const panelRect = overlay?.querySelector(".modal-panel")?.getBoundingClientRect();
     return {
       rule_count: document.querySelectorAll("#menuRules li").length,
       has_home: Boolean(document.querySelector("#menuHomeButton")?.getBoundingClientRect().height),
       has_autosave_rule: text.includes("自动保存"),
       objective: document.querySelector("#menuObjective")?.textContent?.trim() ?? "",
       forbidden_terms: ["金币", "商店", "限时经济", "任务选择"].filter((term) => text.includes(term)),
+      viewport_cover: Boolean(overlayRect && overlayRect.left <= .5 && overlayRect.top <= .5 && overlayRect.right >= innerWidth - .5 && overlayRect.bottom >= innerHeight - .5),
+      top_edge_owned: overlay?.contains(document.elementFromPoint(innerWidth / 2, 1)) ?? false,
+      panel_inside: Boolean(panelRect && panelRect.left >= -1 && panelRect.right <= innerWidth + 1 && panelRect.top >= -1 && panelRect.bottom <= innerHeight + 1),
+      active_uuid: document.querySelector(".game-card.is-active")?.dataset.cardUuid,
     };
   })()`);
+  await evaluate('window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))');
+  await wait(120);
+  menu.background_action_blocked = await evaluate(`document.querySelector("#gameMenu")?.classList.contains("show") && document.querySelector(".game-card.is-active")?.dataset.cardUuid === ${JSON.stringify(menu.active_uuid)}`);
 
   await clickElement("#cardCatalogButton");
   await waitFor('document.querySelector("#cardCatalog")?.classList.contains("show") && document.querySelectorAll("#catalogList .deck-status-card").length === 89');
@@ -273,23 +380,42 @@ for (const viewport of selectedViewports) {
         const points = [...card.querySelectorAll(".deck-status-copy em .card-point-wrap")];
         return points.length === 2 && Math.abs(points[0].getBoundingClientRect().top - points[1].getBoundingClientRect().top) <= 2;
       }),
+      standard_selected: document.querySelector('#cardCatalog [data-catalog-mode="standard"]')?.getAttribute("aria-pressed") === "true",
+      viewport_cover: (() => { const rect = document.querySelector("#cardCatalog")?.getBoundingClientRect(); return Boolean(rect && rect.left <= .5 && rect.top <= .5 && rect.right >= innerWidth - .5 && rect.bottom >= innerHeight - .5); })(),
     };
   })()`);
-  await clickElement("#catalogList .deck-status-card");
+  await clickElement('#cardCatalog [data-catalog-mode="shop"]');
+  await waitFor('document.querySelector(\'#catalogList [data-card-id="F013"] .deck-status-copy i\')?.textContent.includes("金币")');
+  const catalogModes = await evaluate(`(() => ({
+    shop_selected: document.querySelector('#cardCatalog [data-catalog-mode="shop"]')?.getAttribute("aria-pressed") === "true",
+    shop_summary: document.querySelector("#catalogSummary")?.textContent ?? "",
+    shop_effect: document.querySelector('#catalogList [data-card-id="F013"] .deck-status-copy i')?.textContent ?? "",
+    standard_effect_changed: !document.querySelector('#catalogList [data-card-id="F013"] .deck-status-copy i')?.textContent.includes("删牌标记"),
+  }))()`);
+  await capture(`${viewport.name}-catalog-shop-effects`);
+  await clickElement('#catalogList [data-card-id="F013"]');
   await waitFor('document.querySelector("#catalogCardDetail")?.classList.contains("show") && Boolean(document.querySelector("#catalogCardPreview .game-card"))');
   await wait(220);
-  await capture(`${viewport.name}-catalog-detail`);
+  await capture(`${viewport.name}-catalog-detail-shop`);
+  const shopDetailEffect = await evaluate('document.querySelector("#catalogCardDetailCopy section p")?.textContent?.trim() ?? ""');
+  await clickElement('#catalogCardDetail [data-catalog-mode="standard"]');
+  await waitFor('document.querySelector("#catalogCardDetailCopy section p")?.textContent.includes("删牌标记")');
+  await capture(`${viewport.name}-catalog-detail-standard`);
   const catalogDetail = await evaluate(`(() => {
     const panel = document.querySelector(".catalog-detail-panel")?.getBoundingClientRect();
     const effect = document.querySelector("#catalogCardDetailCopy section p")?.textContent?.trim() ?? "";
     const preview = document.querySelector("#catalogCardPreview .game-card")?.getBoundingClientRect();
     return {
       effect_visible: effect.length > 0,
+      shop_effect_visible: ${JSON.stringify(shopDetailEffect)}.includes("金币"),
+      standard_effect_visible: effect.includes("删牌标记"),
+      standard_selected: document.querySelector('#catalogCardDetail [data-catalog-mode="standard"]')?.getAttribute("aria-pressed") === "true",
       preview_visible: Boolean(preview && preview.width > 200 && preview.height > 260),
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+      viewport_cover: (() => { const rect = document.querySelector("#catalogCardDetail")?.getBoundingClientRect(); return Boolean(rect && rect.left <= .5 && rect.top <= .5 && rect.right >= innerWidth - .5 && rect.bottom >= innerHeight - .5); })(),
     };
   })()`);
-  await clickElement("#catalogCardDetailClose");
+  await evaluate('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
   await waitFor('document.querySelector("#cardCatalog")?.classList.contains("show") && !document.querySelector("#catalogCardDetail")?.classList.contains("show")');
   await clickElement("#cardCatalogClose");
   await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
@@ -469,7 +595,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, home, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_detail: catalogDetail, summary_target: summaryTarget, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, home, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, summary_target: summaryTarget, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -486,9 +612,15 @@ const failures = [
     Math.abs(entry.home.rain_card_ratio - (1 / 1.34)) <= .02 && entry.home.rain_art_square && entry.home.rain_animation === "homeCardFall" ? null : `${entry.viewport.name}: home rain cards are distorted`,
     !entry.home.logo_has_annotation && entry.home.panel_border === 0 && entry.home.shell_border === 0 ? null : `${entry.viewport.name}: home logo still has annotation or frame`,
     entry.home.modes_locked ? null : `${entry.viewport.name}: advanced modes should start locked`,
+    entry.home.unlocked_sigils === 1 && entry.home.cleared_sigils === 0 ? null : `${entry.viewport.name}: fresh home mode sigils have wrong unlock/clear state`,
+    entry.overlay_layering.count >= 16 && entry.overlay_layering.all_fixed && entry.overlay_layering.all_cover_viewport && entry.overlay_layering.all_above_topbar ? null : `${entry.viewport.name}: one or more modal layers do not cover the viewport`,
+    entry.home_menu.viewport_cover && entry.home_menu.top_edge_owned && entry.home_menu.panel_inside && entry.home_menu.welcome_remains_underneath ? null : `${entry.viewport.name}: home menu does not fully cover the animated home screen`,
     entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
     entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
+    entry.home_theme.selected === "day" && entry.home_theme.saved === "day" && entry.home_theme.toggle_label.includes("白昼") && entry.home_theme.title_contrast >= 4.5 && entry.home_theme.copy_contrast >= 4.5 ? null : `${entry.viewport.name}: day home text is low contrast or theme did not save`,
+    entry.home_theme_audio.day.theme === "day" && entry.home_theme_audio.day.mode.includes("C major") && entry.home_theme_audio.night.theme === "night" && entry.home_theme_audio.night.mode.includes("E minor") && entry.home_theme_audio.night.transport_step >= entry.home_theme_audio.day.transport_step && entry.home_theme_audio.night.theme_transition.includes("continuous") ? null : `${entry.viewport.name}: day/night BGM did not crossfade on one continuous transport`,
+    entry.home_progression.cleared_sigils === 6 && entry.home_progression.clear_count === "6" && entry.home_progression.god_visible && entry.home_progression.god_logo ? null : `${entry.viewport.name}: mode clears did not evolve the home logo`,
     entry.home_audio.context_state === "uninitialized" && entry.home_audio.bgm_requested && !entry.home_audio.bgm_playing ? null : `${entry.viewport.name}: audio should wait silently for a user gesture`,
     entry.reduced_motion.matches && entry.reduced_motion.visible_cards >= 24 && entry.reduced_motion.duration > 1 ? null : `${entry.viewport.name}: animations disappear when reduced motion is enabled`,
     entry.dealing.real_stack_cards >= 4 && entry.dealing.visible_stack_cards === entry.dealing.real_stack_cards ? null : `${entry.viewport.name}: full real-stack shuffle is missing`,
@@ -506,13 +638,15 @@ const failures = [
     entry.playing.card_copy_size >= 12 && entry.playing.hud_label_size >= 11 ? null : `${entry.viewport.name}: gameplay text remains too small`,
     entry.playing.text_size_adjust === "100%" && entry.playing.card_within_viewport && entry.playing.card_head_inside ? null : `${entry.viewport.name}: mobile text autosizing or card width is unsafe`,
     entry.playing.point_values_inside && entry.playing.point_line_height_safe ? null : `${entry.viewport.name}: gameplay point glyphs are clipped`,
-    entry.playing.has_gold || entry.playing.has_timer ? `${entry.viewport.name}: legacy HUD exists` : null,
+    entry.playing.has_gold || entry.playing.timer_visible ? `${entry.viewport.name}: standard mode shows economy HUD` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
     entry.score_stress.score_inside && entry.score_stress.postpone_inside && entry.score_stress.card_inside && entry.score_stress.font_mode === "large" ? null : `${entry.viewport.name}: large-font score/postpone content overflows`,
     entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule && entry.menu.objective.includes("80 / 200 / 600") ? null : `${entry.viewport.name}: menu rules or milestone targets are incomplete`,
+    entry.menu.viewport_cover && entry.menu.top_edge_owned && entry.menu.panel_inside && entry.menu.background_action_blocked ? null : `${entry.viewport.name}: menu layer leaks the background or allows gameplay input`,
     entry.menu.forbidden_terms.length ? `${entry.viewport.name}: legacy terms ${entry.menu.forbidden_terms.join(",")}` : null,
-    entry.catalog.count === 89 && entry.catalog.effects_present && entry.catalog.effects_inside && entry.catalog.inspectable && entry.catalog.point_rows_horizontal ? null : `${entry.viewport.name}: catalog summaries are clipped or not inspectable`,
-    entry.catalog_detail.effect_visible && entry.catalog_detail.preview_visible && entry.catalog_detail.inside_viewport ? null : `${entry.viewport.name}: catalog detail dialog is invalid`,
+    entry.catalog.count === 89 && entry.catalog.effects_present && entry.catalog.effects_inside && entry.catalog.inspectable && entry.catalog.point_rows_horizontal && entry.catalog.standard_selected && entry.catalog.viewport_cover ? null : `${entry.viewport.name}: catalog summaries are clipped, uncovered, or not inspectable`,
+    entry.catalog_modes.shop_selected && entry.catalog_modes.shop_summary.includes("商店效果") && entry.catalog_modes.shop_effect.includes("金币") && entry.catalog_modes.standard_effect_changed ? null : `${entry.viewport.name}: catalog shop effect switch is invalid`,
+    entry.catalog_detail.effect_visible && entry.catalog_detail.shop_effect_visible && entry.catalog_detail.standard_effect_visible && entry.catalog_detail.standard_selected && entry.catalog_detail.preview_visible && entry.catalog_detail.inside_viewport && entry.catalog_detail.viewport_cover ? null : `${entry.viewport.name}: catalog detail dialog or effect switch is invalid`,
     entry.summary_target.includes("目标 80 分") ? null : `${entry.viewport.name}: first milestone target UI is stale`,
     entry.draft.offer_count === 3 && entry.draft.reroll_value === "0" && entry.draft.offers_changed ? null : `${entry.viewport.name}: draft reroll failed`,
     entry.draft.equal_actions ? null : `${entry.viewport.name}: draft action buttons are unequal`,

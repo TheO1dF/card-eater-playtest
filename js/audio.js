@@ -2,12 +2,37 @@ const AudioContext = window.AudioContext || window.webkitAudioContext;
 const BPM = 128;
 const STEP_SECONDS = 60 / BPM / 4;
 const LOOKAHEAD_SECONDS = 0.16;
-const CHORDS = Object.freeze([
-  { root: 40, notes: [52, 55, 59, 64] }, // E minor
-  { root: 36, notes: [48, 52, 55, 59] }, // C major 7
-  { root: 43, notes: [50, 55, 59, 62] }, // G major
-  { root: 38, notes: [50, 54, 57, 62] }, // D major
-]);
+const THEME_CROSSFADE_SECONDS = 1.4;
+const MUSIC_THEMES = Object.freeze({
+  day: Object.freeze({
+    mode: "C major / warm lydian",
+    chords: Object.freeze([
+      { root: 36, notes: [48, 52, 55, 59] }, // Cmaj7
+      { root: 41, notes: [53, 57, 60, 64] }, // Fmaj7
+      { root: 45, notes: [57, 60, 64, 67] }, // Am7
+      { root: 43, notes: [55, 59, 62, 64] }, // G6
+    ]),
+    bassFilter: 840,
+    motionFilter: 2050,
+    motionType: "triangle",
+    padFilter: 1380,
+    padTypes: ["sine", "triangle", "sine"],
+  }),
+  night: Object.freeze({
+    mode: "E minor / mysterious add9",
+    chords: Object.freeze([
+      { root: 40, notes: [52, 55, 59, 66] }, // Em(add9)
+      { root: 36, notes: [48, 52, 54, 59] }, // Cmaj7(#11)
+      { root: 33, notes: [45, 48, 52, 59] }, // Am9
+      { root: 35, notes: [47, 52, 54, 57] }, // B7sus4
+    ]),
+    bassFilter: 620,
+    motionFilter: 1550,
+    motionType: "square",
+    padFilter: 780,
+    padTypes: ["sawtooth", "triangle", "sawtooth"],
+  }),
+});
 
 let audioCtx = null;
 let isBGMPlaying = false;
@@ -22,6 +47,7 @@ let transportStart = 0;
 let nextStepTime = 0;
 let transportStep = 0;
 let actionEnergy = 0;
+let bgmTheme = "night";
 
 const midi = (note) => 440 * (2 ** ((note - 69) / 12));
 
@@ -130,18 +156,28 @@ function ensureMusicGraph() {
   masterBgmGain.gain.value = 0.001;
   masterBgmGain.connect(musicCompressor);
   musicCompressor.connect(audioCtx.destination);
-  const bus = (volume) => {
+  const bus = (volume, destination = masterBgmGain) => {
     const gain = audioCtx.createGain();
     gain.gain.value = volume;
-    gain.connect(masterBgmGain);
+    gain.connect(destination);
     return gain;
+  };
+  const themeBus = (theme) => {
+    const mix = bus(theme === bgmTheme ? 1 : 0.0001);
+    return {
+      mix,
+      bass: bus(0.58, mix),
+      harmony: bus(0.36, mix),
+      motion: bus(0.42, mix),
+    };
   };
   musicBuses = {
     drums: bus(0.72),
-    bass: bus(0.58),
-    harmony: bus(0.36),
-    motion: bus(0.42),
     response: bus(0.62),
+    themes: {
+      day: themeBus("day"),
+      night: themeBus("night"),
+    },
   };
 }
 
@@ -159,40 +195,61 @@ function hat(startTime, open = false, pan = 0) {
   noiseHit({ startTime, duration: open ? 0.11 : 0.032, volume: open ? 0.026 : 0.015, highpass: 5800, destination: musicBuses.drums, pan });
 }
 
-function bass(startTime, note, duration = STEP_SECONDS * 1.55, accent = 1) {
-  synthTone({ frequency: midi(note), end: midi(note) * 0.995, duration, volume: 0.072 * accent, type: "triangle", filter: 680, startTime, destination: musicBuses.bass });
-  synthTone({ frequency: midi(note - 12), duration: duration * 0.78, volume: 0.025 * accent, type: "sine", startTime, destination: musicBuses.bass });
+function bass(startTime, note, destination, theme, duration = STEP_SECONDS * 1.55, accent = 1) {
+  synthTone({ frequency: midi(note), end: midi(note) * 0.995, duration, volume: 0.072 * accent, type: "triangle", filter: theme.bassFilter, startTime, destination });
+  synthTone({ frequency: midi(note - 12), duration: duration * 0.78, volume: 0.025 * accent, type: "sine", startTime, destination });
 }
 
-function pluck(startTime, note, accent = 1, pan = 0) {
-  synthTone({ frequency: midi(note), end: midi(note) * 0.997, duration: STEP_SECONDS * 1.15, volume: 0.032 * accent, type: "square", filter: 2300, startTime, attack: 0.004, pan, destination: musicBuses.motion });
+function pluck(startTime, note, accent = 1, pan = 0, destination = musicBuses.response, theme = MUSIC_THEMES[bgmTheme]) {
+  synthTone({ frequency: midi(note), end: midi(note) * 0.997, duration: STEP_SECONDS * 1.15, volume: 0.032 * accent, type: theme.motionType, filter: theme.motionFilter, startTime, attack: 0.004, pan, destination });
 }
 
-function pad(startTime, notes) {
+function pad(startTime, notes, destination, theme) {
   notes.slice(0, 3).forEach((note, index) => {
     synthTone({
       frequency: midi(note),
       end: midi(note) * 1.002,
       duration: STEP_SECONDS * 14.5,
       volume: 0.018,
-      type: index === 1 ? "triangle" : "sawtooth",
-      filter: 920,
+      type: theme.padTypes[index],
+      filter: theme.padFilter,
       startTime,
       attack: 0.16,
       pan: (index - 1) * 0.32,
-      destination: musicBuses.harmony,
+      destination,
     });
   });
 }
 
-function chordForStep(stepNumber) {
-  return CHORDS[Math.floor(stepNumber / 16) % CHORDS.length];
+function chordForStep(stepNumber, themeName = bgmTheme) {
+  const theme = MUSIC_THEMES[themeName] ?? MUSIC_THEMES.night;
+  return theme.chords[Math.floor(stepNumber / 16) % theme.chords.length];
+}
+
+function scheduleThemeStep(startTime, stepNumber, themeName) {
+  const position = stepNumber % 16;
+  const bar = Math.floor(stepNumber / 16);
+  const theme = MUSIC_THEMES[themeName];
+  const buses = musicBuses.themes[themeName];
+  const chord = chordForStep(stepNumber, themeName);
+  const active = Math.min(1, actionEnergy / 1.5);
+
+  const bassOffsets = { 0: 0, 4: 0, 8: 7, 12: bar % 2 === 0 ? 12 : 7 };
+  if (Object.hasOwn(bassOffsets, position)) bass(startTime, chord.root + bassOffsets[position], buses.bass, theme, undefined, position === 12 ? 0.9 : 1);
+  if (position === 0) pad(startTime, chord.notes, buses.harmony, theme);
+
+  if (position % 2 === 0) {
+    const arpIndex = (position / 2 + bar) % chord.notes.length;
+    const octave = position >= 8 && bar % 4 === 3 ? 12 : 0;
+    const beatAccent = position % 4 === 0 ? 1 : 0.76;
+    pluck(startTime, chord.notes[arpIndex] + octave, (0.46 + active * 0.48) * beatAccent, position % 4 === 0 ? -0.22 : 0.22, buses.motion, theme);
+  }
+  if (bar % 4 === 3 && position === 14) pluck(startTime, chord.notes[3] + 12, 0.72, 0, buses.motion, theme);
 }
 
 function scheduleMusicStep(startTime, stepNumber) {
   const position = stepNumber % 16;
   const bar = Math.floor(stepNumber / 16);
-  const chord = chordForStep(stepNumber);
   const active = Math.min(1, actionEnergy / 1.5);
 
   if (position % 4 === 0) kick(startTime, position === 0 ? 1.12 : 0.88);
@@ -200,17 +257,8 @@ function scheduleMusicStep(startTime, stepNumber) {
   if (position % 2 === 0) hat(startTime, position === 14 && bar % 4 === 3, position % 4 === 0 ? -0.24 : 0.24);
   if (active > 0.34 && position % 2 === 1) hat(startTime, false, position % 4 === 1 ? -0.38 : 0.38);
 
-  const bassOffsets = { 0: 0, 4: 0, 8: 7, 12: bar % 2 === 0 ? 12 : 7 };
-  if (Object.hasOwn(bassOffsets, position)) bass(startTime, chord.root + bassOffsets[position], undefined, position === 12 ? 0.9 : 1);
-  if (position === 0) pad(startTime, chord.notes);
-
-  if (position % 2 === 0) {
-    const arpIndex = (position / 2 + bar) % chord.notes.length;
-    const octave = position >= 8 && bar % 4 === 3 ? 12 : 0;
-    const beatAccent = position % 4 === 0 ? 1 : 0.76;
-    pluck(startTime, chord.notes[arpIndex] + octave, (0.46 + active * 0.48) * beatAccent, position % 4 === 0 ? -0.22 : 0.22);
-  }
-  if (bar % 4 === 3 && position === 14) pluck(startTime, chord.notes[3] + 12, 0.72, 0);
+  scheduleThemeStep(startTime, stepNumber, "day");
+  scheduleThemeStep(startTime, stepNumber, "night");
 
   actionEnergy = Math.max(0, actionEnergy - 0.045);
 }
@@ -237,8 +285,9 @@ function quantizedActionResponse(type, strength) {
   } else if (type === "discard") {
     synthTone({ frequency: midi(chord.notes[2]), end: midi(chord.root), duration: STEP_SECONDS * 1.25, volume: 0.05 * responseGain, type: "triangle", filter: 1200, startTime, attack: 0.004, pan: -0.18, destination: musicBuses.response });
   } else if (type === "postpone") {
-    pluck(startTime, chord.notes[0] + 12, 0.72, -0.24);
-    pluck(startTime + STEP_SECONDS, chord.notes[2] + 12, 0.62, 0.24);
+    const theme = MUSIC_THEMES[bgmTheme];
+    pluck(startTime, chord.notes[0] + 12, 0.72, -0.24, musicBuses.response, theme);
+    pluck(startTime + STEP_SECONDS, chord.notes[2] + 12, 0.62, 0.24, musicBuses.response, theme);
   }
 }
 
@@ -325,6 +374,21 @@ export function toggleBGM(play) {
   return isBGMPlaying;
 }
 
+export function setBGMTheme(theme, { immediate = false } = {}) {
+  const selected = theme === "day" ? "day" : "night";
+  bgmTheme = selected;
+  if (!audioCtx || !musicBuses?.themes) return bgmTheme;
+
+  const now = audioCtx.currentTime;
+  const timeConstant = immediate ? 0.005 : THEME_CROSSFADE_SECONDS / 4.6;
+  Object.entries(musicBuses.themes).forEach(([name, buses]) => {
+    const target = name === selected ? 1 : 0.0001;
+    buses.mix.gain.cancelScheduledValues(now);
+    buses.mix.gain.setTargetAtTime(target, now, timeConstant);
+  });
+  return bgmTheme;
+}
+
 export function getAudioStatus() {
   return {
     context_state: audioCtx?.state ?? "uninitialized",
@@ -332,6 +396,10 @@ export function getAudioStatus() {
     bgm_requested: bgmRequested,
     bpm: BPM,
     layers: musicBuses ? 5 : 0,
+    theme: bgmTheme,
+    mode: MUSIC_THEMES[bgmTheme].mode,
+    theme_transition: `continuous-${THEME_CROSSFADE_SECONDS}s-crossfade`,
+    transport_step: transportStep,
     action_sync: "immediate-plus-quantized-response",
     groove_alignment: "kick-bass-melody-even-grid",
   };
