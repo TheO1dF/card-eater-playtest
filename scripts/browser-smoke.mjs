@@ -201,6 +201,7 @@ for (const viewport of selectedViewports) {
   await waitFor('document.querySelector("#welcomeOverlay")?.dataset.homeTheme === "day"');
   await clickElement("#newGameButton");
   await waitFor('!document.querySelector("#modeChooser")?.hidden');
+  await wait(260);
   const homeTheme = await evaluate(`(() => {
     const rgb = (value) => (value.match(/[\\d.]+/g) || []).slice(0, 3).map(Number);
     const luminance = (value) => {
@@ -217,12 +218,25 @@ for (const viewport of selectedViewports) {
     };
     const button = document.querySelector("#normalModeButton");
     const background = getComputedStyle(button).backgroundColor;
+    const welcome = document.querySelector("#welcomeOverlay");
+    const rain = document.querySelector("#homeCardRain");
+    const rainRect = rain?.getBoundingClientRect();
+    const logoRect = document.querySelector("#homeLogo")?.getBoundingClientRect();
+    const footerRect = document.querySelector(".home-footer")?.getBoundingClientRect();
+    const chooser = document.querySelector("#modeChooser");
     return {
       selected: document.querySelector("#welcomeOverlay")?.dataset.homeTheme,
       saved: JSON.parse(localStorage.getItem("cardeater.settings.v1") || "{}").home_theme,
       toggle_label: document.querySelector("#homeThemeToggle")?.textContent?.trim(),
       title_contrast: contrast(getComputedStyle(button.querySelector("b")).color, background),
       copy_contrast: contrast(getComputedStyle(button.querySelector("small")).color, background),
+      random_start_first: chooser?.firstElementChild?.classList.contains("random-start-toggle") ?? false,
+      rain_anchored: ["absolute", "fixed"].includes(getComputedStyle(rain).position),
+      rain_covers_viewport: Boolean(rainRect && rainRect.left <= .5 && rainRect.top <= .5 && rainRect.right >= innerWidth - .5 && rainRect.bottom >= innerHeight - .5),
+      home_scroll_locked: welcome.scrollHeight <= welcome.clientHeight + 1,
+      chooser_scroll_contained: chooser.scrollHeight <= chooser.clientHeight + 1 || getComputedStyle(chooser).overflowY === "auto",
+      footer_inside: Boolean(footerRect && footerRect.top >= -1 && footerRect.bottom <= innerHeight + 1),
+      logo_width_ratio: logoRect?.width / innerWidth || 0,
     };
   })()`);
   await capture(`${viewport.name}-home-day`);
@@ -619,6 +633,8 @@ const failures = [
     entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
     entry.home_theme.selected === "day" && entry.home_theme.saved === "day" && entry.home_theme.toggle_label.includes("白昼") && entry.home_theme.title_contrast >= 4.5 && entry.home_theme.copy_contrast >= 4.5 ? null : `${entry.viewport.name}: day home text is low contrast or theme did not save`,
+    entry.home_theme.random_start_first && entry.home_theme.rain_anchored && entry.home_theme.rain_covers_viewport && entry.home_theme.home_scroll_locked && entry.home_theme.chooser_scroll_contained && entry.home_theme.footer_inside ? null : `${entry.viewport.name}: home mode chooser escapes its fixed background or has wrong ordering`,
+    entry.viewport.mobile && entry.home_theme.logo_width_ratio < .58 ? `${entry.viewport.name}: home logo is too small for the mobile composition` : null,
     entry.home_theme_audio.day.theme === "day" && entry.home_theme_audio.day.mode.includes("C major") && entry.home_theme_audio.night.theme === "night" && entry.home_theme_audio.night.mode.includes("E minor") && entry.home_theme_audio.night.transport_step >= entry.home_theme_audio.day.transport_step && entry.home_theme_audio.night.theme_transition.includes("continuous") ? null : `${entry.viewport.name}: day/night BGM did not crossfade on one continuous transport`,
     entry.home_progression.cleared_sigils === 6 && entry.home_progression.clear_count === "6" && entry.home_progression.god_visible && entry.home_progression.god_logo ? null : `${entry.viewport.name}: mode clears did not evolve the home logo`,
     entry.home_audio.context_state === "uninitialized" && entry.home_audio.bgm_requested && !entry.home_audio.bgm_playing ? null : `${entry.viewport.name}: audio should wait silently for a user gesture`,

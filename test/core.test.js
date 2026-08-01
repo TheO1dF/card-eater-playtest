@@ -792,6 +792,7 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(html, /id="ruleDraft"/);
   assert.match(html, /id="prepModeButton"/);
   assert.match(html, /id="randomStartToggle"/);
+  assert.ok(html.indexOf('class="random-start-toggle"') < html.indexOf('id="normalModeButton"'), "随机开局应位于模式列表顶部");
   assert.match(html, /id="timerValue"/);
   assert.match(main, /createShopService|randomDraftRules|tickTimer/);
   assert.match(main, /developerMode|getCurrentUnlocks/);
@@ -804,6 +805,7 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(ui, /classList\.toggle\("is-unlocked"/);
   assert.match(ui, /hasBlockingOverlay\(\)/);
   assert.match(styles, /\.overlay\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset:\s*0;[\s\S]*?z-index:\s*120;/);
+  assert.match(styles, /\.welcome-overlay\s*\{[\s\S]*?inset:\s*0;/);
   assert.match(html, /id="developerModeNotice"/);
   assert.match(html, /id="cardDraft"/);
   assert.match(html, /id="tokenValue"/);
