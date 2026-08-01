@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#17121b" />
     <title>CardEater · 构筑你的餐盘</title>
     <link rel="icon" href="./assets/favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=46" />
+    <link rel="stylesheet" href="./styles.css?v=47" />
   </head>
   <body>
     <main class="app" id="app">
@@ -14,7 +14,7 @@
         <header class="topbar">
           <div class="brand"><span class="brand-mark">CE</span><span><b>CARD EATER</b><small id="phaseValue">准备中</small></span></div>
           <div class="topbar-actions">
-            <button class="icon-button rule-info-button" id="ruleInfoButton" type="button" aria-label="查看本轮合约" hidden>约</button>
+            <button class="icon-button rule-info-button" id="ruleInfoButton" type="button" aria-label="查看并行条约" hidden>约</button>
             <button class="icon-button item-info-button" id="itemInfoButton" type="button" aria-label="查看永久道具">具</button>
             <button class="icon-button deck-info-button" id="deckInfoButton" type="button" aria-label="查看永久牌组">组</button>
             <button class="icon-button menu-button" id="menuButton" type="button" aria-label="打开游戏菜单">☰</button>
@@ -147,11 +147,11 @@
         </div>
 
         <div class="overlay" id="ruleDraft" role="dialog" aria-modal="true" aria-labelledby="ruleDraftTitle">
-          <section class="modal-panel draft-panel"><div class="eyebrow">ROUND <span id="draftRoundValue">01</span> · CONTRACT PICK</div><h1 id="ruleDraftTitle">选择本轮条约</h1><p class="modal-lead">本轮达成即可获得金币；未完成没有惩罚，下一轮重新选择。</p><div class="rule-help"><b>限时经济</b><span>12 秒内清盘 +1 金币；8 秒内清盘 +2 金币。可与条约奖励叠加。</span></div><div class="target-banner"><span>阶段目标</span><strong id="draftTargetText">第 5 轮累计达到 80 分</strong><small id="draftTargetProgress">当前 0 分</small><i><b id="draftTargetFill"></b></i></div><div class="option-grid" id="ruleDraftList"></div></section>
+          <section class="modal-panel draft-panel"><div class="eyebrow">ROUND <span id="draftRoundValue">01</span> · CONTRACT PICK</div><h1 id="ruleDraftTitle">接取一条新条约</h1><p class="modal-lead">每轮可以新增一条条约；所有条约并行判定，未完成的条约会保留。</p><div class="rule-help"><b>限时经济</b><span>12 秒内清盘 +1 金币；8 秒内清盘 +2 金币。可与条约奖励叠加。</span></div><div class="target-banner"><span>阶段目标</span><strong id="draftTargetText">第 5 轮累计达到 80 分</strong><small id="draftTargetProgress">当前 0 分</small><i><b id="draftTargetFill"></b></i></div><div class="option-grid" id="ruleDraftList"></div></section>
         </div>
 
         <div class="overlay collection-overlay" id="ruleStatus" role="dialog" aria-modal="true" aria-labelledby="ruleStatusTitle">
-          <section class="modal-panel collection-status-panel"><div class="eyebrow">ROUND CONTRACT</div><h1 id="ruleStatusTitle">本轮条约</h1><div class="collection-status-summary" id="ruleStatusSummary"></div><div class="collection-status-list" id="ruleStatusList"></div><button class="primary-button" id="ruleStatusClose" type="button">返回游戏</button></section>
+          <section class="modal-panel collection-status-panel"><div class="eyebrow">ACTIVE CONTRACTS</div><h1 id="ruleStatusTitle">并行条约</h1><div class="collection-status-summary" id="ruleStatusSummary"></div><div class="collection-status-list" id="ruleStatusList"></div><button class="primary-button" id="ruleStatusClose" type="button">返回游戏</button></section>
         </div>
 
         <div class="overlay" id="shopPanel" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
@@ -167,6 +167,6 @@
         </div>
       </section>
     </main>
-    <script type="module" src="./js/main.js?v=46"></script>
+    <script type="module" src="./js/main.js?v=47"></script>
   </body>
 </html>

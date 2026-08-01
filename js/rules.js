@@ -1,7 +1,7 @@
 const EDIBLE = "edible";
 const INEDIBLE = "inedible";
 
-// 本轮合约只奖励金币，不修改牌面、不增加得分倍率，也不会跨轮保留。
+// 条约只奖励金币，不修改牌面或分数倍率；未完成条约会跨轮保留并与新条约并行。
 export const RULE_LIBRARY = Object.freeze([
   { id: "perfect-sort", name: "完美分类", description: "可食用牌全部吃、不可食用牌全部弃", scope: "perfect_sort", gold_reward: 3, difficulty: 2 },
   { id: "no-negative", name: "无伤清台", description: "本轮没有任何负分行动", scope: "no_negative_action", gold_reward: 3, difficulty: 2 },
@@ -86,4 +86,50 @@ export function randomDraftRules(count = 3, excludedRules = [], random = Math.ra
     groups.add(archetype(selected));
   }
   return picked;
+}
+
+export function addActiveRule(state, rule) {
+  if (!rule || (state.active_rules ?? []).some((active) => active.id === rule.id)) return false;
+  state.active_rules ??= [];
+  state.active_rules.push({
+    ...rule,
+    selected_round: state.current_round,
+    attempts: 0,
+  });
+  return true;
+}
+
+export function settleActiveRules(state, evaluate) {
+  const results = (state.active_rules ?? []).map((rule) => {
+    const passed = Boolean(evaluate(state, rule));
+    return {
+      ...rule,
+      passed,
+      gold_earned: passed ? Math.max(0, rule.gold_reward ?? 0) : 0,
+      attempts: Math.max(0, rule.attempts ?? 0) + 1,
+    };
+  });
+
+  state.rule_history ??= [];
+  state.rule_history.push(...results
+    .filter((rule) => rule.passed)
+    .map((rule) => ({
+      id: rule.id,
+      name: rule.name,
+      selected_round: rule.selected_round,
+      round: state.current_round,
+      attempts: rule.attempts,
+      completed: true,
+    })));
+  state.active_rules = results
+    .filter((rule) => !rule.passed)
+    .map(({ passed, gold_earned, ...rule }) => ({
+      ...rule,
+      last_attempt_round: state.current_round,
+    }));
+
+  return {
+    results,
+    gold_reward: results.reduce((total, rule) => total + rule.gold_earned, 0),
+  };
 }

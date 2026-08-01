@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { GAME_CONFIG, GAME_MODES, getFinalRound, getNextMilestone, isPlateUpgradeRound } from "../js/config.js";
 import { CARD_LIBRARY, createCardPool, createInitialDeck, createShopCardPool, getCardById } from "../js/data.js";
 import { createDraftService } from "../js/draft.js";
-import { createRoundEngine } from "../js/engine.js";
+import { createRoundEngine, evaluateRule } from "../js/engine.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "../js/plate.js";
 import {
   getCurrentCard,
@@ -20,6 +20,7 @@ import { CARD_EFFECT_CONTRACTS } from "../js/card-effect-contracts.js";
 import { browserPlatform, migrateRunState } from "../js/platform.js";
 import { createShopService } from "../js/shop.js";
 import { getRoundGoldSources, grantRoundGold, queueRoundGold, sumRoundGoldSources } from "../js/economy.js";
+import { RULE_LIBRARY, addActiveRule, settleActiveRules } from "../js/rules.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
 import {
   activateCategoryRoundItem,
@@ -790,11 +791,12 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(html, /id="shopPanel"/);
   assert.match(html, /id="ruleDraft"/);
+  assert.match(html, /所有条约并行判定/);
   assert.match(html, /id="prepModeButton"/);
   assert.match(html, /id="randomStartToggle"/);
   assert.ok(html.indexOf('class="random-start-toggle"') < html.indexOf('id="normalModeButton"'), "随机开局应位于模式列表顶部");
   assert.match(html, /id="timerValue"/);
-  assert.match(main, /createShopService|randomDraftRules|tickTimer/);
+  assert.match(main, /createShopService|randomDraftRules|settleActiveRules|tickTimer/);
   assert.match(main, /developerMode|getCurrentUnlocks/);
   assert.match(main, /god: Boolean\(progression\.god\)/);
   assert.match(main, /ui\.hasBlockingOverlay\(\)/);
@@ -930,6 +932,45 @@ test("普通商店仅卡牌统一便宜一金币，其他服务与条约商店�
   const contractItem = service.getShopItems(contract)[0];
   assert.equal(normalItem.id, contractItem.id);
   assert.equal(normalItem.shop_price, contractItem.shop_price);
+});
+
+test("条约商店允许未完成条约跨轮保留，并与新条约并行结算", () => {
+  const rule = (id) => RULE_LIBRARY.find((entry) => entry.id === id);
+  const engine = createRoundEngine();
+  const state = stateWith(["F001", "A001"]);
+  state.mode = GAME_MODES.CONTRACT_SHOP;
+  assert.equal(addActiveRule(state, rule("eat-four")), true);
+  assert.equal(addActiveRule(state, rule("no-negative")), true);
+  assert.equal(addActiveRule(state, rule("no-negative")), false, "同一条约不能重复并行");
+  engine.recordAction(state, "eat", state.deck[0]);
+  engine.recordAction(state, "discard", state.deck[1]);
+
+  const firstSettlement = settleActiveRules(state, evaluateRule);
+  assert.equal(firstSettlement.results.length, 2);
+  assert.equal(firstSettlement.gold_reward, 3);
+  assert.deepEqual(firstSettlement.results.map((entry) => [entry.id, entry.passed]), [
+    ["eat-four", false],
+    ["no-negative", true],
+  ]);
+  assert.deepEqual(state.active_rules.map((entry) => entry.id), ["eat-four"]);
+  assert.equal(state.active_rules[0].attempts, 1);
+  assert.equal(state.rule_history.at(-1).id, "no-negative");
+
+  state.current_round = 2;
+  resetRoundState(state);
+  assert.equal(addActiveRule(state, rule("discard-four")), true);
+  assert.deepEqual(state.active_rules.map((entry) => entry.id), ["eat-four", "discard-four"]);
+
+  const simultaneous = stateWith(["F001", "A001"]);
+  simultaneous.mode = GAME_MODES.CONTRACT_SHOP;
+  addActiveRule(simultaneous, rule("perfect-sort"));
+  addActiveRule(simultaneous, rule("no-negative"));
+  engine.recordAction(simultaneous, "eat", simultaneous.deck[0]);
+  engine.recordAction(simultaneous, "discard", simultaneous.deck[1]);
+  const simultaneousSettlement = settleActiveRules(simultaneous, evaluateRule);
+  assert.equal(simultaneousSettlement.gold_reward, 6);
+  assert.equal(simultaneous.active_rules.length, 0);
+  assert.equal(simultaneous.rule_history.length, 2);
 });
 
 test("金币账本区分立即收入与轮末收入并保留具体来源", () => {

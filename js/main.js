@@ -5,7 +5,7 @@ import { createRoundEngine } from "./engine.js";
 import { createDraftService } from "./draft.js";
 import { createShopService } from "./shop.js";
 import { evaluateRule } from "./engine.js";
-import { randomDraftRules } from "./rules.js";
+import { addActiveRule, randomDraftRules, settleActiveRules } from "./rules.js";
 import { safeAdd } from "./numbers.js";
 import { getRoundGoldSources, sumRoundGoldSources } from "./economy.js";
 import { createUI } from "./ui.js";
@@ -407,9 +407,10 @@ function completeRound() {
     const slowGoldPerCard = state.round.elapsed_ms > 30_000 ? 2 : state.round.elapsed_ms > 20_000 ? 1 : 0;
     const slowGold = slowGoldPerCard * (state.round.slow_finish_rewards ?? 0);
     const pendingEffectGold = state.round.pending_gold_bonus ?? 0;
-    const contract = state.active_rules[0] ?? null;
-    const contractPassed = contract ? evaluateRule(state, contract) : false;
-    const contractGold = contractPassed ? contract.gold_reward ?? 0 : 0;
+    const contractSettlement = state.mode === GAME_MODES.CONTRACT_SHOP
+      ? settleActiveRules(state, evaluateRule)
+      : { results: [], gold_reward: 0 };
+    const contractGold = contractSettlement.gold_reward;
     const speedGold = state.mode !== GAME_MODES.CONTRACT_SHOP
       ? 0
       : state.round.elapsed_ms <= GAME_CONFIG.contract_fast_time_limit_ms
@@ -437,14 +438,15 @@ function completeRound() {
     }, new Map()).values()];
     result.gold_reward = earnedGold;
     result.gold_sources = goldSources;
-    result.contract_result = contract ? { ...contract, passed: contractPassed } : null;
+    result.contract_results = contractSettlement.results;
+    result.contract_result = contractSettlement.results[0] ?? null;
     const economyLines = state.mode === GAME_MODES.CONTRACT_SHOP
       ? [
-        ...(contract ? [{
+        ...contractSettlement.results.map((contract) => ({
           label: `条约 · ${contract.name}`,
-          text: contractPassed ? `已达成 · +${contractGold} 金币` : "未达成 · +0 金币",
-          kind: contractPassed ? "contract-pass" : "contract-fail",
-        }] : []),
+          text: contract.passed ? `已达成 · +${contract.gold_earned} 金币` : "本轮未达成 · 继续保留",
+          kind: contract.passed ? "contract-pass" : "contract-pending",
+        })),
         ...(baseGold > 0 ? [{ label: "金币 · 基础吃牌", text: `+${baseGold} 金币`, kind: "gold-detail" }] : []),
         ...summarizedGoldSources.filter((source) => source.amount > 0).map((source) => ({
           label: `金币 · ${source.kind === "item" ? "道具 · " : source.kind === "card" ? "卡牌 · " : ""}${source.label}`,
@@ -457,10 +459,6 @@ function completeRound() {
       ]
       : [{ label: "本轮获得金币", text: `+${earnedGold} 金币`, kind: "gold-total" }];
     result.breakdown.splice(-1, 0, ...economyLines);
-    if (contract) {
-      state.rule_history.push({ id: contract.id, name: contract.name, round: state.current_round, completed: contractPassed });
-      state.active_rules = [];
-    }
   }
   refreshTable();
   const milestone = engine.levelProgressCheck(state);
@@ -683,12 +681,17 @@ function enterRuleDraft() {
   if (state.phase === GAME_PHASES.INIT || state.phase === GAME_PHASES.NEXT_ROUND) {
     transitionPhase(state, GAME_PHASES.RULE_DRAFT, { round: state.current_round });
   }
-  const previous = state.rule_history.slice(-1).map((entry) => ({ id: entry.id }));
+  const previous = [...state.active_rules, ...state.rule_history.slice(-1)].map((entry) => ({ id: entry.id }));
   const options = randomDraftRules(GAME_CONFIG.draft_size, previous, browserPlatform.random, state.deck, state.current_round);
+  if (options.length === 0) {
+    saveGame();
+    prepareRound();
+    return;
+  }
   ui.renderHud(state);
   ui.openRuleDraft(options, state, (rule) => {
     if (state.phase !== GAME_PHASES.RULE_DRAFT) return;
-    state.active_rules = [{ ...rule, selected_round: state.current_round }];
+    if (!addActiveRule(state, rule)) return;
     ui.closeRuleDraft();
     saveGame();
     prepareRound();
@@ -792,6 +795,7 @@ function restoreRun(saved) {
   state.prep_slot ??= null;
   state.gold ??= 0;
   state.pending_shop ??= null;
+  state.active_rules = Array.isArray(state.active_rules) ? state.active_rules : [];
   state.rule_history ??= [];
   draftBuffer = state.pending_draft_ids.map(getCardById).filter(Boolean);
   itemBuffer = state.pending_item_ids.map(getItemById).filter(Boolean);

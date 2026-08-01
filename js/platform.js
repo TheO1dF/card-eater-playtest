@@ -204,6 +204,8 @@ export function migrateRunState(state) {
     state.rule_history ??= [];
   }
   if (state.schema_version === 24 && state.round) {
+    state.active_rules = Array.isArray(state.active_rules) ? state.active_rules : [];
+    state.rule_history = Array.isArray(state.rule_history) ? state.rule_history : [];
     state.round.gold_sources ??= [];
     state.round.postponed_uuids ??= [];
     state.round.postpone_counts ??= {};

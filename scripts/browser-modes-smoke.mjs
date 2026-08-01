@@ -236,20 +236,34 @@ for (const viewport of viewports) {
     };
   })()`);
   await capture(`${viewport.name}-contract-playing`);
+  await click("#ruleInfoButton");
+  await waitFor('document.querySelector("#ruleStatus")?.classList.contains("show")');
+  const contractStatus = await evaluate(`(() => {
+    const panel = document.querySelector("#ruleStatus .modal-panel")?.getBoundingClientRect();
+    return {
+      title: document.querySelector("#ruleStatusTitle")?.textContent,
+      summary: document.querySelector("#ruleStatusSummary")?.textContent?.replace(/\\s+/g, " ").trim(),
+      active_cards: document.querySelectorAll("#ruleStatusList .rule-status-card").length,
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+    };
+  })()`);
+  await wait(120);
+  await capture(`${viewport.name}-contract-status`);
+  await click("#ruleStatusClose");
   await finishPlate("#eatButton");
   await waitFor('document.querySelector("#roundSummary")?.classList.contains("show")');
   const contractSummary = await evaluate(`(() => {
     const lines = [...document.querySelectorAll("#summaryBreakdownList .receipt-line")];
     return {
-      score_sources: lines.filter((line) => !line.classList.contains("gold-total") && !line.classList.contains("gold-detail") && !line.classList.contains("contract-pass") && !line.classList.contains("contract-fail")).map((line) => line.textContent.replace(/\\s+/g, " ").trim()),
-      contract_status: lines.filter((line) => line.classList.contains("contract-pass") || line.classList.contains("contract-fail")).map((line) => line.textContent.replace(/\\s+/g, " ").trim()),
+      score_sources: lines.filter((line) => !line.classList.contains("gold-total") && !line.classList.contains("gold-detail") && !line.classList.contains("contract-pass") && !line.classList.contains("contract-fail") && !line.classList.contains("contract-pending")).map((line) => line.textContent.replace(/\\s+/g, " ").trim()),
+      contract_status: lines.filter((line) => line.classList.contains("contract-pass") || line.classList.contains("contract-fail") || line.classList.contains("contract-pending")).map((line) => line.textContent.replace(/\\s+/g, " ").trim()),
       gold_details: lines.filter((line) => line.classList.contains("gold-detail")).map((line) => line.textContent.replace(/\\s+/g, " ").trim()),
       gold_totals: lines.filter((line) => line.classList.contains("gold-total")).map((line) => line.textContent.replace(/\\s+/g, " ").trim()),
     };
   })()`);
   await wait(220);
   await capture(`${viewport.name}-contract-summary`);
-  reports.push({ viewport, developer, shop_tutorial: shopTutorial, shop_shuffle: shopShuffle, shop_playing: shopPlaying, shop_summary: shopSummary, shop, restored_offers: restoredOffers, contract_shuffle: contractShuffle, contract, contract_summary: contractSummary });
+  reports.push({ viewport, developer, shop_tutorial: shopTutorial, shop_shuffle: shopShuffle, shop_playing: shopPlaying, shop_summary: shopSummary, shop, restored_offers: restoredOffers, contract_shuffle: contractShuffle, contract, contract_status: contractStatus, contract_summary: contractSummary });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -271,6 +285,7 @@ const failures = [
     entry.contract_shuffle.card_count >= 4 && entry.contract_shuffle.visible_cards === entry.contract_shuffle.card_count && entry.contract_shuffle.animation_name === "shuffleDeckSettle" && entry.contract_shuffle.card_animations.includes("riffleShuffleCard") && entry.contract_shuffle.split_directions === 2 && entry.contract_shuffle.stack_above_layer ? null : `${entry.viewport.name}: contract shuffle animation is missing`,
     entry.contract.timer_visible && entry.contract.timer_inside_score && entry.contract.resource === "金币" && entry.contract.rule_button_visible ? null : `${entry.viewport.name}: contract HUD or timer is invalid`,
     entry.contract.inventory_below_hud ? null : `${entry.viewport.name}: contract item tray overlaps HUD`,
+    entry.contract_status.title === "并行条约" && entry.contract_status.summary.includes("1 条并行条约") && entry.contract_status.active_cards === 1 && entry.contract_status.inside_viewport ? null : `${entry.viewport.name}: parallel contract status is missing or outside viewport`,
     entry.contract_summary.score_sources.some((line) => line.includes("牌面与效果")) && entry.contract_summary.score_sources.some((line) => line.includes("本轮得分")) && entry.contract_summary.contract_status.length === 1 && entry.contract_summary.gold_details.length >= 1 && entry.contract_summary.gold_totals.length === 1 ? null : `${entry.viewport.name}: contract settlement is missing score, contract, or gold detail`,
     entry.contract.horizontal_overflow ? `${entry.viewport.name}: contract play has horizontal overflow` : null,
   ].filter(Boolean)),

@@ -218,7 +218,7 @@ function selectedRuleElement(rule, index) {
   article.className = "collection-status-card rule-status-card";
   article.innerHTML = `
     <span class="collection-index">${String(index + 1).padStart(2, "0")}</span>
-    <span><small>第 ${rule.selected_round ?? "本"} 轮 · 仅本轮判定</small><strong>${rule.name}</strong><em>${rule.description}</em></span>
+    <span><small>第 ${rule.selected_round ?? "本"} 轮接取 · 已尝试 ${rule.attempts ?? 0} 轮</small><strong>${rule.name}</strong><em>${rule.description}</em></span>
     <b>+${rule.gold_reward} 金币</b>
   `;
   return article;
@@ -738,9 +738,9 @@ export function createUI(root) {
 
   function openRuleStatus(state) {
     const rules = state.active_rules;
-    get("#ruleStatusSummary").innerHTML = `<b>${rules.length ? "本轮条约" : "等待下一轮"}</b><span>只在本轮判定；完成获得金币，未完成没有惩罚。</span>`;
+    get("#ruleStatusSummary").innerHTML = `<b>${rules.length ? `${rules.length} 条并行条约` : "暂无条约"}</b><span>每轮共同判定；完成即领取金币，未完成会保留到下一轮。</span>`;
     const list = get("#ruleStatusList");
-    if (rules.length === 0) list.innerHTML = '<p class="collection-status-empty">本轮条约已经结算。下一轮开场会重新三选一。</p>';
+    if (rules.length === 0) list.innerHTML = '<p class="collection-status-empty">下一轮开场可以接取一条新条约。</p>';
     else list.replaceChildren(...rules.map(selectedRuleElement));
     nodes.deckStatus?.classList.remove("show");
     nodes.questStatus?.classList.remove("show");
@@ -997,7 +997,7 @@ export function createUI(root) {
         const modeRules = {
           [GAME_MODES.PREP]: "备料模式：没有删牌标记。轮末可把一张牌放入备料位；它下一轮不登场，并保证候选中至少一张同类别牌。存放满一轮后可永久移除。",
           [GAME_MODES.SHOP]: "商店模式：轮末不进行免费卡牌/道具三选一，也不免费扩容；吃牌赚取金币，在商店中权衡买牌、扩容和删牌。",
-          [GAME_MODES.CONTRACT_SHOP]: "条约商店：包含完整商店经济；每轮开场从三条合约选一条，本轮完成获得金币；12 秒内清盘 +1 金币，8 秒内清盘 +2 金币。",
+          [GAME_MODES.CONTRACT_SHOP]: "条约商店：包含完整商店经济；每轮接取一条新条约，所有条约并行判定，未完成会跨轮保留；12 秒内清盘 +1 金币，8 秒内清盘 +2 金币。",
           [GAME_MODES.ENDLESS]: `无尽模式：道具可以重复获得；每 5 轮扩容并获得删牌标记，餐盘最多 ${GAME_CONFIG.endless_max_plate_capacity} 张；累计 1,000,000 分通关。`,
           [GAME_MODES.HARD]: "高难模式：初始餐盘少 1 格，第 5 / 10 / 15 轮目标提高 20%。",
           [GAME_MODES.NORMAL]: "标准模式：轮末免费选牌，每轮免费刷新一次；每 3 轮获得一次可跳过的道具选择。",
@@ -1192,7 +1192,7 @@ export function createUI(root) {
       const progress = milestone.target > 0 ? Math.max(0, Math.min(100, state.total_score / milestone.target * 100)) : 100;
       setText(get("#draftRoundValue"), String(state.current_round).padStart(2, "0"));
       setText(get("#draftTargetText"), `第 ${milestone.round} 轮结算前累计达到 ${formatScore(milestone.target)} 分`);
-      setText(get("#draftTargetProgress"), `当前 ${formatScore(state.total_score)} · 还差 ${formatScore(scoreNeeded)} · 剩余 ${roundsRemaining} 轮 · 持续合约待选择`);
+      setText(get("#draftTargetProgress"), `当前 ${formatScore(state.total_score)} · 还差 ${formatScore(scoreNeeded)} · 剩余 ${roundsRemaining} 轮 · 已有 ${state.active_rules.length} 条并行条约`);
       get("#draftTargetFill")?.style.setProperty("width", `${progress}%`);
       nodes.draftList.replaceChildren(...options.map((rule) => ruleElement(rule, onChoose)));
       nodes.draft.classList.add("show");
@@ -1497,7 +1497,7 @@ export function createUI(root) {
     openShopTutorial(mode, onContinue) {
       setText(get("#shopTutorialTitle"), mode === GAME_MODES.CONTRACT_SHOP ? "条约商店模式教学" : "商店模式教学");
       setText(get("#shopTutorialGoldBonus"), mode === GAME_MODES.CONTRACT_SHOP
-        ? "经济卡与道具可追加金币；完成本轮条约会获得标注的金币。12 秒内清空餐盘 +1 金币，8 秒内清空 +2 金币。"
+        ? "经济卡与道具可追加金币；每轮可接取一条新条约，未完成的条约会保留并与新条约共同判定。12 秒内清空餐盘 +1 金币，8 秒内清空 +2 金币。"
         : "带有“金币”说明的经济卡与道具可以追加收入；卡牌图鉴可切换查看商店效果。");
       get("#shopTutorialContinue").onclick = () => {
         get("#shopTutorial")?.classList.remove("show");
