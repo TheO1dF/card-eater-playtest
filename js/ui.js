@@ -9,7 +9,7 @@ import { getCardPostponeCount, getCurrentCard, isCardPostponed } from "./round-p
 import { finiteNumber, formatScore, safeAdd } from "./numbers.js";
 import { getQuestRequirement, getQuestTarget } from "./quests.js";
 import { stripKeywordTags } from "./keywords.js";
-import { createCardPool, getCardById } from "./data.js";
+import { CARD_TYPES, createCardPool, getCardById } from "./data.js";
 import { getPlateSummary } from "./plate.js";
 import { getReshuffleStatus } from "./reshuffle.js";
 import { getRuleUnlockRound } from "./rules.js";
@@ -1183,6 +1183,50 @@ export function createUI(root) {
     host.innerHTML = rows.map(([name, unlocked, value]) => `<span class="${unlocked ? "is-unlocked" : ""}"><b>${unlocked ? "✓" : "◇"} ${name}</b><small>${unlocked ? "已解锁" : value}</small></span>`).join("");
   }
 
+  function renderHomeStatistics(statistics = {}) {
+    const cards = createCardPool();
+    const cardActions = statistics.card_actions ?? statistics.fruit_actions ?? {};
+    const types = Object.values(CARD_TYPES);
+    const overview = [
+      ["通关次数", statistics.victories],
+      ["游玩次数", statistics.runs_played],
+      ["失败次数", statistics.defeats],
+      ["吃牌次数", statistics.cards_eaten],
+      ["弃牌次数", statistics.cards_discarded],
+      ["最高得分", statistics.highest_score],
+      ["最高金币", statistics.highest_gold],
+      ["删除卡牌", statistics.cards_deleted],
+      ["刷新次数", statistics.rerolls],
+    ];
+    const overviewHost = get("#homeStatisticsOverview");
+    if (overviewHost) overviewHost.innerHTML = overview.map(([label, value]) => `<span><small>${label}</small><b>${formatScore(Number(value) || 0)}</b></span>`).join("");
+    const tabs = get("#homeStatisticsTypeTabs");
+    const select = get("#homeStatisticsTypeSelect");
+    tabs.innerHTML = types.map((type) => `<button type="button" data-statistics-type="${type}" aria-pressed="false">${type}</button>`).join("");
+    select.innerHTML = types.map((type) => `<option value="${type}">${type}</option>`).join("");
+    const renderType = (type) => {
+      const selectedType = types.includes(type) ? type : types[0];
+      const typeCards = cards.filter((card) => card.type === selectedType);
+      const totals = typeCards.reduce((sum, card) => ({
+        eat: sum.eat + (Number(cardActions[card.id]?.eat) || 0),
+        discard: sum.discard + (Number(cardActions[card.id]?.discard) || 0),
+      }), { eat: 0, discard: 0 });
+      setText(get("#homeCardStatisticsTitle"), `${selectedType}记录`);
+      setText(get("#homeCardStatisticsTotal"), `吃 ${formatScore(totals.eat)} · 弃 ${formatScore(totals.discard)}`);
+      select.value = selectedType;
+      for (const button of tabs.querySelectorAll("button")) button.setAttribute("aria-pressed", String(button.dataset.statisticsType === selectedType));
+      const list = get("#homeCardStatisticsList");
+      list.innerHTML = typeCards.map((card) => {
+        const counts = cardActions[card.id] ?? { eat: 0, discard: 0 };
+        return `<span data-card-id="${card.id}" data-card-type="${card.type}"><b>${card.name}</b><i>吃 <strong>${formatScore(Number(counts.eat) || 0)}</strong></i><i>弃 <strong>${formatScore(Number(counts.discard) || 0)}</strong></i></span>`;
+      }).join("");
+      list.scrollTop = 0;
+    };
+    for (const button of tabs.querySelectorAll("button")) button.onclick = () => renderType(button.dataset.statisticsType);
+    select.onchange = () => renderType(select.value);
+    renderType(types[0]);
+  }
+
   return {
     preloadCardArt: warmCardArt,
     openWelcome(callbacks, options = {}) {
@@ -1190,6 +1234,12 @@ export function createUI(root) {
       applyHomeTheme(options.home_theme);
       applyHomeProgression(options.progression, options.god, options.unlocks);
       setText(get("#welcomeBestScore"), options.best_score ?? "--");
+      renderHomeStatistics(options.statistics);
+      const statisticsOverlay = get("#homeStatisticsOverlay");
+      const closeStatistics = () => { statisticsOverlay.hidden = true; };
+      get("#homeStatisticsButton").onclick = () => { statisticsOverlay.hidden = false; };
+      get("#homeStatisticsClose").onclick = closeStatistics;
+      statisticsOverlay.onclick = (event) => { if (event.target === statisticsOverlay) closeStatistics(); };
       const chooser = get("#modeChooser");
       const continueButton = get("#continueGameButton");
       continueButton.disabled = !options.has_save;
@@ -1236,6 +1286,7 @@ export function createUI(root) {
       nodes.welcome.classList.add("show");
     },
     hideWelcome() {
+      get("#homeStatisticsOverlay").hidden = true;
       nodes.welcome.classList.remove("show");
       stopHomeCardRain();
     },

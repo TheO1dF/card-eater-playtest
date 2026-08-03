@@ -21,6 +21,7 @@ import { browserPlatform, migrateRunState } from "../js/platform.js";
 import { createShopService } from "../js/shop.js";
 import { getRoundGoldSources, grantRoundGold, queueRoundGold, sumRoundGoldSources } from "../js/economy.js";
 import { SUMMARY_RAPID_CARD_THRESHOLD, getRoundGrade, getScoreHeat, getScoreImpact, getSummaryBeatDuration, getSummaryCardTiming } from "../js/round-presentation.js";
+import { mergeCompletedRun, observeRunGold } from "../js/statistics.js";
 import { RULE_LIBRARY, addActiveRule, settleActiveRules } from "../js/rules.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
 import {
@@ -592,6 +593,25 @@ test("隔夜餐盒与辣鸡翅使用调整后的稀有度", () => {
   assert.equal(CARD_LIBRARY.K007.rarity, "罕见");
 });
 
+test("保温灯餐台不会用厌食边界覆盖隔夜餐盒的后置成长", () => {
+  const engine = createRoundEngine();
+  const fillers = Array.from({ length: 13 }, () => "F001");
+  const state = stateWith([...fillers, "K010", "K011"]);
+  const lunchbox = getCurrentCard(state);
+  const warmer = state.round.draw_pile.find((card) => card.id === "K010");
+
+  engine.recordPostpone(state, lunchbox);
+  const permanentLunchbox = state.deck.find((card) => card.uuid === lunchbox.uuid);
+  assert.equal(permanentLunchbox.eat_points, -13);
+  assert.equal(permanentLunchbox.discard_points, 13);
+
+  engine.recordAction(state, "eat", warmer);
+  assert.equal(permanentLunchbox.eat_points, -13);
+  assert.equal(permanentLunchbox.discard_points, 13);
+  assert.equal(lunchbox.eat_points, -13);
+  assert.equal(lunchbox.discard_points, 13);
+});
+
 test("餐盘数量、下一张、末牌和已后置目标按统一牌堆语义结算", () => {
   const engine = createRoundEngine({ random: () => 0 });
 
@@ -851,6 +871,8 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(audio, /nextUiSoundVariant/);
   assert.match(styles, /\.summary-pixel-field/);
   assert.match(styles, /\.summary-grade-stamp::after/);
+  assert.match(styles, /grid-template-rows:\s*auto minmax\(58px, 1fr\) auto auto auto/);
+  assert.match(styles, /\.card-head, \.card-title, \.card-scores, \.card-effect\s*\{[^}]*z-index:\s*2/);
   assert.match(styles, /\.overlay\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset:\s*0;[\s\S]*?z-index:\s*120;/);
   assert.match(styles, /\.welcome-overlay\s*\{[\s\S]*?inset:\s*0;/);
   assert.match(html, /id="developerModeNotice"/);
@@ -1071,6 +1093,99 @@ test("解锁进度按完成局数、任意通关与商店通关分别累计", ()
   assert.equal(settings.summary_skip, true);
   assert.equal(browserPlatform.load_settings().home_theme, "day");
   assert.equal(browserPlatform.load_settings().summary_speed, "fast");
+  delete globalThis.localStorage;
+});
+
+test("主界面统计累计完整对局动作并完全排除无尽模式", () => {
+  const normal = createInitialPlayerState({ create_id: nextId });
+  const engine = createRoundEngine({ random: () => 0 });
+  const apple = owned("F001", "statistics-apple");
+  const pear = owned("F009", "statistics-pear");
+  engine.recordAction(normal, "eat", apple);
+  engine.recordAction(normal, "discard", pear);
+  normal.phase = GAME_PHASES.CARD_DRAFT;
+  normal.free_rerolls = 1;
+  normal.delete_tokens = 1;
+  const draft = createDraftService({ random: () => 0, create_id: nextId });
+  assert.equal(draft.reroll(normal, []).success, true);
+  assert.equal(draft.removeCard(normal, normal.deck[0].uuid).success, true);
+  normal.gold = 17;
+  normal.total_score = 321;
+  observeRunGold(normal);
+
+  const totals = mergeCompletedRun({}, normal, "victory");
+  assert.equal(totals.runs_played, 1);
+  assert.equal(totals.victories, 1);
+  assert.equal(totals.defeats, 0);
+  assert.equal(totals.cards_eaten, 1);
+  assert.equal(totals.cards_discarded, 1);
+  assert.equal(totals.cards_deleted, 1);
+  assert.equal(totals.rerolls, 1);
+  assert.equal(totals.highest_score, 321);
+  assert.equal(totals.highest_gold, 17);
+  assert.deepEqual(totals.card_actions.F001, { eat: 1, discard: 0 });
+  assert.deepEqual(totals.card_actions.F009, { eat: 0, discard: 1 });
+
+  engine.recordAction(normal, "discard", owned("A001", "statistics-animal"));
+  engine.recordAction(normal, "eat", owned("P001", "statistics-person"));
+  const expanded = mergeCompletedRun({}, normal, "defeat");
+  assert.deepEqual(expanded.card_actions.A001, { eat: 0, discard: 1 });
+  assert.deepEqual(expanded.card_actions.P001, { eat: 1, discard: 0 });
+
+  const endless = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.ENDLESS });
+  engine.recordAction(endless, "eat", apple);
+  endless.total_score = 1_000_000;
+  endless.gold = 999;
+  observeRunGold(endless);
+  const unchanged = mergeCompletedRun(totals, endless, "victory");
+  assert.deepEqual(unchanged, totals);
+});
+
+test("统计档案持久化且旧纪录迁移时忽略无尽模式", () => {
+  const values = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+  values.set("cardeater.run-history.v1", JSON.stringify([
+    { outcome: "victory", mode: GAME_MODES.NORMAL, score: 600 },
+    { outcome: "defeat", mode: GAME_MODES.HARD, score: 70 },
+    { outcome: "victory", mode: GAME_MODES.ENDLESS, score: 1_000_000 },
+  ]));
+  const legacy = browserPlatform.load_statistics();
+  assert.equal(legacy.runs_played, 2);
+  assert.equal(legacy.victories, 1);
+  assert.equal(legacy.defeats, 1);
+  assert.equal(legacy.highest_score, 600);
+
+  const state = createInitialPlayerState({ create_id: nextId });
+  state.total_score = 850;
+  state.run_statistics.cards_eaten = 9;
+  browserPlatform.record_run_statistics(state, "victory");
+  const saved = browserPlatform.load_statistics();
+  assert.equal(saved.runs_played, 3);
+  assert.equal(saved.victories, 2);
+  assert.equal(saved.cards_eaten, 9);
+  assert.equal(saved.highest_score, 850);
+  delete globalThis.localStorage;
+});
+
+test("旧水果逐卡统计会迁移到全类别卡牌统计", () => {
+  const values = new Map([
+    ["cardeater.statistics.v1", JSON.stringify({
+      runs_played: 2,
+      fruit_actions: { F001: { eat: 7, discard: 3 } },
+    })],
+  ]);
+  globalThis.localStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+  const migrated = browserPlatform.load_statistics();
+  assert.deepEqual(migrated.card_actions.F001, { eat: 7, discard: 3 });
+  assert.equal("fruit_actions" in migrated, false);
   delete globalThis.localStorage;
 });
 

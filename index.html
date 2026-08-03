@@ -72,8 +72,15 @@
               <button class="mode-button hard-mode-button" id="hardModeButton" type="button"><b>高难模式</b><small>通关后解锁 · 小餐盘与更高目标</small></button>
               <div class="developer-mode-notice" id="developerModeNotice" hidden>DEV MODE · 全模式已解锁</div>
             </div>
-            <div class="home-footer"><span>BEST <strong id="welcomeBestScore">--</strong></span><button class="home-theme-toggle" id="homeThemeToggle" type="button" aria-label="切换主界面昼夜色调">☾ 夜间</button></div>
+            <div class="home-footer"><span>BEST <strong id="welcomeBestScore">--</strong></span><div class="home-footer-actions"><button class="home-theme-toggle" id="homeStatisticsButton" type="button" aria-haspopup="dialog">▦ 统计</button><button class="home-theme-toggle" id="homeThemeToggle" type="button" aria-label="切换主界面昼夜色调">☾ 夜间</button></div></div>
           </section>
+          <div class="home-statistics-overlay" id="homeStatisticsOverlay" role="dialog" aria-modal="true" aria-labelledby="homeStatisticsTitle" hidden>
+            <section class="home-statistics-panel">
+              <header><div><div class="eyebrow">PLAYER ARCHIVE</div><h2 id="homeStatisticsTitle">统计数据</h2><small>无尽模式不计入统计</small></div><button class="home-statistics-close" id="homeStatisticsClose" type="button">返回</button></header>
+              <div class="home-statistics-overview" id="homeStatisticsOverview"></div>
+              <div class="home-card-statistics"><div class="home-statistics-section-title"><div><b id="homeCardStatisticsTitle">水果记录</b><small>每张卡牌分别统计吃牌与弃牌</small></div><span id="homeCardStatisticsTotal"></span></div><div class="home-statistics-type-tabs" id="homeStatisticsTypeTabs" role="group" aria-label="选择卡牌类别"></div><label class="home-statistics-type-select"><span>卡牌类别</span><select id="homeStatisticsTypeSelect" aria-label="选择卡牌类别"></select></label><div class="home-card-statistics-list" id="homeCardStatisticsList"></div></div>
+            </section>
+          </div>
         </div>
 
         <aside class="story-guide" id="storyGuide" role="status" aria-live="polite" aria-atomic="true" hidden>

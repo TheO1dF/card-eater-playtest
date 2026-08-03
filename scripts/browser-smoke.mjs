@@ -270,6 +270,46 @@ for (const viewport of selectedViewports) {
       horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     };
   })()`);
+  await clickElement("#homeStatisticsButton");
+  await waitFor('!document.querySelector("#homeStatisticsOverlay")?.hidden');
+  await wait(180);
+  await capture(`${viewport.name}-home-statistics`);
+  const homeStatistics = await evaluate(`(() => {
+    const overlay = document.querySelector("#homeStatisticsOverlay");
+    const panel = overlay?.querySelector(".home-statistics-panel")?.getBoundingClientRect();
+    const overlayRect = overlay?.getBoundingClientRect();
+    const overview = [...document.querySelectorAll("#homeStatisticsOverview > span")];
+    const cardRows = [...document.querySelectorAll("#homeCardStatisticsList > span")];
+    const tabs = document.querySelector("#homeStatisticsTypeTabs");
+    const selectHost = document.querySelector(".home-statistics-type-select");
+    const select = document.querySelector("#homeStatisticsTypeSelect");
+    return {
+      overview_count: overview.length,
+      overview_labels: overview.map((row) => row.querySelector("small")?.textContent?.trim()),
+      type_tabs: tabs?.querySelectorAll("button").length,
+      type_options: select?.options.length,
+      default_rows: cardRows.length,
+      default_unique: new Set(cardRows.map((row) => row.dataset.cardId)).size,
+      every_card_has_both_actions: cardRows.every((row) => row.querySelectorAll("i").length === 2),
+      adaptive_selector: ${viewport.mobile} ? getComputedStyle(selectHost).display !== "none" && getComputedStyle(tabs).display === "none" : getComputedStyle(selectHost).display === "none" && getComputedStyle(tabs).display !== "none",
+      overview_label_size: parseFloat(getComputedStyle(overview[0]?.querySelector("small")).fontSize),
+      card_name_size: parseFloat(getComputedStyle(cardRows[0]?.querySelector("b")).fontSize),
+      endless_excluded: document.querySelector(".home-statistics-panel header small")?.textContent?.includes("无尽模式不计入"),
+      viewport_cover: Boolean(overlayRect && overlayRect.left <= .5 && overlayRect.top <= .5 && overlayRect.right >= innerWidth - .5 && overlayRect.bottom >= innerHeight - .5),
+      panel_inside: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+      list_scroll_contained: (() => { const list = document.querySelector("#homeCardStatisticsList"); return list.scrollHeight <= list.clientHeight + 1 || getComputedStyle(list).overflowY === "auto"; })(),
+    };
+  })()`);
+  await evaluate(`(() => { const select = document.querySelector("#homeStatisticsTypeSelect"); select.value = "动物"; select.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+  await waitFor('document.querySelector("#homeCardStatisticsTitle")?.textContent === "动物记录"');
+  const animalStatistics = await evaluate(`(() => {
+    const rows = [...document.querySelectorAll("#homeCardStatisticsList > span")];
+    return { rows: rows.length, unique: new Set(rows.map((row) => row.dataset.cardId)).size, all_animal: rows.every((row) => row.dataset.cardType === "动物") };
+  })()`);
+  Object.assign(homeStatistics, { animal_rows: animalStatistics.rows, animal_unique: animalStatistics.unique, animal_only: animalStatistics.all_animal });
+  await capture(`${viewport.name}-home-statistics-animal`);
+  await clickElement("#homeStatisticsClose");
+  await waitFor('document.querySelector("#homeStatisticsOverlay")?.hidden');
   const overlayLayering = await evaluate(`(() => {
     const topbarZ = Number.parseInt(getComputedStyle(document.querySelector(".topbar")).zIndex, 10);
     const overlays = [...document.querySelectorAll(".overlay")].map((overlay) => {
@@ -592,6 +632,8 @@ for (const viewport of selectedViewports) {
     const art = card?.querySelector(".card-art");
     if (!card || !art) return { score_inside: false, postpone_inside: false, card_inside: false };
     card.classList.add("is-postponed", "has-point-change");
+    card.querySelector(".card-title strong").textContent = "婚礼蛋糕";
+    card.querySelector(".card-effect").textContent = "弃：吃分永久 +3；若上一张行动牌是水果，再 +2；10+ 吃下时点数翻倍并摧毁自身";
     art.insertAdjacentHTML("beforeend", '<span class="card-postpone-mark"><b>↔</b> 12/12</span>');
     const wraps = [...card.querySelectorAll(".card-point-wrap")];
     const samples = [["-123", "▼99", "原 -24"], ["+987", "▲986", "原 +1"]];
@@ -608,10 +650,15 @@ for (const viewport of selectedViewports) {
       [...cell.querySelectorAll(".card-point-value, .card-point-delta")].every((child) => inside(cell, child))
     );
     const postpone = card.querySelector(".card-postpone-mark");
+    const rows = [card.querySelector(".card-head"), art, card.querySelector(".card-title"), card.querySelector(".card-scores"), card.querySelector(".card-effect")]
+      .map((node) => node.getBoundingClientRect());
     return {
       score_inside: scoreInside,
       postpone_inside: Boolean(postpone && inside(art, postpone)),
       card_inside: card.scrollWidth <= card.clientWidth + 1 && card.scrollHeight <= card.clientHeight + 1,
+      rows_ordered: rows.every((rect, index) => index === 0 || rows[index - 1].bottom <= rect.top + 1),
+      art_track_safe: art.clientHeight >= 58 && art.scrollHeight <= art.clientHeight + 1,
+      copy_above_art: Number(getComputedStyle(card.querySelector(".card-title")).zIndex) > Number(getComputedStyle(art).zIndex),
       point_label_size: parseFloat(getComputedStyle(card.querySelector(".card-point-delta")).fontSize),
       font_mode: document.documentElement.dataset.fontSize,
     };
@@ -795,7 +842,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, summary_settings: summarySettings, long_deck_timing: longDeckTiming, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, summary_target: summaryTarget, summary_performance: summaryPerformance, summary_receipt: summaryReceipt, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_statistics: homeStatistics, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, summary_settings: summarySettings, long_deck_timing: longDeckTiming, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, summary_target: summaryTarget, summary_performance: summaryPerformance, summary_receipt: summaryReceipt, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -819,6 +866,9 @@ const failures = [
     entry.home.sigil_actions_gap >= 12 && entry.home.sigil_actions_gap <= 72 ? null : `${entry.viewport.name}: primary home actions are too far from the logo group`,
     entry.home.modes_locked ? null : `${entry.viewport.name}: advanced modes should start locked`,
     entry.home.unlocked_sigils === 1 && entry.home.cleared_sigils === 0 ? null : `${entry.viewport.name}: fresh home mode sigils have wrong unlock/clear state`,
+    entry.home_statistics.overview_count === 9 && entry.home_statistics.overview_labels.includes("通关次数") && entry.home_statistics.overview_labels.includes("最高金币") && entry.home_statistics.type_tabs === 8 && entry.home_statistics.type_options === 8 && entry.home_statistics.default_rows === 13 && entry.home_statistics.default_unique === 13 && entry.home_statistics.every_card_has_both_actions && entry.home_statistics.animal_rows === 12 && entry.home_statistics.animal_unique === 12 && entry.home_statistics.animal_only && entry.home_statistics.endless_excluded ? null : `${entry.viewport.name}: home statistics are incomplete`,
+    entry.home_statistics.adaptive_selector && entry.home_statistics.overview_label_size >= 9 && entry.home_statistics.card_name_size >= 11 ? null : `${entry.viewport.name}: statistics category controls or enlarged text are incorrect`,
+    entry.home_statistics.viewport_cover && entry.home_statistics.panel_inside && entry.home_statistics.list_scroll_contained ? null : `${entry.viewport.name}: home statistics panel escapes the viewport`,
     entry.overlay_layering.count >= 16 && entry.overlay_layering.all_fixed && entry.overlay_layering.all_cover_viewport && entry.overlay_layering.all_above_topbar ? null : `${entry.viewport.name}: one or more modal layers do not cover the viewport`,
     entry.home_menu.viewport_cover && entry.home_menu.top_edge_owned && entry.home_menu.panel_inside && entry.home_menu.welcome_remains_underneath ? null : `${entry.viewport.name}: home menu does not fully cover the animated home screen`,
     entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
@@ -850,7 +900,7 @@ const failures = [
     entry.playing.point_values_inside && entry.playing.point_line_height_safe ? null : `${entry.viewport.name}: gameplay point glyphs are clipped`,
     entry.playing.has_gold || entry.playing.timer_visible ? `${entry.viewport.name}: standard mode shows economy HUD` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
-    entry.score_stress.score_inside && entry.score_stress.postpone_inside && entry.score_stress.card_inside && entry.score_stress.font_mode === "large" ? null : `${entry.viewport.name}: large-font score/postpone content overflows`,
+    entry.score_stress.score_inside && entry.score_stress.postpone_inside && entry.score_stress.card_inside && entry.score_stress.rows_ordered && entry.score_stress.art_track_safe && (!entry.viewport.mobile || entry.score_stress.copy_above_art) && entry.score_stress.font_mode === "large" ? null : `${entry.viewport.name}: large-font score, art, or copy layout overlaps`,
     entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule && entry.menu.has_score_priority && entry.menu.objective.includes("80 / 200 / 600") ? null : `${entry.viewport.name}: menu rules or milestone targets are incomplete`,
     entry.menu.viewport_cover && entry.menu.top_edge_owned && entry.menu.panel_inside && entry.menu.background_action_blocked ? null : `${entry.viewport.name}: menu layer leaks the background or allows gameplay input`,
     entry.summary_settings.defaults.pause === "false" && entry.summary_settings.defaults.skip === "false" && entry.summary_settings.defaults.speed === "normal" && entry.summary_settings.defaults.collapsed && entry.summary_settings.collapsed_after && entry.summary_settings.pause === true && entry.summary_settings.speed === "normal" && entry.summary_settings.skip === false && entry.summary_settings.pause_label === "开启" && entry.summary_settings.selected_speed === "normal" ? null : `${entry.viewport.name}: summary settings defaults, collapse, controls, or persistence are invalid`,

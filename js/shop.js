@@ -4,6 +4,7 @@ import { addItem, createShopItemPool, getItemById } from "./items.js";
 import { getRarityPrice, getShopWeight, RARITY_MODEL } from "./balance.js";
 import { safeAdd, safePositiveInteger } from "./numbers.js";
 import { getPlateUpgradeBaseCost, getPlateUpgradeCost } from "./plate.js";
+import { recordCardDeletion, recordReroll } from "./statistics.js";
 
 export const RARITY_PRICE = Object.freeze(Object.fromEntries(
   Object.entries(RARITY_MODEL).map(([rarity, model]) => [rarity, model.price]),
@@ -181,6 +182,7 @@ export function createShopService(options = {}) {
     if (free) state.round.shop_free_rerolls = Math.max(0, state.round.shop_free_rerolls - 1);
     else state.gold = safeAdd(state.gold, -cost);
     state.round.shop_reroll_count = safePositiveInteger(state.round.shop_reroll_count + 1, 1000);
+    recordReroll(state);
     state.round.shop_force_price_four = false;
     state.round.shop_force_price_four_applied = true;
     const themed = getThemedShopCards(state);
@@ -236,6 +238,7 @@ export function createShopService(options = {}) {
     state.gold = safeAdd(state.gold, -cost);
     state.deck.splice(index, 1);
     state.remove_count += 1;
+    recordCardDeletion(state);
     if (roundFree) state.round.shop_free_removals = Math.max(0, state.round.shop_free_removals - 1);
     else if (earnedFree) state.free_card_removals = Math.max(0, state.free_card_removals - 1);
     state.remove_card_cost = state.remove_count * GAME_CONFIG.delete_cost_step;

@@ -15,6 +15,7 @@ import {
 } from "./items.js";
 import { formatScore, safeAdd, safeMultiply, safeProduct } from "./numbers.js";
 import { grantRoundGold, queueRoundGold } from "./economy.js";
+import { recordCardAction } from "./statistics.js";
 import {
   getFinalRemainingCard,
   getCurrentCard,
@@ -208,7 +209,11 @@ function changePermanentCard(state, card, stat, amount, limits = {}) {
   if (isStatLocked(permanentCard, stat)) return 0;
   if (delta < 0 && state.round.protected_decrease_uuids?.includes(card.uuid)) return 0;
   const before = permanentCard[stat] ?? 0;
-  const next = Math.max(limits.min ?? -GAME_CONFIG.max_score, Math.min(limits.max ?? GAME_CONFIG.max_score, safeAdd(before, delta)));
+  const configuredMin = limits.min ?? -GAME_CONFIG.max_score;
+  const configuredMax = limits.max ?? GAME_CONFIG.max_score;
+  const effectiveMin = Math.min(configuredMin, before);
+  const effectiveMax = Math.max(configuredMax, before);
+  const next = Math.max(effectiveMin, Math.min(effectiveMax, safeAdd(before, delta)));
   permanentCard[stat] = next;
   const copies = [card, ...state.round.draw_pile, ...state.round.spent_pile, ...(state.round.reserve_cards ?? [])];
   copies.forEach((copy) => {
@@ -2428,6 +2433,7 @@ export function createRoundEngine(options = {}) {
 
     state.round.actions.push(entry);
     sequenceFor(state, action).push(entry);
+    recordCardAction(state, action, card);
     return entry;
   }
 

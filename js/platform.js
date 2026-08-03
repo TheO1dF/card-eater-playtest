@@ -1,9 +1,12 @@
+import { createLifetimeStatistics, mergeCompletedRun } from "./statistics.js";
+
 const RECORD_KEY = "cardeater.run-history.v1";
 const TUTORIAL_KEY = "cardeater.story-tutorial.v1";
 const SETTINGS_KEY = "cardeater.settings.v1";
 const RUN_SAVE_KEY = "cardeater.active-run.v2";
 const PROGRESSION_KEY = "cardeater.progression.v1";
 const SHOP_TUTORIAL_KEY = "cardeater.shop-tutorial.v1";
+const STATISTICS_KEY = "cardeater.statistics.v1";
 const DEFAULT_SETTINGS = Object.freeze({
   music: true,
   effects: true,
@@ -104,6 +107,43 @@ function saveRecord(record) {
     .slice(0, 20);
   try { localStorage.setItem(RECORD_KEY, JSON.stringify(records)); } catch { /* Storage may be disabled. */ }
   return records;
+}
+
+function inferLegacyStatistics() {
+  const records = loadRecords().filter((record) => record?.mode !== "endless");
+  const progression = loadProgression();
+  const knownVictories = Object.entries(progression.mode_victories ?? {})
+    .filter(([mode]) => mode !== "endless")
+    .reduce((total, [, count]) => total + Math.max(0, Number(count) || 0), 0);
+  const recordVictories = records.filter((record) => record?.outcome === "victory").length;
+  const defeats = records.filter((record) => record?.outcome === "defeat").length;
+  const victories = Math.max(recordVictories, knownVictories);
+  return createLifetimeStatistics({
+    runs_played: Math.max(records.length, victories + defeats),
+    victories,
+    defeats,
+    highest_score: records.reduce((highest, record) => Math.max(highest, Number(record?.score) || 0), 0),
+  });
+}
+
+function loadStatistics() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STATISTICS_KEY) ?? "null");
+    if (saved) return createLifetimeStatistics(saved);
+  } catch { /* Fall through to legacy records. */ }
+  return inferLegacyStatistics();
+}
+
+function saveStatistics(value) {
+  const safe = createLifetimeStatistics(value);
+  try { localStorage.setItem(STATISTICS_KEY, JSON.stringify(safe)); } catch { /* Storage may be disabled. */ }
+  return safe;
+}
+
+function recordRunStatistics(state, outcome) {
+  const next = mergeCompletedRun(loadStatistics(), state, outcome);
+  if (state?.mode === "endless") return next;
+  return saveStatistics(next);
 }
 
 function loadTutorialComplete() {
@@ -253,6 +293,8 @@ export const browserPlatform = Object.freeze({
   create_id: makeId,
   load_records: loadRecords,
   save_record: saveRecord,
+  load_statistics: loadStatistics,
+  record_run_statistics: recordRunStatistics,
   has_completed_run: hasCompletedRun,
   load_progression: loadProgression,
   record_run_progress: recordRunProgress,

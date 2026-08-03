@@ -13,6 +13,7 @@ import { browserPlatform } from "./platform.js";
 import { playSound, setBGMTheme, toggleBGM, unlockAudio } from "./audio.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "./plate.js";
 import { getCurrentCard } from "./round-pile.js";
+import { ensureRunStatistics, observeRunGold } from "./statistics.js";
 import { activateReshuffle, getReshuffleStatus } from "./reshuffle.js";
 import { CARD_TYPES, getCardById } from "./data.js";
 import {
@@ -82,6 +83,7 @@ const shuffle = (items) => {
 
 function saveGame() {
   if (state.phase === GAME_PHASES.INIT || state.phase === GAME_PHASES.GAME_OVER) return false;
+  observeRunGold(state);
   return browserPlatform.save_run(state);
 }
 
@@ -595,6 +597,7 @@ function completeRound() {
       finished_at: new Date().toISOString(),
       schema_version: state.schema_version,
     };
+    browserPlatform.record_run_statistics(state, outcome);
     browserPlatform.save_record(record);
     state.unlock_progress = browserPlatform.record_run_progress(record);
     browserPlatform.clear_run();
@@ -894,6 +897,7 @@ function enterShop() {
 
 function restoreRun(saved) {
   state = saved;
+  ensureRunStatistics(state);
   state.items ??= [];
   hydrateOwnedItems(state);
   state.item_history ??= [];
@@ -1101,4 +1105,5 @@ ui.openWelcome({
   home_theme: settings.home_theme,
   god: Boolean(progression.god),
   developer_mode: developerMode,
+  statistics: browserPlatform.load_statistics(),
 });

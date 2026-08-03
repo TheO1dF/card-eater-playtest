@@ -1,5 +1,6 @@
 import { GAME_CONFIG, GAME_MODES } from "./config.js";
 import { createCardPool } from "./data.js";
+import { recordCardDeletion, recordReroll } from "./statistics.js";
 
 const RARITY_WEIGHT = Object.freeze({ "普通": 54, "罕见": 28, "稀有": 14, "传奇": 4 });
 
@@ -73,6 +74,7 @@ export function createDraftService(options = {}) {
     if (hasFreeReroll) state.free_rerolls -= 1;
     else state.reroll_tokens -= 1;
     const offers = getOffers(state, GAME_CONFIG.draft_size, cards.map((card) => card.id));
+    recordReroll(state);
     return { success: true, offers, used_free: hasFreeReroll, free_rerolls: state.free_rerolls, tokens: state.reroll_tokens };
   }
 
@@ -86,6 +88,7 @@ export function createDraftService(options = {}) {
     const [removed] = state.deck.splice(index, 1);
     state.delete_tokens -= 1;
     state.remove_count += 1;
+    recordCardDeletion(state);
     return { success: true, card: removed, tokens: state.delete_tokens };
   }
 
@@ -118,6 +121,7 @@ export function createDraftService(options = {}) {
     const card = slot.card;
     state.prep_slot = null;
     state.remove_count += 1;
+    recordCardDeletion(state);
     return { success: true, card };
   }
 

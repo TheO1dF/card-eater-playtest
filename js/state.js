@@ -1,5 +1,6 @@
 import { GAME_CONFIG, GAME_MODES } from "./config.js";
 import { createInitialDeck } from "./data.js";
+import { createRunStatistics } from "./statistics.js";
 
 export const GAME_PHASES = Object.freeze({
   INIT: "Init",
@@ -151,6 +152,7 @@ export function createInitialPlayerState(options = {}) {
     milestone_delays: {},
     permanent_multipliers: [],
     remove_count: 0,
+    run_statistics: createRunStatistics(),
     draft_history: [],
     outcome: null,
     phase_history: [],
