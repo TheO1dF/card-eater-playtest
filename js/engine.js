@@ -2432,6 +2432,7 @@ export function createRoundEngine(options = {}) {
   }
 
   function finalizeRound(state) {
+    const startingTotalScore = state.total_score;
     const roundEndEffects = applyRoundEndCardEffects(state);
     const itemRoundEndEffects = getItemRoundEndEffects(state, random);
     const actionScore = state.round.actions.reduce((sum, item) => safeAdd(sum, item.points), 0);
@@ -2446,16 +2447,33 @@ export function createRoundEngine(options = {}) {
     const totalMultiplier = multipliers.reduce((value, item) => safeProduct(value, item.multiplier), 1);
     const roundScore = safeMultiply(cardScore, totalMultiplier);
 
-    const breakdown = [{ label: "牌面与效果", text: `${formatScore(cardScore)} 分` }];
+    const breakdown = [{
+      label: "牌面与效果",
+      text: `${formatScore(cardScore)} 分`,
+      value: cardScore,
+      number_style: "score-unit",
+    }];
     const byType = state.round.actions.reduce((result, item) => {
       result[item.type] = safeAdd(result[item.type] ?? 0, item.points);
       return result;
     }, {});
     Object.entries(byType)
       .sort(([, a], [, b]) => b - a)
-      .forEach(([type, score]) => breakdown.push({ label: `↳ ${type}`, text: `${formatScore(score)} 分`, kind: "detail" }));
+      .forEach(([type, score]) => breakdown.push({
+        label: `↳ ${type}`,
+        text: `${formatScore(score)} 分`,
+        kind: "detail",
+        value: score,
+        number_style: "score-unit",
+      }));
     if (postponeScore > 0) {
-      breakdown.push({ label: "↳ 后置效果", text: `+${formatScore(postponeScore)} 分`, kind: "bonus" });
+      breakdown.push({
+        label: "↳ 后置效果",
+        text: `+${formatScore(postponeScore)} 分`,
+        kind: "bonus",
+        value: postponeScore,
+        number_style: "signed-score-unit",
+      });
     }
     roundEndEffects.messages.forEach((message) => breakdown.push({
       label: "↳ 轮末卡牌效果",
@@ -2470,7 +2488,13 @@ export function createRoundEngine(options = {}) {
 
     state.round.actions
       .filter((item) => item.effect_bonus !== 0 && item.effect_log)
-      .forEach((item) => breakdown.push({ label: item.effect_log, text: `${item.effect_bonus > 0 ? "+" : ""}${formatScore(item.effect_bonus)}`, kind: "bonus" }));
+      .forEach((item) => breakdown.push({
+        label: item.effect_log,
+        text: `${item.effect_bonus > 0 ? "+" : ""}${formatScore(item.effect_bonus)}`,
+        kind: "bonus",
+        value: item.effect_bonus,
+        number_style: "signed-score",
+      }));
 
     if (multipliers.length > 0) {
       multipliers.forEach((item) => {
@@ -2479,11 +2503,23 @@ export function createRoundEngine(options = {}) {
           : item.source === "quest"
             ? "任务"
             : "规则";
-        breakdown.push({ label: `${sourceLabel} · ${item.name}`, text: `×${item.multiplier}`, kind: "rule" });
+        breakdown.push({
+          label: `${sourceLabel} · ${item.name}`,
+          text: `×${item.multiplier}`,
+          kind: "rule",
+          value: item.multiplier,
+          number_style: "multiplier",
+        });
       });
     }
 
-    breakdown.push({ label: "本轮得分", text: `${roundScore >= 0 ? "+" : ""}${formatScore(roundScore)}`, kind: "total" });
+    breakdown.push({
+      label: "本轮得分",
+      text: `${roundScore >= 0 ? "+" : ""}${formatScore(roundScore)}`,
+      kind: "total",
+      value: roundScore,
+      number_style: "signed-score",
+    });
 
     state.total_score = safeAdd(state.total_score, roundScore);
 
@@ -2491,6 +2527,22 @@ export function createRoundEngine(options = {}) {
       card_score: cardScore,
       total_multiplier: totalMultiplier,
       round_score: roundScore,
+      starting_total_score: startingTotalScore,
+      presentation_cards: state.round.actions.map((entry) => ({
+        card_id: entry.card_id,
+        card_uuid: entry.card_uuid,
+        name: entry.name,
+        type: entry.type,
+        edibility: entry.edibility,
+        rarity: entry.rarity,
+        action: entry.action,
+        points: entry.points,
+        effect_bonus: entry.effect_bonus,
+        effect_triggered: entry.effect_triggered,
+        wrong_edibility: entry.wrong_edibility,
+        destroyed_self: entry.destroyed_self,
+        keywords: [...(entry.keywords ?? [])],
+      })),
       rule_results: [],
       completed_rule_ids: [],
       breakdown,

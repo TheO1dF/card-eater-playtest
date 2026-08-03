@@ -4,7 +4,16 @@ const SETTINGS_KEY = "cardeater.settings.v1";
 const RUN_SAVE_KEY = "cardeater.active-run.v2";
 const PROGRESSION_KEY = "cardeater.progression.v1";
 const SHOP_TUTORIAL_KEY = "cardeater.shop-tutorial.v1";
-const DEFAULT_SETTINGS = Object.freeze({ music: true, effects: true, font_size: "medium", random_start: false, home_theme: "night" });
+const DEFAULT_SETTINGS = Object.freeze({
+  music: true,
+  effects: true,
+  font_size: "medium",
+  random_start: false,
+  home_theme: "night",
+  summary_pause: false,
+  summary_speed: "normal",
+  summary_skip: false,
+});
 
 const EMPTY_PROGRESSION = Object.freeze({ runs_played: 0, victories: 0, shop_victories: 0, endless_victories: 0, god: false, mode_victories: Object.freeze({}) });
 
@@ -120,6 +129,9 @@ function loadSettings() {
       font_size: fontSize,
       random_start: stored?.random_start === true,
       home_theme: ["day", "night"].includes(stored?.home_theme) ? stored.home_theme : "night",
+      summary_pause: stored?.summary_pause === true,
+      summary_speed: stored?.summary_speed === "fast" ? "fast" : "normal",
+      summary_skip: stored?.summary_skip === true,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -133,6 +145,9 @@ function saveSettings(settings = {}) {
     font_size: ["small", "medium", "large"].includes(settings.font_size) ? settings.font_size : "medium",
     random_start: settings.random_start === true,
     home_theme: ["day", "night"].includes(settings.home_theme) ? settings.home_theme : "night",
+    summary_pause: settings.summary_pause === true,
+    summary_speed: settings.summary_speed === "fast" ? "fast" : "normal",
+    summary_skip: settings.summary_skip === true,
   };
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(safe)); } catch { /* Storage may be disabled. */ }
   return safe;

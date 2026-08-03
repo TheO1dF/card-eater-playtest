@@ -48,8 +48,58 @@ let nextStepTime = 0;
 let transportStep = 0;
 let actionEnergy = 0;
 let bgmTheme = "night";
+let effectCount = 0;
+let lastEffect = null;
+let lastUiVariant = null;
+const lastUiVariantByType = new Map();
+const uiVariantHistory = [];
+const uiSoundBags = new Map();
+
+const UI_SOUND_VARIANTS = Object.freeze({
+  "ui-click": Object.freeze([
+    Object.freeze({ note: 60, end: 64, voice: "square" }),
+    Object.freeze({ note: 62, end: 67, voice: "triangle" }),
+    Object.freeze({ note: 64, end: 69, voice: "square" }),
+    Object.freeze({ note: 67, end: 72, voice: "triangle" }),
+    Object.freeze({ note: 69, end: 74, voice: "square" }),
+  ]),
+  "ui-toggle": Object.freeze([
+    Object.freeze({ note: 55, end: 62, voice: "triangle" }),
+    Object.freeze({ note: 57, end: 64, voice: "sine" }),
+    Object.freeze({ note: 59, end: 67, voice: "triangle" }),
+    Object.freeze({ note: 62, end: 69, voice: "sine" }),
+  ]),
+  "ui-confirm": Object.freeze([
+    Object.freeze({ note: 48, end: 55, voice: "triangle" }),
+    Object.freeze({ note: 50, end: 57, voice: "square" }),
+    Object.freeze({ note: 52, end: 60, voice: "triangle" }),
+    Object.freeze({ note: 55, end: 64, voice: "square" }),
+  ]),
+});
 
 const midi = (note) => 440 * (2 ** ((note - 69) / 12));
+
+function nextUiSoundVariant(type) {
+  const variants = UI_SOUND_VARIANTS[type] ?? UI_SOUND_VARIANTS["ui-click"];
+  let bag = uiSoundBags.get(type) ?? [];
+  if (bag.length === 0) {
+    bag = variants.map((_, index) => index);
+    for (let index = bag.length - 1; index > 0; index -= 1) {
+      const target = Math.floor(Math.random() * (index + 1));
+      [bag[index], bag[target]] = [bag[target], bag[index]];
+    }
+    if (bag.length > 1 && bag.at(-1) === lastUiVariantByType.get(type)) {
+      [bag[0], bag[bag.length - 1]] = [bag[bag.length - 1], bag[0]];
+    }
+  }
+  const variantIndex = bag.pop();
+  uiSoundBags.set(type, bag);
+  lastUiVariantByType.set(type, variantIndex);
+  lastUiVariant = `${type}:${variantIndex}`;
+  uiVariantHistory.push(lastUiVariant);
+  if (uiVariantHistory.length > 16) uiVariantHistory.shift();
+  return variants[variantIndex];
+}
 
 export function initAudio() {
   if (!audioCtx) {
@@ -297,7 +347,10 @@ function chord(frequencies, options = {}) {
 
 export function playSound(type, strength = 1) {
   if (!audioCtx || audioCtx.state !== "running") return false;
-  const safe = Math.max(1, Math.min(24, Number(strength) || 1));
+  effectCount += 1;
+  lastEffect = type;
+  const magnitude = Math.max(1, Math.min(1_000_000, Math.abs(Number(strength) || 1)));
+  const safe = Math.min(24, magnitude);
   if (type === "eat") {
     const scale = [329.63, 392, 440, 493.88, 587.33, 659.25];
     const base = scale[Math.min(scale.length - 1, Math.floor((safe - 1) / 2))];
@@ -318,6 +371,45 @@ export function playSound(type, strength = 1) {
     const base = Math.min(1174.66, 493.88 * (2 ** (Math.min(10, safe) / 18)));
     chord([base, base * 1.25, base * 1.5], { end: base * 1.8, duration: 0.18, volume: 0.05, type: "square" });
     actionEnergy = Math.min(3, actionEnergy + 0.45);
+  } else if (type === "score-reveal") {
+    const thresholds = [1, 2, 3, 5, 8, 12, 20, 35, 60, 100];
+    const tier = Math.min(9, thresholds.findIndex((threshold) => magnitude <= threshold));
+    const resolvedTier = tier < 0 ? 9 : tier;
+    const notes = [60, 62, 64, 67, 69, 72, 74, 77, 81, 84];
+    const base = midi(notes[resolvedTier]);
+    synthTone({ frequency: base, end: base * 1.08, duration: 0.18 + resolvedTier * 0.012, volume: 0.075 + resolvedTier * 0.005, type: resolvedTier >= 5 ? "square" : "triangle", filter: 2100 + resolvedTier * 280, attack: 0.003 });
+    synthTone({ frequency: base * 2, end: base * 1.5, duration: 0.09, volume: 0.028 + resolvedTier * 0.002, type: "square", delay: 0.025, filter: 3100 });
+    if (resolvedTier >= 3) synthTone({ frequency: midi(notes[resolvedTier] + 7), end: midi(notes[resolvedTier] + 12), duration: 0.22, volume: 0.05, type: "triangle", delay: 0.055 });
+    if (resolvedTier >= 7) chord([base, base * 1.25, base * 1.5], { duration: 0.3, volume: 0.045, type: "square", delay: 0.09, filter: 3400 });
+    actionEnergy = Math.min(3, actionEnergy + 0.18 + resolvedTier * 0.08);
+  } else if (type === "score-negative") {
+    const depth = Math.min(7, Math.floor(Math.log2(magnitude + 1)));
+    const start = midi(55 - depth * 2);
+    synthTone({ frequency: start, end: Math.max(55, start * .42), duration: 0.24, volume: 0.1, type: "triangle", filter: 1100 });
+    synthTone({ frequency: start * .5, end: 48, duration: 0.18, volume: 0.045, type: "square", delay: 0.04, filter: 720 });
+  } else if (type === "score-review") {
+    const tier = magnitude >= 100 ? 4 : magnitude >= 50 ? 3 : magnitude >= 30 ? 2 : magnitude >= 20 ? 1 : 0;
+    const root = [55, 57, 60, 64, 67][tier];
+    [0, 4, 7, 12].forEach((offset, index) => synthTone({ frequency: midi(root + offset), duration: 0.25 + index * .035, volume: 0.045, type: tier >= 3 ? "square" : "triangle", delay: index * .065, filter: 2400 + tier * 300 }));
+  } else if (type === "receipt-tick") {
+    const base = 392 + Math.min(8, safe) * 18;
+    synthTone({ frequency: base, end: base * 1.08, duration: 0.055, volume: 0.035, type: "square", filter: 1900 });
+  } else if (type === "grade-stamp") {
+    const tier = Math.min(5, safe);
+    synthTone({ frequency: 94, end: 52, duration: 0.18, volume: 0.18, type: "sawtooth", filter: 900 });
+    chord([midi(48 + tier * 2), midi(55 + tier * 2), midi(60 + tier * 2)], { duration: 0.36, volume: 0.065, type: tier >= 4 ? "square" : "triangle", delay: 0.07, filter: 2400 });
+  } else if (type === "ui-click") {
+    const variant = nextUiSoundVariant(type);
+    synthTone({ frequency: midi(variant.note), end: midi(variant.end), duration: 0.045, volume: 0.038, type: variant.voice, filter: 2600, attack: 0.002 });
+    synthTone({ frequency: midi(variant.note + 12), end: midi(variant.end - 2), duration: 0.035, volume: 0.018, type: "triangle", delay: 0.018, filter: 3400 });
+  } else if (type === "ui-toggle") {
+    const variant = nextUiSoundVariant(type);
+    synthTone({ frequency: midi(variant.note), end: midi(variant.end), duration: 0.07, volume: 0.045, type: variant.voice, filter: 2400, attack: 0.002 });
+    synthTone({ frequency: midi(variant.note + 12), end: midi(variant.end + 5), duration: 0.06, volume: 0.022, type: "square", delay: 0.035, filter: 3600 });
+  } else if (type === "ui-confirm") {
+    const variant = nextUiSoundVariant(type);
+    synthTone({ frequency: midi(variant.note), end: midi(variant.end), duration: 0.085, volume: 0.052, type: variant.voice, filter: 2500, attack: 0.002 });
+    synthTone({ frequency: midi(variant.note + 12), end: midi(variant.end + 12), duration: 0.1, volume: 0.032, type: "square", delay: 0.045, filter: 3900 });
   } else if (type === "reroll") {
     chord([293.66, 392, 493.88], { end: 783.99, duration: 0.16, volume: 0.075, type: "triangle" });
   } else if (type === "draft") {
@@ -402,5 +494,9 @@ export function getAudioStatus() {
     transport_step: transportStep,
     action_sync: "immediate-plus-quantized-response",
     groove_alignment: "kick-bass-melody-even-grid",
+    effect_count: effectCount,
+    last_effect: lastEffect,
+    last_ui_variant: lastUiVariant,
+    ui_variant_history: [...uiVariantHistory],
   };
 }

@@ -95,6 +95,14 @@
             <div class="eyebrow">PAUSE & REFERENCE</div><h1 id="gameMenuTitle">游戏菜单</h1><div class="menu-mode-label" id="menuModeLabel">15 轮试验模式</div>
             <div class="settings-grid"><button class="setting-toggle" id="musicToggle" type="button" aria-pressed="true"><span>音乐</span><b>开启</b></button><button class="setting-toggle" id="effectsToggle" type="button" aria-pressed="true"><span>音效</span><b>开启</b></button></div>
             <div class="font-size-setting"><span><b>界面字号</b></span><div role="group" aria-label="界面字号"><button type="button" data-font-size="small">小</button><button type="button" data-font-size="medium">标准</button><button type="button" data-font-size="large">大</button></div></div>
+            <details class="summary-settings" id="summarySettings">
+              <summary><span><b id="summarySettingsTitle">轮末演出</b><small>暂停、速度与跳过设置</small></span><strong aria-hidden="true">▸</strong></summary>
+              <div class="summary-settings-body">
+                <button class="setting-toggle summary-setting-toggle" id="summaryPauseToggle" type="button" aria-pressed="false"><span><b>全牌展示后暂停</b><small>等待点击后才进入结算清单</small></span><strong data-setting-state>关闭</strong></button>
+                <div class="summary-speed-setting"><span><b>播放速度</b><small>牌多于 13 张时仍会自动加速</small></span><div role="group" aria-label="轮末演出播放速度"><button type="button" data-summary-speed="normal">标准</button><button type="button" data-summary-speed="fast">加速</button></div></div>
+                <button class="setting-toggle summary-setting-toggle" id="summarySkipToggle" type="button" aria-pressed="false"><span><b>跳过结算动画</b><small>直接显示完整清单与最终印章</small></span><strong data-setting-state>关闭</strong></button>
+              </div>
+            </details>
             <button class="menu-wide-button" id="cardCatalogButton" type="button"><b>卡牌图鉴</b></button>
             <section class="unlock-progress" id="unlockProgress"><b>模式解锁进度</b><div id="unlockProgressList"></div></section>
             <details class="menu-rules" id="menuRules"><summary>规则与细则</summary><div class="menu-objective" id="menuObjective">首要目标：尽量获得高分，并在第 5 / 10 / 15 轮累计达到 80 / 200 / 600 分</div><div class="menu-mode-rules" id="menuModeRules"></div><ul>
@@ -127,8 +135,29 @@
           <section class="modal-panel catalog-detail-panel"><div class="catalog-detail-heading"><div><div class="eyebrow">CARD DETAIL</div><h1 id="catalogCardDetailTitle">卡牌详情</h1></div><button class="shop-reroll-button" id="catalogCardDetailClose" type="button">返回图鉴</button></div><div class="catalog-detail-mode-row"><div class="catalog-mode-switch" role="group" aria-label="在卡牌详情中切换效果版本"><button type="button" data-catalog-mode="standard" aria-pressed="true">标准效果</button><button type="button" data-catalog-mode="shop" aria-pressed="false">商店效果</button></div></div><div class="catalog-detail-layout"><div class="catalog-card-preview" id="catalogCardPreview"></div><div class="catalog-detail-copy" id="catalogCardDetailCopy"></div></div></section>
         </div>
 
-        <div class="overlay" id="roundSummary" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
-          <section class="modal-panel summary-panel"><div class="eyebrow" id="summaryEyebrow">ROUND CLEAR</div><h1 id="summaryTitle">本轮结算</h1><p class="modal-lead" id="summaryTip">卡牌效果与牌面已经结算。</p><div class="milestone-summary"><span id="summaryMilestoneRounds">距离第 5 轮目标还有 4 轮</span><strong id="summaryMilestoneScore">累计 0 / 目标 80 分</strong><div class="milestone-meter"><i id="summaryMilestoneFill"></i></div></div><div class="receipt" id="summaryBreakdownList"></div><div class="unlock-progress summary-unlocks" id="summaryUnlockProgress" hidden><b>解锁进度</b><div id="summaryUnlockProgressList"></div></div><button class="primary-button" id="summaryContinueBtn" type="button">选择一张新牌</button></section>
+        <div class="overlay round-summary-overlay" id="roundSummary" role="dialog" aria-modal="true" aria-labelledby="summaryTitle" data-presentation-state="idle">
+          <section class="modal-panel summary-panel">
+            <div class="summary-performance" id="summaryPerformance">
+              <div class="summary-pixel-field" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="summary-live-score">
+                <small>ROUND SCOREBOARD · 本轮计分台</small>
+                <strong id="summaryLiveTotal">0</strong>
+                <span id="summaryLiveRound">本轮 +0</span>
+              </div>
+              <div class="summary-card-theater" id="summaryCardTheater" aria-live="polite"></div>
+              <div class="summary-card-progress"><i id="summaryCardProgressFill"></i><span id="summaryCardProgress">0 / 0</span></div>
+              <button class="summary-skip-hint" id="summarySkipHint" type="button">点击任意位置 · 跳过当前动画</button>
+            </div>
+            <div class="summary-receipt-stage" id="summaryReceiptStage" hidden>
+              <div class="summary-heading-row"><div><div class="eyebrow" id="summaryEyebrow">ROUND CLEAR</div><h1 id="summaryTitle">本轮结算</h1></div><div class="summary-receipt-live"><small>本轮得分</small><strong id="summaryReceiptScore">+0</strong></div></div>
+              <p class="modal-lead" id="summaryTip">卡牌效果与牌面已经结算。</p>
+              <div class="milestone-summary"><span id="summaryMilestoneRounds">距离第 5 轮目标还有 4 轮</span><strong id="summaryMilestoneScore">累计 0 / 目标 80 分</strong><div class="milestone-meter"><i id="summaryMilestoneFill"></i></div></div>
+              <div class="receipt-wrap"><div class="receipt" id="summaryBreakdownList"></div><div class="summary-grade-stage" id="summaryGradeStage" hidden><div class="summary-grade-stamp" id="summaryGradeStamp"><small>ROUND RANK</small><strong id="summaryGradeValue">C</strong><span id="summaryGradeLabel">继续加热</span></div></div></div>
+              <div class="unlock-progress summary-unlocks" id="summaryUnlockProgress" hidden><b>解锁进度</b><div id="summaryUnlockProgressList"></div></div>
+              <button class="summary-skip-hint summary-receipt-skip" id="summaryReceiptSkip" type="button">点击任意位置 · 加速当前数字</button>
+              <button class="primary-button" id="summaryContinueBtn" type="button" hidden>选择一张新牌</button>
+            </div>
+          </section>
         </div>
 
         <div class="overlay" id="cardDraft" role="dialog" aria-modal="true" aria-labelledby="cardDraftTitle">

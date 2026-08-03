@@ -20,6 +20,7 @@ import { CARD_EFFECT_CONTRACTS } from "../js/card-effect-contracts.js";
 import { browserPlatform, migrateRunState } from "../js/platform.js";
 import { createShopService } from "../js/shop.js";
 import { getRoundGoldSources, grantRoundGold, queueRoundGold, sumRoundGoldSources } from "../js/economy.js";
+import { SUMMARY_RAPID_CARD_THRESHOLD, getRoundGrade, getScoreHeat, getScoreImpact, getSummaryBeatDuration, getSummaryCardTiming } from "../js/round-presentation.js";
 import { RULE_LIBRARY, addActiveRule, settleActiveRules } from "../js/rules.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
 import {
@@ -749,8 +750,26 @@ test("轮末结算只有分数，没有合约或限时经济条目", () => {
   const result = engine.finalizeRound(state);
   assert.equal(result.round_score, 4);
   assert.equal(state.total_score, 4);
+  assert.equal(result.starting_total_score, 0);
+  assert.equal(result.presentation_cards.length, 2);
+  assert.deepEqual(result.presentation_cards.map((entry) => entry.points), [2, 2]);
+  assert.ok(result.breakdown.filter((line) => Number.isFinite(line.value)).length >= 4);
   assert.deepEqual(result.rule_results, []);
   assert.ok(result.breakdown.every((line) => !/金币|限时|合约|商店/.test(`${line.label}${line.text}`)));
+});
+
+test("轮末评级边界、热度与单牌冲击等级保持一致", () => {
+  assert.equal(getRoundGrade(-8).grade, "C");
+  assert.equal(getRoundGrade(19).grade, "C");
+  assert.equal(getRoundGrade(20).grade, "B");
+  assert.equal(getRoundGrade(29).grade, "B");
+  assert.equal(getRoundGrade(30).grade, "A");
+  assert.equal(getRoundGrade(49).grade, "A");
+  assert.equal(getRoundGrade(50).grade, "A+");
+  assert.equal(getRoundGrade(99).grade, "A+");
+  assert.equal(getRoundGrade(100).grade, "S");
+  assert.equal(getScoreHeat(100), 5);
+  assert.equal(getScoreImpact(-100), 5);
 });
 
 test("目标按有效轮次检查，并允许引力井延后", () => {
@@ -812,6 +831,7 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(audio, /C major \/ warm lydian/);
   assert.match(audio, /E minor \/ mysterious add9/);
   assert.match(audio, /continuous-\$\{THEME_CROSSFADE_SECONDS\}s-crossfade/);
+  assert.match(audio, /const thresholds = \[1, 2, 3, 5, 8, 12, 20, 35, 60, 100\]/);
   assert.match(ui, /classList\.toggle\("is-unlocked"/);
   assert.match(ui, /首要目标：尽量获得高分/);
   assert.match(ui, /按住卡牌 · 轻拖 · 松手/);
@@ -819,6 +839,18 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(ui, /向左或向右拖 · 后置/);
   assert.match(ui, /向上拖 · 弃牌/);
   assert.match(ui, /hasBlockingOverlay\(\)/);
+  assert.match(ui, /theater\.appendChild\(cardNode\)/);
+  assert.match(ui, /presentationState = pauseOnReview \? "review-paused" : "review"/);
+  assert.match(ui, /line\.dataset\.startValue = "0"/);
+  assert.match(html, /id="summaryPauseToggle"/);
+  assert.match(html, /data-summary-speed="fast"/);
+  assert.match(html, /id="summarySkipToggle"/);
+  assert.match(html, /<details class="summary-settings" id="summarySettings">/);
+  assert.match(main, /"ui-click"/);
+  assert.match(audio, /UI_SOUND_VARIANTS/);
+  assert.match(audio, /nextUiSoundVariant/);
+  assert.match(styles, /\.summary-pixel-field/);
+  assert.match(styles, /\.summary-grade-stamp::after/);
   assert.match(styles, /\.overlay\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset:\s*0;[\s\S]*?z-index:\s*120;/);
   assert.match(styles, /\.welcome-overlay\s*\{[\s\S]*?inset:\s*0;/);
   assert.match(html, /id="developerModeNotice"/);
@@ -1032,8 +1064,27 @@ test("解锁进度按完成局数、任意通关与商店通关分别累计", ()
   browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.ENDLESS });
   assert.equal(browserPlatform.get_unlocks().god, true);
   assert.deepEqual(browserPlatform.load_progression().mode_victories, { hard: 1, shop: 1, endless: 1 });
-  const settings = browserPlatform.save_settings({ home_theme: "day", random_start: true });
+  const settings = browserPlatform.save_settings({ home_theme: "day", random_start: true, summary_pause: true, summary_speed: "fast", summary_skip: true });
   assert.equal(settings.home_theme, "day");
+  assert.equal(settings.summary_pause, true);
+  assert.equal(settings.summary_speed, "fast");
+  assert.equal(settings.summary_skip, true);
   assert.equal(browserPlatform.load_settings().home_theme, "day");
+  assert.equal(browserPlatform.load_settings().summary_speed, "fast");
   delete globalThis.localStorage;
+});
+
+test("轮末演出第十四张开始自动加速并支持玩家速度与跳过设置", () => {
+  assert.equal(SUMMARY_RAPID_CARD_THRESHOLD, 13);
+  const thirteenth = getSummaryCardTiming(12, { summary_speed: "normal" });
+  const fourteenth = getSummaryCardTiming(13, { summary_speed: "normal" });
+  const fast = getSummaryCardTiming(0, { summary_speed: "fast" });
+  const skipped = getSummaryCardTiming(0, { summary_skip: true });
+  assert.equal(thirteenth.rapid, false);
+  assert.equal(fourteenth.rapid, true);
+  assert.ok(fourteenth.count < thirteenth.count / 2);
+  assert.ok(fast.count < thirteenth.count);
+  assert.deepEqual(skipped, { reveal: 0, count: 0, gap: 0, rapid: false });
+  assert.equal(getSummaryBeatDuration(1000, { summary_speed: "fast" }), 580);
+  assert.equal(getSummaryBeatDuration(1000, { summary_skip: true }), 0);
 });

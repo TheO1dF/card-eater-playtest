@@ -108,6 +108,26 @@ async function finishCurrentPlate() {
   throw new Error("Plate did not finish within the action safety bound.");
 }
 
+async function accelerateRoundSummary() {
+  await waitFor('document.querySelector("#roundSummary")?.classList.contains("show")');
+  for (let index = 0; index < 120; index += 1) {
+    if (await evaluate('document.querySelector("#roundSummary")?.dataset.presentationState === "ready" && !document.querySelector("#summaryContinueBtn")?.disabled')) return;
+    await clickElement("#roundSummary");
+    await wait(28);
+  }
+  throw new Error("Round summary presentation did not reach its ready state.");
+}
+
+async function accelerateRoundSummaryToReview() {
+  await waitFor('document.querySelector("#roundSummary")?.classList.contains("show")');
+  for (let index = 0; index < 120; index += 1) {
+    if (await evaluate('["review", "review-paused"].includes(document.querySelector("#roundSummary")?.dataset.presentationState)')) return;
+    await clickElement("#roundSummary");
+    await wait(28);
+  }
+  throw new Error("Round summary did not retain all scored cards for review.");
+}
+
 async function chooseCardAndWaitForRound(roundLabel) {
   await clickElement(".draft-card");
   await waitFor(`document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === ${JSON.stringify(roundLabel)}`, 12000);
@@ -115,7 +135,7 @@ async function chooseCardAndWaitForRound(roundLabel) {
 
 async function completeToDraft() {
   await finishCurrentPlate();
-  await waitFor('document.querySelector("#roundSummary")?.classList.contains("show")');
+  await accelerateRoundSummary();
   await clickElement("#summaryContinueBtn");
   await waitFor('document.querySelector("#cardDraft")?.classList.contains("show") && document.querySelectorAll(".draft-card").length === 3');
 }
@@ -197,7 +217,7 @@ for (const viewport of selectedViewports) {
   await capture(`${viewport.name}-tutorial-practice`);
   const cardsBeforePracticeDrag = await evaluate('document.querySelectorAll("#cardStack .game-card").length');
   const activeCardBeforePracticeDrag = await evaluate('document.querySelector(".game-card.is-active")?.dataset.cardUuid');
-  await dragElement(".game-card.is-active", 18, 0);
+  await dragElement(".game-card.is-active", 22, 0);
   await waitFor('document.querySelector("#storyGuide")?.dataset.step !== "drag"');
   const tutorialDrag = await evaluate(`(() => ({
     step: document.querySelector("#storyGuide")?.dataset.step,
@@ -448,6 +468,39 @@ for (const viewport of selectedViewports) {
   await wait(220);
   await evaluate('document.querySelector(\'[data-font-size="large"]\')?.click()');
   await waitFor('document.documentElement.dataset.fontSize === "large"');
+  const summarySettingsDefaults = await evaluate(`(() => ({
+    pause: document.querySelector("#summaryPauseToggle")?.getAttribute("aria-pressed"),
+    skip: document.querySelector("#summarySkipToggle")?.getAttribute("aria-pressed"),
+    speed: document.querySelector('[data-summary-speed].is-selected')?.dataset.summarySpeed,
+    collapsed: !document.querySelector("#summarySettings")?.open,
+  }))()`);
+  const buttonAudioBefore = await evaluate(`import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus().effect_count)`);
+  await clickElement("#summarySettings > summary");
+  await waitFor('document.querySelector("#summarySettings")?.open');
+  await clickElement("#summaryPauseToggle");
+  await clickElement('[data-summary-speed="fast"]');
+  await clickElement('[data-summary-speed="normal"]');
+  await clickElement("#summarySkipToggle");
+  await clickElement("#summarySkipToggle");
+  const summarySettings = await evaluate(`(() => {
+    const saved = JSON.parse(localStorage.getItem("cardeater.settings.v1") || "{}");
+    return {
+      defaults: ${JSON.stringify(null)},
+      pause: saved.summary_pause,
+      speed: saved.summary_speed,
+      skip: saved.summary_skip,
+      pause_label: document.querySelector("#summaryPauseToggle [data-setting-state]")?.textContent,
+      selected_speed: document.querySelector('[data-summary-speed].is-selected')?.dataset.summarySpeed,
+    };
+  })()`);
+  summarySettings.defaults = summarySettingsDefaults;
+  const buttonAudio = await evaluate(`import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus())`);
+  summarySettings.button_audio = buttonAudio.effect_count > buttonAudioBefore;
+  summarySettings.button_tones = new Set(buttonAudio.ui_variant_history.filter((entry) => entry.startsWith("ui-toggle:"))).size;
+  await clickElement("#summarySettings > summary");
+  await waitFor('!document.querySelector("#summarySettings")?.open');
+  summarySettings.collapsed_after = true;
+  const longDeckTiming = await evaluate(`import("./js/round-presentation.js").then(({ getSummaryCardTiming }) => ({ before: getSummaryCardTiming(12), after: getSummaryCardTiming(13) }))`);
   await evaluate('document.querySelector("#menuRules").open = true');
   await capture(`${viewport.name}-menu`);
   const menu = await evaluate(`(() => {
@@ -566,8 +619,42 @@ for (const viewport of selectedViewports) {
   await capture(`${viewport.name}-large-score-stress`);
 
   await finishCurrentPlate();
+  await accelerateRoundSummaryToReview();
+  await wait(220);
   await capture(`${viewport.name}-summary-1`);
+  const summaryPerformance = await evaluate(`(() => {
+    const stage = document.querySelector("#summaryCardTheater");
+    const cards = [...stage.querySelectorAll(".summary-score-card")];
+    const rect = stage.getBoundingClientRect();
+    return {
+      state: document.querySelector("#roundSummary")?.dataset.presentationState,
+      card_count: cards.length,
+      expected_count: Number(stage.dataset.cardCount),
+      visible_cards: cards.filter((card) => parseFloat(getComputedStyle(card).opacity) > .85).length,
+      score_labels: cards.map((card) => card.querySelector(".summary-card-points")?.textContent?.trim()),
+      pixel_background: getComputedStyle(document.querySelector(".summary-panel")).backgroundSize.includes("8px"),
+      inside_viewport: rect.left >= -1 && rect.right <= innerWidth + 1 && rect.top >= -1 && rect.bottom <= innerHeight + 1,
+    };
+  })()`);
+  await wait(520);
+  summaryPerformance.pause_held = await evaluate('document.querySelector("#roundSummary")?.dataset.presentationState === "review-paused"');
   const summaryTarget = await evaluate('document.querySelector("#summaryMilestoneScore")?.textContent?.trim() ?? ""');
+  await accelerateRoundSummary();
+  await wait(320);
+  await capture(`${viewport.name}-summary-final`);
+  const summaryReceipt = await evaluate(`(() => {
+    const wrap = document.querySelector(".receipt-wrap")?.getBoundingClientRect();
+    const stamp = document.querySelector("#summaryGradeStamp");
+    const stampRect = stamp?.getBoundingClientRect();
+    const numeric = [...document.querySelectorAll("#summaryBreakdownList .receipt-line[data-start-value]")];
+    return {
+      numeric_rows: numeric.length,
+      all_started_at_zero: numeric.length > 0 && numeric.every((line) => line.dataset.startValue === "0"),
+      stamp_phase: stamp?.dataset.phase,
+      stamp_inside_receipt: Boolean(wrap && stampRect && stampRect.left >= wrap.left - 1 && stampRect.right <= wrap.right + 1 && stampRect.top >= wrap.top - 1 && stampRect.bottom <= wrap.bottom + 1),
+      distressed_ink: getComputedStyle(stamp, "::after").content !== "none",
+    };
+  })()`);
   await clickElement("#summaryContinueBtn");
   await waitFor('document.querySelector("#cardDraft")?.classList.contains("show") && document.querySelectorAll(".draft-card").length === 3');
   const offerNamesBefore = await evaluate('[...document.querySelectorAll(".draft-card .shop-card-copy strong")].map((node) => node.textContent)');
@@ -708,7 +795,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, summary_target: summaryTarget, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, summary_settings: summarySettings, long_deck_timing: longDeckTiming, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, summary_target: summaryTarget, summary_performance: summaryPerformance, summary_receipt: summaryReceipt, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -766,11 +853,17 @@ const failures = [
     entry.score_stress.score_inside && entry.score_stress.postpone_inside && entry.score_stress.card_inside && entry.score_stress.font_mode === "large" ? null : `${entry.viewport.name}: large-font score/postpone content overflows`,
     entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule && entry.menu.has_score_priority && entry.menu.objective.includes("80 / 200 / 600") ? null : `${entry.viewport.name}: menu rules or milestone targets are incomplete`,
     entry.menu.viewport_cover && entry.menu.top_edge_owned && entry.menu.panel_inside && entry.menu.background_action_blocked ? null : `${entry.viewport.name}: menu layer leaks the background or allows gameplay input`,
+    entry.summary_settings.defaults.pause === "false" && entry.summary_settings.defaults.skip === "false" && entry.summary_settings.defaults.speed === "normal" && entry.summary_settings.defaults.collapsed && entry.summary_settings.collapsed_after && entry.summary_settings.pause === true && entry.summary_settings.speed === "normal" && entry.summary_settings.skip === false && entry.summary_settings.pause_label === "开启" && entry.summary_settings.selected_speed === "normal" ? null : `${entry.viewport.name}: summary settings defaults, collapse, controls, or persistence are invalid`,
+    entry.summary_settings.button_audio ? null : `${entry.viewport.name}: buttons do not produce UI sound feedback`,
+    entry.summary_settings.button_tones >= 3 ? null : `${entry.viewport.name}: button feedback does not rotate through enough tones`,
+    entry.long_deck_timing.before.rapid === false && entry.long_deck_timing.after.rapid === true && entry.long_deck_timing.after.count < entry.long_deck_timing.before.count / 2 ? null : `${entry.viewport.name}: long endless summaries do not accelerate after card 13`,
     entry.menu.forbidden_terms.length ? `${entry.viewport.name}: legacy terms ${entry.menu.forbidden_terms.join(",")}` : null,
     entry.catalog.count === 89 && entry.catalog.effects_present && entry.catalog.effects_inside && entry.catalog.inspectable && entry.catalog.point_rows_horizontal && entry.catalog.standard_selected && entry.catalog.viewport_cover ? null : `${entry.viewport.name}: catalog summaries are clipped, uncovered, or not inspectable`,
     entry.catalog_modes.shop_selected && entry.catalog_modes.shop_summary.includes("商店效果") && entry.catalog_modes.shop_effect.includes("金币") && entry.catalog_modes.standard_effect_changed ? null : `${entry.viewport.name}: catalog shop effect switch is invalid`,
     entry.catalog_detail.effect_visible && entry.catalog_detail.shop_effect_visible && entry.catalog_detail.standard_effect_visible && entry.catalog_detail.standard_selected && entry.catalog_detail.preview_visible && entry.catalog_detail.inside_viewport && entry.catalog_detail.viewport_cover ? null : `${entry.viewport.name}: catalog detail dialog or effect switch is invalid`,
     entry.summary_target.includes("目标 80 分") ? null : `${entry.viewport.name}: first milestone target UI is stale`,
+    entry.summary_performance.state === "review-paused" && entry.summary_performance.pause_held && entry.summary_performance.card_count === entry.summary_performance.expected_count && entry.summary_performance.visible_cards === entry.summary_performance.expected_count && entry.summary_performance.score_labels.every(Boolean) && entry.summary_performance.pixel_background && entry.summary_performance.inside_viewport ? null : `${entry.viewport.name}: scored cards do not remain paused together on the pixel review stage`,
+    entry.summary_receipt.numeric_rows > 0 && entry.summary_receipt.all_started_at_zero && entry.summary_receipt.stamp_phase === "settled" && entry.summary_receipt.stamp_inside_receipt && entry.summary_receipt.distressed_ink ? null : `${entry.viewport.name}: receipt counters or continuous distressed stamp are invalid`,
     entry.draft.offer_count === 3 && entry.draft.reroll_value === "0" && entry.draft.offers_changed ? null : `${entry.viewport.name}: draft reroll failed`,
     entry.draft.equal_actions ? null : `${entry.viewport.name}: draft action buttons are unequal`,
     entry.draft.actions_single_row ? null : `${entry.viewport.name}: draft actions are not kept on one row`,

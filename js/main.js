@@ -45,6 +45,21 @@ let settings = browserPlatform.load_settings();
 let musicEnabled = settings.music;
 let effectsEnabled = settings.effects;
 setBGMTheme(settings.home_theme, { immediate: true });
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("button, summary");
+  if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") return;
+  const enablingEffects = button.id === "effectsToggle" && button.getAttribute("aria-pressed") !== "true";
+  if (!effectsEnabled && !enablingEffects) return;
+  const sound = button.matches(".danger-action, #summaryContinueBtn, #shopContinue, #shopTutorialContinue")
+    ? "ui-confirm"
+    : button.matches("summary, .setting-toggle, [data-font-size], [data-summary-speed], [data-home-theme]")
+      ? "ui-toggle"
+      : "ui-click";
+  void unlockAudio().then(() => {
+    if (effectsEnabled || enablingEffects) playSound(sound, button.matches(".primary-button, .mode-button") ? 2 : 1);
+  });
+}, { capture: true });
 const tutorial = {
   active: false,
   goal_intro_acknowledged: false,
@@ -474,6 +489,9 @@ function presentRoundSummary() {
       saveGame();
       enterCardDraft();
     }
+  }, {
+    onSound: (type, strength = 1) => effectsEnabled && playSound(type, strength),
+    settings,
   });
 }
 
@@ -528,17 +546,19 @@ function completeRound() {
           text: contract.passed ? `已达成 · +${contract.gold_earned} 金币` : "本轮未达成 · 继续保留",
           kind: contract.passed ? "contract-pass" : "contract-pending",
         })),
-        ...(baseGold > 0 ? [{ label: "金币 · 基础吃牌", text: `+${baseGold} 金币`, kind: "gold-detail" }] : []),
+        ...(baseGold > 0 ? [{ label: "金币 · 基础吃牌", text: `+${baseGold} 金币`, kind: "gold-detail", value: baseGold, number_style: "signed-gold" }] : []),
         ...summarizedGoldSources.filter((source) => source.amount > 0).map((source) => ({
           label: `金币 · ${source.kind === "item" ? "道具 · " : source.kind === "card" ? "卡牌 · " : ""}${source.label}`,
           text: `+${source.amount} 金币`,
           kind: "gold-detail",
+          value: source.amount,
+          number_style: "signed-gold",
         })),
-        ...(slowGold > 0 ? [{ label: "金币 · 慢速出餐", text: `+${slowGold} 金币`, kind: "gold-detail" }] : []),
-        ...(speedGold > 0 ? [{ label: `金币 · ${speedGold === 2 ? "8 秒" : "12 秒"}清盘`, text: `+${speedGold} 金币`, kind: "gold-detail" }] : []),
-        { label: "本轮获得金币", text: `+${earnedGold} 金币`, kind: "gold-total" },
+        ...(slowGold > 0 ? [{ label: "金币 · 慢速出餐", text: `+${slowGold} 金币`, kind: "gold-detail", value: slowGold, number_style: "signed-gold" }] : []),
+        ...(speedGold > 0 ? [{ label: `金币 · ${speedGold === 2 ? "8 秒" : "12 秒"}清盘`, text: `+${speedGold} 金币`, kind: "gold-detail", value: speedGold, number_style: "signed-gold" }] : []),
+        { label: "本轮获得金币", text: `+${earnedGold} 金币`, kind: "gold-total", value: earnedGold, number_style: "signed-gold" },
       ]
-      : [{ label: "本轮获得金币", text: `+${earnedGold} 金币`, kind: "gold-total" }];
+      : [{ label: "本轮获得金币", text: `+${earnedGold} 金币`, kind: "gold-total", value: earnedGold, number_style: "signed-gold" }];
     result.breakdown.splice(-1, 0, ...economyLines);
   }
   refreshTable();
@@ -968,6 +988,18 @@ ui.bindMenu({
   onFontSize: (fontSize) => {
     settings = browserPlatform.save_settings({ ...settings, font_size: fontSize });
     ui.applyFontSize(fontSize);
+    ui.renderSettings(settings);
+  },
+  onSummaryPause: (enabled) => {
+    settings = browserPlatform.save_settings({ ...settings, summary_pause: enabled });
+    ui.renderSettings(settings);
+  },
+  onSummarySpeed: (speed) => {
+    settings = browserPlatform.save_settings({ ...settings, summary_speed: speed });
+    ui.renderSettings(settings);
+  },
+  onSummarySkip: (enabled) => {
+    settings = browserPlatform.save_settings({ ...settings, summary_skip: enabled });
     ui.renderSettings(settings);
   },
   onHome: goHome,

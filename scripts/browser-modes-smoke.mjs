@@ -101,6 +101,16 @@ async function finishPlate(actionSelector = "#eatButton") {
   throw new Error("Plate did not finish within the action safety bound.");
 }
 
+async function accelerateRoundSummary() {
+  await waitFor('document.querySelector("#roundSummary")?.classList.contains("show")');
+  for (let index = 0; index < 120; index += 1) {
+    if (await evaluate('document.querySelector("#roundSummary")?.dataset.presentationState === "ready" && !document.querySelector("#summaryContinueBtn")?.disabled')) return;
+    await click("#roundSummary");
+    await wait(28);
+  }
+  throw new Error("Round summary presentation did not reach its ready state.");
+}
+
 function devUrl(viewport) {
   const url = new URL(gameUrl);
   url.searchParams.set("dev", "1");
@@ -178,7 +188,7 @@ for (const viewport of viewports) {
     };
   })()`);
   await finishPlate("#eatButton");
-  await waitFor('document.querySelector("#roundSummary")?.classList.contains("show")');
+  await accelerateRoundSummary();
   const shopSummary = await evaluate(`(() => {
     const lines = [...document.querySelectorAll("#summaryBreakdownList .receipt-line")];
     return {
@@ -251,7 +261,7 @@ for (const viewport of viewports) {
   await capture(`${viewport.name}-contract-status`);
   await click("#ruleStatusClose");
   await finishPlate("#eatButton");
-  await waitFor('document.querySelector("#roundSummary")?.classList.contains("show")');
+  await accelerateRoundSummary();
   const contractSummary = await evaluate(`(() => {
     const lines = [...document.querySelectorAll("#summaryBreakdownList .receipt-line")];
     return {

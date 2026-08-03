@@ -6,7 +6,7 @@ import {
   getPostponeLimit,
 } from "./items.js";
 import { getCardPostponeCount, getCurrentCard, isCardPostponed } from "./round-pile.js";
-import { formatScore } from "./numbers.js";
+import { finiteNumber, formatScore, safeAdd } from "./numbers.js";
 import { getQuestRequirement, getQuestTarget } from "./quests.js";
 import { stripKeywordTags } from "./keywords.js";
 import { createCardPool, getCardById } from "./data.js";
@@ -14,6 +14,13 @@ import { getPlateSummary } from "./plate.js";
 import { getReshuffleStatus } from "./reshuffle.js";
 import { getRuleUnlockRound } from "./rules.js";
 import { getLiveHudValues } from "./live-hud.js";
+import {
+  getRoundGrade,
+  getScoreHeat,
+  getScoreImpact,
+  getSummaryBeatDuration,
+  getSummaryCardTiming,
+} from "./round-presentation.js";
 
 const PHASE_LABELS = Object.freeze({
   Init: "准备中", Playing: "出牌中", Scoring: "结算中", CardDraft: "轮末选牌",
@@ -264,6 +271,50 @@ function draftCardElement(card, onChoose) {
   return button;
 }
 
+function summaryScoreCardElement(entry, mode) {
+  const source = getCardById(entry.card_id, { economy: isShopMode(mode) }) ?? {
+    id: entry.card_id,
+    name: entry.name,
+    type: entry.type,
+    rarity: entry.rarity,
+    edibility: entry.edibility,
+  };
+  const card = { ...source, name: entry.name ?? source.name, type: entry.type ?? source.type };
+  const points = finiteNumber(entry.points);
+  const impact = getScoreImpact(points);
+  const article = document.createElement("article");
+  article.className = `summary-score-card rarity-${RARITY_CLASS[entry.rarity] ?? "common"} action-${entry.action}${points < 0 ? " is-negative" : ""}${entry.wrong_edibility ? " is-hard-eat" : ""}`;
+  article.dataset.impact = String(impact);
+  article.setAttribute("aria-label", `${card.name}，${entry.action === "eat" ? "吃牌" : "弃牌"}，${points >= 0 ? "加" : "减"}${formatScore(Math.abs(points))}分`);
+  const actionLabel = entry.action === "eat" ? "吃牌" : "弃牌";
+  const detail = entry.effect_triggered || (entry.effect_bonus ? `卡牌效果 ${entry.effect_bonus > 0 ? "+" : ""}${formatScore(entry.effect_bonus)}` : "牌面结算");
+  article.title = `${card.name} · ${actionLabel} ${points >= 0 ? "+" : ""}${formatScore(points)} · ${detail}`;
+  const sparks = Array.from({ length: 8 }, (_, index) => `<i style="--spark:${index}"></i>`).join("");
+  article.innerHTML = `
+    <span class="summary-card-sparks" aria-hidden="true">${sparks}</span>
+    <span class="summary-card-frame">
+      <small><b>${entry.action === "eat" ? "↓" : "↑"}</b>${entry.type}</small>
+      <span class="summary-card-art game-sprite" style="${spriteStyle(card)}"></span>
+      <strong>${card.name}</strong>
+      <em>${actionLabel}</em>
+    </span>
+    <b class="summary-card-points">${points >= 0 ? "+" : ""}${formatScore(points)}</b>
+  `;
+  return article;
+}
+
+function formatReceiptAnimatedValue(item, value) {
+  const number = finiteNumber(value);
+  switch (item.number_style) {
+    case "signed-score-unit": return `${number >= 0 ? "+" : ""}${formatScore(number)} 分`;
+    case "signed-score": return `${number >= 0 ? "+" : ""}${formatScore(number)}`;
+    case "score-unit": return `${formatScore(number)} 分`;
+    case "signed-gold": return `${number >= 0 ? "+" : ""}${formatScore(number)} 金币`;
+    case "multiplier": return `×${Number.isInteger(number) ? number : number.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}`;
+    default: return item.text;
+  }
+}
+
 function itemDraftElement(entry, onChoose) {
   const button = document.createElement("button");
   button.className = `item-draft-card item-rarity-${RARITY_CLASS[entry.rarity] ?? "common"}${entry.consumable ? " is-consumable" : ""}`;
@@ -368,7 +419,256 @@ export function createUI(root) {
   let homeRainTimer = null;
   let catalogMode = "standard";
   let catalogActiveCardId = null;
+  let summaryPresentationRun = 0;
+  let summaryAdvance = null;
   const homeRainCards = createCardPool();
+
+  nodes.summary?.addEventListener("pointerdown", (event) => {
+    if (!summaryAdvance || event.target.closest("#summaryContinueBtn")) return;
+    event.preventDefault();
+    summaryAdvance();
+  });
+
+  function waitForSummaryBeat(milliseconds, runId) {
+    if (milliseconds <= 0 || runId !== summaryPresentationRun) return Promise.resolve();
+    return new Promise((resolve) => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        window.clearTimeout(timer);
+        if (summaryAdvance === finish) summaryAdvance = null;
+        resolve();
+      };
+      const timer = window.setTimeout(finish, milliseconds);
+      summaryAdvance = finish;
+    });
+  }
+
+  function waitForSummaryAdvance(runId) {
+    if (runId !== summaryPresentationRun) return Promise.resolve();
+    return new Promise((resolve) => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        if (summaryAdvance === finish) summaryAdvance = null;
+        resolve();
+      };
+      summaryAdvance = finish;
+    });
+  }
+
+  function animateSummaryValue(from, to, milliseconds, runId, onFrame) {
+    const startValue = finiteNumber(from);
+    const endValue = finiteNumber(to);
+    if (milliseconds <= 0 || startValue === endValue || runId !== summaryPresentationRun) {
+      onFrame(endValue);
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      const startedAt = performance.now();
+      let frame = 0;
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        window.cancelAnimationFrame(frame);
+        if (summaryAdvance === finish) summaryAdvance = null;
+        onFrame(endValue);
+        resolve();
+      };
+      const step = (now) => {
+        if (runId !== summaryPresentationRun) {
+          finish();
+          return;
+        }
+        const progress = Math.min(1, (now - startedAt) / milliseconds);
+        const eased = 1 - ((1 - progress) ** 3);
+        onFrame(startValue + (endValue - startValue) * eased);
+        if (progress >= 1) finish();
+        else frame = window.requestAnimationFrame(step);
+      };
+      summaryAdvance = finish;
+      frame = window.requestAnimationFrame(step);
+    });
+  }
+
+  async function playRoundSummaryPresentation(result, state, options, runId) {
+    const performanceStage = get("#summaryPerformance");
+    const receiptStage = get("#summaryReceiptStage");
+    const theater = get("#summaryCardTheater");
+    const liveTotal = get("#summaryLiveTotal");
+    const liveRound = get("#summaryLiveRound");
+    const progress = get("#summaryCardProgress");
+    const progressFill = get("#summaryCardProgressFill");
+    const receiptList = get("#summaryBreakdownList");
+    const receiptScore = get("#summaryReceiptScore");
+    const gradeStage = get("#summaryGradeStage");
+    const gradeStamp = get("#summaryGradeStamp");
+    const performanceSkip = get("#summarySkipHint");
+    const receiptSkip = get("#summaryReceiptSkip");
+    const button = get("#summaryContinueBtn");
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const presentationSettings = options.settings ?? {};
+    const skipAnimations = presentationSettings.summary_skip === true;
+    const pauseOnReview = presentationSettings.summary_pause === true && !skipAnimations;
+    const cards = result.presentation_cards ?? [];
+    const startingTotal = finiteNumber(result.starting_total_score, state.total_score - result.round_score);
+    let runningRound = 0;
+
+    const mobileStage = window.matchMedia?.("(max-width: 720px)")?.matches;
+    const columns = mobileStage
+      ? cards.length <= 6 ? Math.max(1, Math.min(3, cards.length)) : cards.length <= 16 ? 4 : 5
+      : cards.length <= 5 ? Math.max(1, cards.length) : cards.length <= 10 ? 5 : cards.length <= 18 ? 6 : 7;
+
+    performanceStage.hidden = skipAnimations;
+    receiptStage.hidden = !skipAnimations;
+    button.hidden = true;
+    button.disabled = true;
+    receiptList.replaceChildren();
+    gradeStage.hidden = true;
+    gradeStage.classList.remove("is-stamping", "is-settled");
+    gradeStamp.dataset.grade = "c";
+    gradeStamp.dataset.phase = "idle";
+    nodes.summary.dataset.presentationState = "cards";
+    nodes.summary.dataset.presentationSpeed = presentationSettings.summary_speed === "fast" ? "fast" : "normal";
+    nodes.summary.dataset.heat = "0";
+    theater.replaceChildren();
+    theater.classList.remove("is-reviewing");
+    theater.style.setProperty("--summary-columns", String(columns));
+    theater.style.setProperty("--summary-card-basis", `${Math.max(10, (100 / columns) - 1.6)}%`);
+    theater.dataset.cardCount = String(cards.length);
+    setText(liveTotal, formatScore(startingTotal));
+    setText(liveRound, "本轮 +0");
+    setText(progress, `逐牌计分 0 / ${cards.length}`);
+    setText(performanceSkip, "点击任意位置 · 加速当前卡牌");
+    receiptSkip.hidden = false;
+    progressFill?.style.setProperty("width", "0%");
+
+    for (let index = 0; index < cards.length; index += 1) {
+      if (runId !== summaryPresentationRun) return;
+      const entry = cards[index];
+      const timing = getSummaryCardTiming(index, presentationSettings, reducedMotion);
+      const previousRound = runningRound;
+      runningRound = safeAdd(runningRound, entry.points ?? 0);
+      const cardNode = summaryScoreCardElement(entry, state.mode);
+      const previousCard = theater.querySelector(".summary-score-card.is-current");
+      previousCard?.classList.remove("is-current");
+      previousCard?.classList.add("is-settled");
+      cardNode.style.setProperty("--reveal-order", String(index));
+      cardNode.style.setProperty("--summary-card-reveal-duration", `${timing.reveal}ms`);
+      cardNode.style.setProperty("--summary-point-duration", `${Math.max(0, Math.round(timing.reveal * 1.17))}ms`);
+      cardNode.style.setProperty("--summary-spark-duration", `${Math.max(0, Math.round(timing.reveal * 1.08))}ms`);
+      cardNode.classList.toggle("is-rapid", timing.rapid);
+      theater.appendChild(cardNode);
+      void cardNode.offsetWidth;
+      cardNode.classList.add("is-revealed", "is-current");
+      nodes.summary.dataset.heat = String(Math.max(getScoreHeat(runningRound), getScoreImpact(entry.points ?? 0)));
+      setText(progress, `${timing.rapid ? "快速上菜" : "逐牌计分"} ${index + 1} / ${cards.length}`);
+      progressFill?.style.setProperty("width", `${(index + 1) / Math.max(1, cards.length) * 100}%`);
+      if (!skipAnimations) options.onSound?.(entry.points < 0 ? "score-negative" : "score-reveal", Math.max(1, Math.abs(entry.points ?? 0)));
+      await animateSummaryValue(previousRound, runningRound, timing.count, runId, (value) => {
+        const rounded = Math.round(value);
+        setText(liveTotal, formatScore(safeAdd(startingTotal, rounded)));
+        setText(liveRound, `本轮 ${rounded >= 0 ? "+" : ""}${formatScore(rounded)}`);
+      });
+      await waitForSummaryBeat(timing.gap, runId);
+    }
+
+    if (cards.length === 0) {
+      theater.innerHTML = '<div class="summary-no-cards"><b>EMPTY PLATE</b><span>本轮没有可重放的卡牌结算</span></div>';
+      await waitForSummaryBeat(getSummaryBeatDuration(680, presentationSettings, reducedMotion), runId);
+    }
+    if (runId !== summaryPresentationRun) return;
+
+    theater.querySelector(".summary-score-card.is-current")?.classList.add("is-settled");
+    theater.querySelector(".summary-score-card.is-current")?.classList.remove("is-current");
+    theater.classList.add("is-reviewing");
+    nodes.summary.dataset.presentationState = pauseOnReview ? "review-paused" : "review";
+    setText(progress, cards.length > 0 ? `本轮 ${cards.length} 张牌 · 得分一览` : "本轮空餐盘");
+    setText(performanceSkip, pauseOnReview ? "复盘已暂停 · 点击进入详细清单" : "点击任意位置 · 进入详细清单");
+    if (!skipAnimations) options.onSound?.("score-review", Math.max(1, Math.abs(runningRound)));
+    if (pauseOnReview) await waitForSummaryAdvance(runId);
+    else await waitForSummaryBeat(getSummaryBeatDuration(2800, presentationSettings, reducedMotion), runId);
+    if (runId !== summaryPresentationRun) return;
+
+    performanceStage.hidden = true;
+    receiptStage.hidden = false;
+    nodes.summary.dataset.presentationState = "receipt";
+    setText(receiptScore, "+0");
+    let receiptRunningScore = 0;
+
+    for (let index = 0; index < result.breakdown.length; index += 1) {
+      if (runId !== summaryPresentationRun) return;
+      const item = result.breakdown[index];
+      const line = document.createElement("div");
+      line.className = `receipt-line ${item.kind ?? ""}${skipAnimations ? " is-visible" : " is-entering"}`;
+      const label = document.createElement("span");
+      const value = document.createElement("b");
+      label.textContent = item.label;
+      value.textContent = Number.isFinite(item.value)
+        ? formatReceiptAnimatedValue(item, 0)
+        : item.text;
+      line.append(label, value);
+      receiptList.appendChild(line);
+      void line.offsetWidth;
+      if (!skipAnimations) line.classList.add("is-visible");
+      if (!skipAnimations) options.onSound?.("receipt-tick", Math.min(8, index + 1));
+
+      if (Number.isFinite(item.value)) {
+        line.dataset.startValue = "0";
+        const from = 0;
+        const to = item.value;
+        const liveStart = receiptRunningScore;
+        const changesReceiptTotal = item.label === "牌面与效果" || item.kind === "total";
+        const liveEnd = item.label === "牌面与效果" ? to : item.kind === "total" ? result.round_score : liveStart;
+        line.classList.add("is-counting");
+        await animateSummaryValue(from, to, getSummaryBeatDuration(560, presentationSettings, reducedMotion), runId, (animated) => {
+          value.textContent = formatReceiptAnimatedValue(item, animated);
+          if (changesReceiptTotal) {
+            const ratio = to === from ? 1 : (animated - from) / (to - from);
+            const current = liveStart + (liveEnd - liveStart) * Math.max(0, Math.min(1, ratio));
+            setText(receiptScore, `${current >= 0 ? "+" : ""}${formatScore(current)}`);
+          }
+        });
+        line.classList.remove("is-counting");
+        if (changesReceiptTotal) receiptRunningScore = liveEnd;
+      } else {
+        await waitForSummaryBeat(getSummaryBeatDuration(120, presentationSettings, reducedMotion), runId);
+      }
+      await waitForSummaryBeat(getSummaryBeatDuration(45, presentationSettings, reducedMotion), runId);
+    }
+
+    if (runId !== summaryPresentationRun) return;
+    setText(receiptScore, `${result.round_score >= 0 ? "+" : ""}${formatScore(result.round_score)}`);
+    const grade = getRoundGrade(result.round_score);
+    setText(get("#summaryGradeValue"), grade.grade);
+    setText(get("#summaryGradeLabel"), grade.label);
+    gradeStamp.dataset.grade = grade.tone;
+    gradeStage.hidden = false;
+    if (skipAnimations) {
+      gradeStage.classList.add("is-settled");
+      gradeStamp.dataset.phase = "settled";
+    } else {
+      gradeStamp.dataset.phase = "striking";
+      setText(receiptSkip, "点击任意位置 · 快速盖章");
+      void gradeStage.offsetWidth;
+      gradeStage.classList.add("is-stamping");
+      options.onSound?.("grade-stamp", Math.max(1, ["c", "b", "a", "aplus", "s"].indexOf(grade.tone) + 1));
+      await waitForSummaryBeat(getSummaryBeatDuration(820, presentationSettings, reducedMotion), runId);
+      gradeStage.classList.remove("is-stamping");
+      gradeStage.classList.add("is-settled");
+      gradeStamp.dataset.phase = "settled";
+    }
+
+    if (runId !== summaryPresentationRun) return;
+    nodes.summary.dataset.presentationState = "ready";
+    button.hidden = false;
+    button.disabled = false;
+    receiptSkip.hidden = true;
+    summaryAdvance = null;
+  }
 
   function createHomeRainCard(host, card, initial = false) {
     const duration = 7.8 + Math.random() * 5.2;
@@ -1029,7 +1329,7 @@ export function createUI(root) {
       closeCatalogCardDetail();
       nodes.gameMenu?.classList.add("show");
     },
-    bindMenu({ onMusic, onEffects, onFontSize, onHome }) {
+    bindMenu({ onMusic, onEffects, onFontSize, onSummaryPause, onSummarySpeed, onSummarySkip, onHome }) {
       get("#gameMenuClose")?.addEventListener("click", () => {
         nodes.gameMenu?.classList.remove("show");
         if (!menuOpenedFromHome) resumeStoryAfterMenu();
@@ -1040,6 +1340,11 @@ export function createUI(root) {
       root.querySelectorAll("[data-font-size]").forEach((button) => {
         button.addEventListener("click", () => onFontSize(button.dataset.fontSize));
       });
+      get("#summaryPauseToggle")?.addEventListener("click", () => onSummaryPause(get("#summaryPauseToggle")?.getAttribute("aria-pressed") !== "true"));
+      root.querySelectorAll("[data-summary-speed]").forEach((button) => {
+        button.addEventListener("click", () => onSummarySpeed(button.dataset.summarySpeed));
+      });
+      get("#summarySkipToggle")?.addEventListener("click", () => onSummarySkip(get("#summarySkipToggle")?.getAttribute("aria-pressed") !== "true"));
       get("#cardCatalogButton")?.addEventListener("click", () => {
         nodes.gameMenu?.classList.remove("show");
         const filter = get("#catalogTypeFilter");
@@ -1074,14 +1379,21 @@ export function createUI(root) {
         const button = get(selector);
         button?.setAttribute("aria-pressed", String(enabled));
         button?.classList.toggle("is-off", !enabled);
-        const label = button?.querySelector("b");
+        const label = button?.querySelector("[data-setting-state], :scope > b");
         if (label) label.textContent = enabled ? "开启" : "关闭";
       };
       updateToggle("#musicToggle", currentSettings.music !== false);
       updateToggle("#effectsToggle", currentSettings.effects !== false);
+      updateToggle("#summaryPauseToggle", currentSettings.summary_pause === true);
+      updateToggle("#summarySkipToggle", currentSettings.summary_skip === true);
       root.querySelectorAll("[data-font-size]").forEach((button) => {
         button.classList.toggle("is-selected", button.dataset.fontSize === currentSettings.font_size);
         button.setAttribute("aria-pressed", String(button.dataset.fontSize === currentSettings.font_size));
+      });
+      root.querySelectorAll("[data-summary-speed]").forEach((button) => {
+        const selected = button.dataset.summarySpeed === (currentSettings.summary_speed === "fast" ? "fast" : "normal");
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-pressed", String(selected));
       });
     },
     playReshuffleAnimation() {
@@ -1269,7 +1581,9 @@ export function createUI(root) {
       host.appendChild(node);
       window.setTimeout(() => node.remove(), 1650);
     },
-    showRoundSummary(result, state, outcome, onConfirm) {
+    showRoundSummary(result, state, outcome, onConfirm, options = {}) {
+      const runId = ++summaryPresentationRun;
+      summaryAdvance = null;
       const title = get("#summaryTitle");
       const tip = get("#summaryTip");
       const eyebrow = get("#summaryEyebrow");
@@ -1289,7 +1603,7 @@ export function createUI(root) {
         : `累计 ${formatScore(state.total_score)} / 目标 ${formatScore(milestone.target)} 分`);
       get("#summaryMilestoneFill")?.style.setProperty("width", `${milestoneProgress}%`);
 
-      list.innerHTML = result.breakdown.map((item) => `<div class="receipt-line ${item.kind ?? ""}"><span>${item.label}</span><b>${item.text}</b></div>`).join("");
+      list.replaceChildren();
       const unlockPanel = get("#summaryUnlockProgress");
       if (outcome && state.unlock_progress) {
         const progress = state.unlock_progress;
@@ -1330,7 +1644,8 @@ export function createUI(root) {
         button.textContent = `确认结算 · ${nextLabel}`;
         button.classList.remove("danger-action");
       }
-      button.disabled = false;
+      button.hidden = true;
+      button.disabled = true;
       button.onclick = async () => {
         const label = button.textContent;
         button.disabled = true;
@@ -1344,9 +1659,41 @@ export function createUI(root) {
           }
         }
       };
+      nodes.summary.dataset.presentationState = "starting";
+      nodes.summary.dataset.heat = "0";
       nodes.summary.classList.add("show");
+
+      void playRoundSummaryPresentation(result, state, options, runId).catch(() => {
+        if (runId !== summaryPresentationRun) return;
+        get("#summaryPerformance").hidden = true;
+        get("#summaryReceiptStage").hidden = false;
+        list.innerHTML = result.breakdown.map((item) => `<div class="receipt-line ${item.kind ?? ""} is-visible"><span>${item.label}</span><b>${item.text}</b></div>`).join("");
+        const grade = getRoundGrade(result.round_score);
+        setText(get("#summaryReceiptScore"), `${result.round_score >= 0 ? "+" : ""}${formatScore(result.round_score)}`);
+        setText(get("#summaryGradeValue"), grade.grade);
+        setText(get("#summaryGradeLabel"), grade.label);
+        const gradeStage = get("#summaryGradeStage");
+        const gradeStamp = get("#summaryGradeStamp");
+        gradeStamp.dataset.grade = grade.tone;
+        gradeStage.hidden = false;
+        gradeStage.classList.remove("is-stamping");
+        gradeStage.classList.add("is-settled");
+        gradeStamp.dataset.phase = "settled";
+        nodes.summary.dataset.presentationState = "ready";
+        button.hidden = false;
+        button.disabled = false;
+        get("#summaryReceiptSkip").hidden = true;
+        summaryAdvance = null;
+      });
     },
-    hideRoundSummary() { nodes.summary.classList.remove("show"); },
+    hideRoundSummary() {
+      summaryPresentationRun += 1;
+      summaryAdvance?.();
+      summaryAdvance = null;
+      nodes.summary.classList.remove("show");
+      nodes.summary.dataset.presentationState = "idle";
+      nodes.summary.dataset.heat = "0";
+    },
     openCardDraft(state, cards, callbacks) {
       renderHud(state);
       const prepMode = state.mode === GAME_MODES.PREP;
