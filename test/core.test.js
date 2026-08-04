@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { GAME_CONFIG, GAME_MODES, getFinalRound, getNextMilestone, isPlateUpgradeRound } from "../js/config.js";
-import { CARD_LIBRARY, createCardPool, createInitialDeck, createShopCardPool, getCardById } from "../js/data.js";
+import { GAME_CONFIG, GAME_MODES, STANDARD_DIFFICULTY_MAX, getFinalRound, getNextMilestone, getStandardDifficultyConfig, isPlateUpgradeRound } from "../js/config.js";
+import { CARD_LIBRARY, VOID_CARD_ID, createCardPool, createInitialDeck, createShopCardPool, getCardById } from "../js/data.js";
 import { createDraftService } from "../js/draft.js";
 import { createRoundEngine, evaluateRule } from "../js/engine.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "../js/plate.js";
@@ -27,10 +27,19 @@ import { changePermanentCard, multiplyFuturePointChanges } from "../js/permanent
 import { RULE_LIBRARY, addActiveRule, settleActiveRules } from "../js/rules.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
 import {
+  MUTATION_IDS,
+  MUTATION_LIBRARY,
+  createFusionCard,
+  getMutationTaskMultiplier,
+  getRoundDraftPickCount,
+  initializeMutationRun,
+} from "../js/mutations.js";
+import {
   activateCategoryRoundItem,
   applyRoundItemDrawSetup,
   applyRoundItemSetup,
   chooseItem,
+  createItemCatalogPool,
   createItemPool,
   createShopItemPool,
   getItemActionOverrides,
@@ -77,14 +86,14 @@ test("牌堆查询统一区分当前、下一张、剩余顺序与最后一张",
   assert.deepEqual(getRemainingCardsInPlayOrder(state).map((card) => card.id), ["A001", "K001", "F001"]);
 });
 
-test("试验版通常为 15 轮，并在第 5/10/15 轮检查 80/200/600", () => {
+test("标准难度 0 使用 60/180/500，异变沿用教学目标", () => {
   assert.equal(GAME_CONFIG.total_rounds, 15);
   assert.equal(getFinalRound(), 15);
   assert.deepEqual(GAME_CONFIG.milestone_targets, { 5: 80, 10: 200, 15: 600 });
-  assert.deepEqual(getNextMilestone(1), { base_round: 5, round: 5, target: 80, endless: false });
-  assert.deepEqual(getNextMilestone(6), { base_round: 10, round: 10, target: 200, endless: false });
-  assert.deepEqual(getNextMilestone(11), { base_round: 15, round: 15, target: 600, endless: false });
-  assert.deepEqual(getNextMilestone(5, { 5: 1 }), { base_round: 5, round: 6, target: 80, endless: false });
+  assert.deepEqual(getNextMilestone(1), { base_round: 5, round: 5, target: 60, endless: false });
+  assert.deepEqual(getNextMilestone(6), { base_round: 10, round: 10, target: 180, endless: false });
+  assert.deepEqual(getNextMilestone(11), { base_round: 15, round: 15, target: 500, endless: false });
+  assert.deepEqual(getNextMilestone(5, { 5: 1 }), { base_round: 5, round: 6, target: 60, endless: false });
   assert.equal(getFinalRound({ 15: 2 }), 17);
   assert.equal(isPlateUpgradeRound(5), true);
   assert.equal(isPlateUpgradeRound(10), true);
@@ -92,7 +101,71 @@ test("试验版通常为 15 轮，并在第 5/10/15 轮检查 80/200/600", () =>
   assert.equal(isPlateUpgradeRound(4), false);
   assert.equal(getFinalRound({}, GAME_MODES.ENDLESS), Infinity);
   assert.deepEqual(getNextMilestone(16, {}, GAME_MODES.ENDLESS), { base_round: null, round: null, target: 0, endless: true });
-  assert.equal(getNextMilestone(1, {}, GAME_MODES.HARD).target, 96);
+  assert.equal(getNextMilestone(1, {}, GAME_MODES.MUTATION).target, 60);
+});
+
+test("标准难度 0 至 10 的限制按层累计", () => {
+  assert.equal(STANDARD_DIFFICULTY_MAX, 10);
+  assert.deepEqual(getStandardDifficultyConfig(0).targets, { 5: 60, 10: 180, 15: 500 });
+  assert.deepEqual(getStandardDifficultyConfig(1).targets, { 5: 80, 10: 180, 15: 500 });
+  assert.deepEqual(getStandardDifficultyConfig(2).targets, { 5: 80, 10: 180, 15: 600 });
+  assert.deepEqual(getStandardDifficultyConfig(3).targets, { 5: 80, 10: 200, 15: 600 });
+  assert.equal(getStandardDifficultyConfig(4).lower_card_draft_rarity, true);
+  assert.equal(getStandardDifficultyConfig(5).lower_shop_rarity, true);
+  assert.equal(getStandardDifficultyConfig(6).free_round_reroll, false);
+  assert.equal(getStandardDifficultyConfig(7).initial_delete_tokens, 0);
+  assert.deepEqual(getStandardDifficultyConfig(8).targets, { 5: 100, 10: 200, 15: 600 });
+  assert.equal(getStandardDifficultyConfig(9).skip_round_five_plate_upgrade, true);
+  assert.equal(getStandardDifficultyConfig(10).starts_with_void, true);
+
+  const tutorial = createInitialPlayerState({ create_id: nextId, difficulty: 0 });
+  const hardest = createInitialPlayerState({ create_id: nextId, difficulty: 10 });
+  assert.equal(tutorial.delete_tokens, 1);
+  assert.equal(tutorial.free_rerolls, 1);
+  assert.equal(tutorial.deck.length, 7);
+  assert.equal(hardest.delete_tokens, 0);
+  assert.equal(hardest.free_rerolls, 0);
+  assert.equal(hardest.deck.length, 8);
+  assert.equal(hardest.deck.at(-1).id, VOID_CARD_ID);
+  assert.equal(getCardById(VOID_CARD_ID).name, "虚空牌");
+  assert.equal(getCardById(VOID_CARD_ID).eat_points, -1);
+  assert.equal(getCardById(VOID_CARD_ID).discard_points, -1);
+});
+
+test("八种异变分别改写开局、选牌、计分与融合规则", () => {
+  assert.equal(MUTATION_LIBRARY.length, 8);
+
+  const cats = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.MUTATION });
+  initializeMutationRun(cats, MUTATION_IDS.CAT_ARMY, { create_id: nextId, random: () => 0 });
+  assert.ok(cats.deck.every((card) => card.id === "A001"));
+
+  const star = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.MUTATION });
+  initializeMutationRun(star, MUTATION_IDS.START_FROM_STAR, { create_id: nextId, random: () => 0 });
+  assert.deepEqual(star.deck.map((card) => card.id), ["C001"]);
+  assert.equal(getRoundDraftPickCount(star), 2);
+
+  const animals = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.MUTATION });
+  initializeMutationRun(animals, MUTATION_IDS.ANIMAL_FRIENDS, { create_id: nextId, random: () => 0 });
+  animals.phase = GAME_PHASES.CARD_DRAFT;
+  const animalOffers = createDraftService({ random: () => 0, create_id: nextId }).getOffers(animals);
+  assert.ok(animalOffers.every((card) => card.type === "动物"));
+
+  const speed = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.MUTATION });
+  initializeMutationRun(speed, MUTATION_IDS.SPEED_SERVICE, { create_id: nextId, random: () => 0 });
+  assert.ok(speed.items.some((item) => item.id === "C12"));
+  assert.equal(getMutationTaskMultiplier({ difficulty: 5 }), 1.2);
+
+  const feast = createInitialPlayerState({ create_id: nextId, mode: GAME_MODES.MUTATION });
+  initializeMutationRun(feast, MUTATION_IDS.EAT_FEAST, { create_id: nextId, random: () => 0 });
+  const engine = createRoundEngine({ random: () => 0 });
+  assert.equal(engine.recordAction(feast, "eat", owned("K001", "feast-eat")).points, 4);
+  assert.equal(engine.recordAction(feast, "discard", owned("A001", "feast-discard")).points, 0);
+
+  const fused = createFusionCard(getCardById("P002"), getCardById("U003"));
+  assert.equal(fused.eat_points, -4);
+  assert.equal(fused.discard_points, -1);
+  assert.equal(fused.effect.components.length, 2);
+  assert.equal(fused.fusion_parts.length, 2);
 });
 
 test("条约限时经济使用 12 秒与 8 秒两档", () => {
@@ -241,6 +314,20 @@ test("89 张卡保留八类结构与唯一美术，玩家文案不再自动堆�
   }
 });
 
+test("卡牌稀有度按基础收益、成长与规则改写重新分层", () => {
+  const cards = createCardPool();
+  const distribution = Object.fromEntries(["普通", "罕见", "稀有", "传奇"].map((rarity) => [
+    rarity,
+    cards.filter((card) => card.rarity === rarity).length,
+  ]));
+  assert.deepEqual(distribution, { 普通: 24, 罕见: 35, 稀有: 24, 传奇: 6 });
+  assert.equal(CARD_LIBRARY.K001.rarity, "普通");
+  assert.equal(CARD_LIBRARY.K004.rarity, "普通", "巨无霸只是高基础点数与自我转换，不应占用稀有位");
+  assert.equal(CARD_LIBRARY.K008.rarity, "稀有", "能翻倍剩余快餐点数变化的三明治应属于构筑核心");
+  assert.equal(CARD_LIBRARY.C008.rarity, "传奇", "延后里程碑属于改变整局规则的效果");
+  assert.equal(CARD_LIBRARY.U002.rarity, "传奇", "整类点数转移并无限成长属于改变流派的效果");
+});
+
 test("普通卡池保持轻量，经济效果只在商店卡池回归", () => {
   const cards = createCardPool();
   const forbidden = /金币|商店|价格|计时|限时|合约/;
@@ -279,6 +366,31 @@ test("新道具池包含 32 件命名道具、四档稀有度与定向候选", (
   assert.equal(new Set(offers.map((entry) => entry.id)).size, 3);
   assert.equal(offers[1].bridge, true);
   assert.equal(offers[2].wild, true);
+});
+
+test("道具图鉴独立列出全部常规、一次性与商店经济道具", () => {
+  const catalog = createItemCatalogPool();
+  assert.equal(catalog.length, 39);
+  assert.equal(new Set(catalog.map((item) => item.id)).size, 39);
+  assert.equal(catalog.filter((item) => item.catalog_group === "consumable").length, 10);
+  assert.equal(catalog.filter((item) => item.catalog_group === "standard").length, 22);
+  assert.equal(catalog.filter((item) => item.catalog_group === "economy").length, 7);
+  assert.ok(catalog.every((item) => item.name && item.rarity && item.role && item.description));
+  assert.ok(catalog.every((item) => item.icon_file === `item-sprites/v024/${item.id.toLowerCase()}.png`));
+});
+
+test("道具稀有度区分一次性资源、稳定引擎与规则改写", () => {
+  const catalog = createItemCatalogPool();
+  const distribution = Object.fromEntries(["普通", "罕见", "稀有", "传奇"].map((rarity) => [
+    rarity,
+    catalog.filter((item) => item.rarity === rarity).length,
+  ]));
+  assert.deepEqual(distribution, { 普通: 14, 罕见: 9, 稀有: 13, 传奇: 3 });
+  const byId = Object.fromEntries(catalog.map((item) => [item.id, item]));
+  assert.equal(byId.C3.rarity, "普通");
+  assert.equal(byId.C14.rarity, "稀有", "额外后置一次不再等同于无限后置的传奇强度");
+  assert.equal(byId.C15.rarity, "传奇", "每次摧毁稳定转化为高分临时牌属于整局核心引擎");
+  assert.equal(byId.E104.rarity, "稀有");
 });
 
 test("一次性选牌券、刷新硬币与类别通行证会立即进入各自结算", () => {
@@ -918,18 +1030,18 @@ test("目标按有效轮次检查，并允许引力井延后", () => {
   const engine = createRoundEngine();
   const state = createInitialPlayerState({ create_id: nextId });
   state.current_round = 5;
-  state.total_score = 79;
-  assert.deepEqual(engine.levelProgressCheck(state), { passed: false, target: 80, base_round: 5 });
-  state.total_score = 80;
-  assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 80, base_round: 5 });
+  state.total_score = 59;
+  assert.deepEqual(engine.levelProgressCheck(state), { passed: false, target: 60, base_round: 5 });
+  state.total_score = 60;
+  assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 60, base_round: 5 });
   state.current_round = 6;
   assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 0, base_round: null });
   state.milestone_delays = { 5: 1 };
   state.current_round = 5;
   assert.deepEqual(engine.levelProgressCheck(state), { passed: true, target: 0, base_round: null });
   state.current_round = 6;
-  state.total_score = 79;
-  assert.deepEqual(engine.levelProgressCheck(state), { passed: false, target: 80, base_round: 5 });
+  state.total_score = 59;
+  assert.deepEqual(engine.levelProgressCheck(state), { passed: false, target: 60, base_round: 5 });
 });
 
 test("引力井弃置后摧毁自身并把下一目标延后一轮", () => {
@@ -962,7 +1074,8 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(html, /id="storyGestureLegend"/);
   assert.match(main, /createShopService|randomDraftRules|settleActiveRules|tickTimer/);
   assert.match(main, /这局最重要的事：拿分/);
-  assert.match(main, /第 5 轮 80 分，第 10 轮 200 分，第 15 轮 600 分/);
+  assert.match(main, /const targets = getStandardDifficultyConfig\(state\.difficulty\)\.targets/);
+  assert.match(main, /第 5 轮 \$\{targets\[5\]\} 分，第 10 轮 \$\{targets\[10\]\} 分，第 15 轮 \$\{targets\[15\]\} 分/);
   assert.match(main, /const tutorialProgress = \(current\) => \(\{ current, total: 8 \}\)/);
   assert.match(main, /progress\.progress >= 0\.16/);
   assert.match(gesture, /config\.canCommit/);
@@ -1200,14 +1313,14 @@ test("解锁进度按完成局数、任意通关与商店通关分别累计", ()
   assert.equal(browserPlatform.get_unlocks().random_start, false);
   browserPlatform.record_run_progress({ outcome: "defeat", mode: GAME_MODES.NORMAL });
   assert.equal(browserPlatform.get_unlocks().random_start, true);
-  browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.HARD });
+  browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.MUTATION });
   assert.equal(browserPlatform.get_unlocks().prep, true);
   assert.equal(browserPlatform.get_unlocks().shop, true);
   browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.SHOP });
   assert.equal(browserPlatform.get_unlocks().contract_shop, true);
   browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.ENDLESS });
   assert.equal(browserPlatform.get_unlocks().god, true);
-  assert.deepEqual(browserPlatform.load_progression().mode_victories, { hard: 1, shop: 1, endless: 1 });
+  assert.deepEqual(browserPlatform.load_progression().mode_victories, { mutation: 1, shop: 1, endless: 1 });
   const settings = browserPlatform.save_settings({ home_theme: "day", random_start: true, summary_pause: true, summary_speed: "fast", summary_skip: true });
   assert.equal(settings.home_theme, "day");
   assert.equal(settings.summary_pause, true);
@@ -1215,6 +1328,31 @@ test("解锁进度按完成局数、任意通关与商店通关分别累计", ()
   assert.equal(settings.summary_skip, true);
   assert.equal(browserPlatform.load_settings().home_theme, "day");
   assert.equal(browserPlatform.load_settings().summary_speed, "fast");
+  delete globalThis.localStorage;
+});
+
+test("标准难度必须依次通关上一层，难度 10 通关后保持封顶", () => {
+  const values = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+
+  assert.equal(browserPlatform.get_unlocks().normal_difficulty_max, 0);
+  browserPlatform.record_run_progress({ outcome: "defeat", mode: GAME_MODES.NORMAL, difficulty: 2 });
+  assert.equal(browserPlatform.get_unlocks().normal_difficulty_max, 0, "越级通关不能跳过前置难度");
+
+  for (let difficulty = 0; difficulty < STANDARD_DIFFICULTY_MAX; difficulty += 1) {
+    assert.equal(browserPlatform.get_unlocks().normal_difficulty_max, difficulty);
+    browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.NORMAL, difficulty });
+    assert.equal(browserPlatform.get_unlocks().normal_difficulty_max, difficulty + 1);
+  }
+
+  browserPlatform.record_run_progress({ outcome: "victory", mode: GAME_MODES.NORMAL, difficulty: STANDARD_DIFFICULTY_MAX });
+  const progress = browserPlatform.load_progression();
+  assert.equal(browserPlatform.get_unlocks().normal_difficulty_max, STANDARD_DIFFICULTY_MAX);
+  assert.equal(progress.normal_difficulty_victories[STANDARD_DIFFICULTY_MAX], 1);
   delete globalThis.localStorage;
 });
 
@@ -1272,7 +1410,7 @@ test("统计档案持久化且旧纪录迁移时忽略无尽模式", () => {
   };
   values.set("cardeater.run-history.v1", JSON.stringify([
     { outcome: "victory", mode: GAME_MODES.NORMAL, score: 600 },
-    { outcome: "defeat", mode: GAME_MODES.HARD, score: 70 },
+    { outcome: "defeat", mode: "hard", score: 70 },
     { outcome: "victory", mode: GAME_MODES.ENDLESS, score: 1_000_000 },
   ]));
   const legacy = browserPlatform.load_statistics();

@@ -1,4 +1,4 @@
-import { GAME_CONFIG, GAME_MODES } from "./config.js";
+import { GAME_CONFIG, GAME_MODES, getStandardDifficultyConfig } from "./config.js";
 import { createShopCardPool, getCardById } from "./data.js";
 import { addItem, createShopItemPool, getItemById } from "./items.js";
 import { getRarityPrice, getShopWeight, RARITY_MODEL } from "./balance.js";
@@ -10,8 +10,8 @@ export const RARITY_PRICE = Object.freeze(Object.fromEntries(
   Object.entries(RARITY_MODEL).map(([rarity, model]) => [rarity, model.price]),
 ));
 
-function takeWeighted(pool, round, random, rareBonus = 0) {
-  const weights = pool.map((card) => getShopWeight(card, round) * (card.rarity === "稀有" ? 1 + rareBonus : 1));
+function takeWeighted(pool, round, random, rareBonus = 0, loweredRarity = false) {
+  const weights = pool.map((card) => getShopWeight(card, round, loweredRarity) * (card.rarity === "稀有" ? 1 + rareBonus : 1));
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   if (total <= 0) return pool.splice(0, 1)[0];
 
@@ -19,6 +19,18 @@ function takeWeighted(pool, round, random, rareBonus = 0) {
   for (let index = 0; index < pool.length; index += 1) {
     roll -= weights[index];
     if (roll < 0) return pool.splice(index, 1)[0];
+  }
+  return pool.pop();
+}
+
+function takeShopItem(pool, random, loweredRarity = false) {
+  if (!loweredRarity) return pool.splice(Math.floor(random() * pool.length), 1)[0];
+  const rarityWeights = { "普通": 20, "罕见": 5, "稀有": 1, "传奇": 0.2 };
+  const total = pool.reduce((sum, item) => sum + (rarityWeights[item.rarity] ?? 1), 0);
+  let roll = random() * total;
+  for (let index = 0; index < pool.length; index += 1) {
+    roll -= rarityWeights[pool[index].rarity] ?? 1;
+    if (roll <= 0) return pool.splice(index, 1)[0];
   }
   return pool.pop();
 }
@@ -59,8 +71,9 @@ export function createShopService(options = {}) {
   function getShopCards(state) {
     const pool = getEligibleCardPool(state);
     const offers = [];
+    const loweredRarity = getStandardDifficultyConfig(state.difficulty).lower_shop_rarity;
     while (offers.length < GAME_CONFIG.shop_offer_count && pool.length > 0) {
-      offers.push(takeWeighted(pool, state.current_round, random, state.rare_shop_weight_bonus ?? 0));
+      offers.push(takeWeighted(pool, state.current_round, random, state.rare_shop_weight_bonus ?? 0, loweredRarity));
     }
     return repriceShopCards(state, offers);
   }
@@ -90,7 +103,7 @@ export function createShopService(options = {}) {
     const candidates = [...selected.cards];
     const cards = [];
     while (cards.length < GAME_CONFIG.shop_offer_count && candidates.length > 0) {
-      cards.push(takeWeighted(candidates, state.current_round, random, state.rare_shop_weight_bonus ?? 0));
+      cards.push(takeWeighted(candidates, state.current_round, random, state.rare_shop_weight_bonus ?? 0, getStandardDifficultyConfig(state.difficulty).lower_shop_rarity));
     }
     return { type: selected.type, cards: repriceShopCards(state, cards) };
   }
@@ -103,8 +116,9 @@ export function createShopService(options = {}) {
       && !state.pending_rewards?.some((reward) => reward.item_id === entry.id)
     ));
     const offers = [];
+    const loweredRarity = getStandardDifficultyConfig(state.difficulty).lower_shop_rarity;
     while (offers.length < GAME_CONFIG.shop_item_offer_count && pool.length > 0) {
-      offers.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
+      offers.push(takeShopItem(pool, random, loweredRarity));
     }
     return offers.map((entry) => ({
       ...entry,

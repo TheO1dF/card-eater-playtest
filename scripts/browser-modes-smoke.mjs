@@ -150,11 +150,43 @@ for (const viewport of viewports) {
   const developer = await evaluate(`(() => ({
     enabled: document.documentElement.dataset.developerMode === "true",
     notice: !document.querySelector("#developerModeNotice")?.hidden,
-    all_modes: ["#prepModeButton", "#shopModeButton", "#contractShopModeButton", "#endlessModeButton", "#hardModeButton"].every((selector) => !document.querySelector(selector)?.disabled),
+    all_modes: ["#prepModeButton", "#shopModeButton", "#contractShopModeButton", "#endlessModeButton", "#mutationModeButton"].every((selector) => !document.querySelector(selector)?.disabled),
     unlocked_sigils: document.querySelectorAll("#homeModeSigils .is-unlocked").length,
     cleared_sigils: document.querySelectorAll("#homeModeSigils .is-cleared").length,
     god_hidden: document.querySelector("#godBadge")?.hidden,
   }))()`);
+
+  await click("#mutationModeButton");
+  await waitFor('document.querySelector("#mutationSelect")?.classList.contains("show") && document.querySelectorAll(".mutation-select-option").length === 8');
+  const mutationSelect = await evaluate(`(() => {
+    const panel = document.querySelector("#mutationSelect .modal-panel")?.getBoundingClientRect();
+    return {
+      count: document.querySelectorAll(".mutation-select-option").length,
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+    };
+  })()`);
+  await capture(`${viewport.name}-mutation-select`);
+  await click('[data-mutation-id="darkness"]');
+  const mutationShuffle = await inspectShuffle();
+  await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中"', 18000);
+  const mutationPlaying = await evaluate(`(() => ({
+    rule_button_visible: !document.querySelector("#ruleInfoButton")?.hidden,
+    rule_button_label: document.querySelector("#ruleInfoButton")?.textContent,
+    face_down_cards: document.querySelectorAll("#cardStack .game-card.is-fogged").length,
+    visible_cards: document.querySelectorAll("#cardStack .game-card:not(.is-stack-hidden)").length,
+  }))()`);
+  await click("#ruleInfoButton");
+  await waitFor('document.querySelector("#ruleStatus")?.classList.contains("show")');
+  const mutationStatus = await evaluate(`(() => ({
+    title: document.querySelector("#ruleStatusTitle")?.textContent,
+    summary: document.querySelector("#ruleStatusSummary")?.textContent?.replace(/\\s+/g, " ").trim(),
+  }))()`);
+  await capture(`${viewport.name}-mutation-darkness`);
+
+  await evaluate('localStorage.removeItem("cardeater.active-run.v2")');
+  await send("Page.reload", { ignoreCache: true });
+  await waitFor('typeof document.querySelector("#newGameButton")?.onclick === "function"');
+  await click("#newGameButton");
 
   await click("#shopModeButton");
   await waitFor('document.querySelector("#shopTutorial")?.classList.contains("show")');
@@ -273,7 +305,7 @@ for (const viewport of viewports) {
   })()`);
   await wait(220);
   await capture(`${viewport.name}-contract-summary`);
-  reports.push({ viewport, developer, shop_tutorial: shopTutorial, shop_shuffle: shopShuffle, shop_playing: shopPlaying, shop_summary: shopSummary, shop, restored_offers: restoredOffers, contract_shuffle: contractShuffle, contract, contract_status: contractStatus, contract_summary: contractSummary });
+  reports.push({ viewport, developer, mutation_select: mutationSelect, mutation_shuffle: mutationShuffle, mutation_playing: mutationPlaying, mutation_status: mutationStatus, shop_tutorial: shopTutorial, shop_shuffle: shopShuffle, shop_playing: shopPlaying, shop_summary: shopSummary, shop, restored_offers: restoredOffers, contract_shuffle: contractShuffle, contract, contract_status: contractStatus, contract_summary: contractSummary });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -284,6 +316,10 @@ const failures = [
   ...browserErrors,
   ...reports.flatMap((entry) => [
     entry.developer.enabled && entry.developer.notice && entry.developer.all_modes && entry.developer.unlocked_sigils === 6 && entry.developer.cleared_sigils === 0 && entry.developer.god_hidden ? null : `${entry.viewport.name}: local developer mode did not distinguish unlocks from clears`,
+    entry.mutation_select.count === 8 && entry.mutation_select.inside_viewport ? null : `${entry.viewport.name}: developer mutation selector is incomplete or outside viewport`,
+    entry.mutation_shuffle.card_count >= 1 && entry.mutation_shuffle.visible_cards === entry.mutation_shuffle.card_count ? null : `${entry.viewport.name}: mutation shuffle is missing`,
+    entry.mutation_playing.rule_button_visible && entry.mutation_playing.rule_button_label === "异" && entry.mutation_playing.face_down_cards >= entry.mutation_playing.visible_cards ? null : `${entry.viewport.name}: darkness mutation did not conceal every visible card`,
+    entry.mutation_status.title === "不见光明" && entry.mutation_status.summary.includes("卡背朝上") ? null : `${entry.viewport.name}: active mutation is not viewable during play`,
     entry.shop_tutorial.steps === 4 && entry.shop_tutorial.explains_base_gold && entry.shop_tutorial.explains_no_duplicate && entry.shop_tutorial.mentions_catalog_switch && entry.shop_tutorial.minimum_copy_size >= 10 && entry.shop_tutorial.inside_viewport && !entry.shop_tutorial.horizontal_overflow ? null : `${entry.viewport.name}: shop tutorial is unclear, too small, or outside viewport`,
     entry.shop_shuffle.card_count >= 4 && entry.shop_shuffle.visible_cards === entry.shop_shuffle.card_count && entry.shop_shuffle.animation_name === "shuffleDeckSettle" && entry.shop_shuffle.card_animations.includes("riffleShuffleCard") && entry.shop_shuffle.split_directions === 2 && entry.shop_shuffle.stack_above_layer ? null : `${entry.viewport.name}: shop shuffle animation is missing`,
     entry.shop_playing.resource === "金币" && entry.shop_playing.timer_hidden ? null : `${entry.viewport.name}: shop HUD is invalid`,

@@ -172,6 +172,22 @@ for (const viewport of selectedViewports) {
   await clickElement("#newGameButton");
   await waitFor('!document.querySelector("#modeChooser")?.hidden');
   await clickElement("#normalModeButton");
+  await waitFor('document.querySelector("#normalDifficultySelect")?.classList.contains("show") && document.querySelectorAll("#normalDifficultyList .difficulty-option").length === 11');
+  await wait(220);
+  const difficultySelect = await evaluate(`(() => {
+    const panel = document.querySelector("#normalDifficultySelect .difficulty-select-panel")?.getBoundingClientRect();
+    const choices = [...document.querySelectorAll("#normalDifficultyList .difficulty-option")];
+    return {
+      count: choices.length,
+      enabled: choices.filter((button) => !button.disabled).map((button) => Number(button.dataset.difficultyLevel)),
+      locked: choices.filter((button) => button.disabled).length,
+      cumulative_copy: document.querySelector("#normalDifficultyLead")?.textContent?.includes("逐层累计") ?? false,
+      topmost: Boolean(panel && document.elementFromPoint(panel.left + panel.width / 2, panel.top + Math.min(70, panel.height / 2))?.closest("#normalDifficultySelect")),
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+    };
+  })()`);
+  await capture(`${viewport.name}-difficulty-select`);
+  await clickElement('[data-difficulty-level="0"]');
   await waitFor('document.querySelector("#storyGuide")?.dataset.step === "goal" && !document.querySelector("#storyGuide")?.hidden', 12000);
   await wait(320);
   const tutorialGoal = await evaluate(`(() => {
@@ -265,7 +281,7 @@ for (const viewport of selectedViewports) {
       sigil_actions_gap: sigils && actions[0] ? actions[0].getBoundingClientRect().top - sigils.bottom : -1,
       panel_border: parseFloat(getComputedStyle(document.querySelector(".home-panel")).borderTopWidth),
       shell_border: parseFloat(getComputedStyle(document.querySelector(".game-shell")).borderTopWidth),
-      modes_locked: ["#endlessModeButton", "#hardModeButton"].every((selector) => document.querySelector(selector)?.disabled),
+      modes_locked: ["#endlessModeButton", "#mutationModeButton"].every((selector) => document.querySelector(selector)?.disabled),
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
       horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     };
@@ -407,7 +423,7 @@ for (const viewport of selectedViewports) {
   const nightThemeAudio = await evaluate(`import("./js/audio.js").then(({ getAudioStatus }) => getAudioStatus())`);
   const homeThemeAudio = { day: dayThemeAudio, night: nightThemeAudio };
 
-  await evaluate(`localStorage.setItem("cardeater.progression.v1", JSON.stringify({ runs_played: 8, victories: 6, shop_victories: 1, endless_victories: 1, god: true, mode_victories: { normal: 1, prep: 1, shop: 1, contract_shop: 1, hard: 1, endless: 1 } }))`);
+  await evaluate(`localStorage.setItem("cardeater.progression.v1", JSON.stringify({ runs_played: 8, victories: 6, shop_victories: 1, endless_victories: 1, god: true, mode_victories: { normal: 1, prep: 1, shop: 1, contract_shop: 1, mutation: 1, endless: 1 } }))`);
   await send("Page.reload", { ignoreCache: true });
   await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
   const homeProgression = await evaluate(`(() => ({
@@ -439,7 +455,7 @@ for (const viewport of selectedViewports) {
   await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
   const unlock = await evaluate(`(() => ({
     endless_enabled: !document.querySelector("#endlessModeButton")?.disabled,
-    hard_enabled: !document.querySelector("#hardModeButton")?.disabled,
+    mutation_enabled: !document.querySelector("#mutationModeButton")?.disabled,
   }))()`);
   await evaluate('localStorage.removeItem("cardeater.run-history.v1")');
   await send("Page.reload", { ignoreCache: true });
@@ -449,6 +465,8 @@ for (const viewport of selectedViewports) {
   await waitFor('!document.querySelector("#modeChooser")?.hidden');
   await capture(`${viewport.name}-mode-select`);
   await clickElement("#normalModeButton");
+  await waitFor('document.querySelector("#normalDifficultySelect")?.classList.contains("show")');
+  await clickElement('[data-difficulty-level="0"]');
   await waitFor('getComputedStyle(document.querySelector("#cardStack")).animationName === "shuffleDeckSettle"');
   await wait(320);
   await capture(`${viewport.name}-deal`);
@@ -625,6 +643,43 @@ for (const viewport of selectedViewports) {
   await waitFor('document.querySelector("#cardCatalog")?.classList.contains("show") && !document.querySelector("#catalogCardDetail")?.classList.contains("show")');
   await clickElement("#cardCatalogClose");
   await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
+  await clickElement("#itemCatalogButton");
+  await waitFor('document.querySelector("#itemCatalog")?.classList.contains("show") && document.querySelectorAll("#itemCatalogList .item-catalog-card").length === 39');
+  await wait(220);
+  await capture(`${viewport.name}-item-catalog`);
+  const itemCatalog = await evaluate(`(() => {
+    const cards = [...document.querySelectorAll("#itemCatalogList .item-catalog-card")];
+    const panel = document.querySelector("#itemCatalog .catalog-panel")?.getBoundingClientRect();
+    return {
+      count: cards.length,
+      effects_visible: cards.slice(0, 12).every((card) => (card.querySelector(".item-catalog-copy em")?.textContent?.trim()?.length ?? 0) > 0),
+      named_icons: cards.every((card) => Boolean(card.dataset.itemId && card.querySelector(".meta-sprite"))),
+      replacement_art: cards.every((card) => getComputedStyle(card.querySelector(".meta-sprite")).backgroundImage.includes("item-sprites/v024")),
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+      viewport_cover: (() => { const rect = document.querySelector("#itemCatalog")?.getBoundingClientRect(); return Boolean(rect && rect.left <= .5 && rect.top <= .5 && rect.right >= innerWidth - .5 && rect.bottom >= innerHeight - .5); })(),
+    };
+  })()`);
+  await clickElement('#itemCatalogList [data-item-id="E101"]');
+  await waitFor('document.querySelector("#itemCatalogDetail")?.classList.contains("show") && document.querySelector("#itemCatalogDetailCopy")?.textContent.includes("商店道具")');
+  await wait(180);
+  await capture(`${viewport.name}-item-catalog-detail`);
+  itemCatalog.detail = await evaluate(`(() => {
+    const panel = document.querySelector("#itemCatalogDetail .catalog-detail-panel")?.getBoundingClientRect();
+    return {
+      title: document.querySelector("#itemCatalogDetailTitle")?.textContent,
+      effect: document.querySelector("#itemCatalogDetailCopy section p")?.textContent,
+      acquisition: document.querySelector("#itemCatalogDetailCopy .item-catalog-source p")?.textContent,
+      icon_visible: Boolean(document.querySelector("#itemCatalogDetailArt .meta-sprite")?.getBoundingClientRect().width),
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+    };
+  })()`);
+  await clickElement("#itemCatalogDetailClose");
+  await waitFor('document.querySelector("#itemCatalog")?.classList.contains("show") && !document.querySelector("#itemCatalogDetail")?.classList.contains("show")');
+  await evaluate('document.querySelector("#itemCatalogGroupFilter").value = "economy"; document.querySelector("#itemCatalogGroupFilter").dispatchEvent(new Event("change", { bubbles: true }))');
+  await waitFor('document.querySelectorAll("#itemCatalogList .item-catalog-card").length === 7');
+  itemCatalog.economy_count = await evaluate('document.querySelectorAll("#itemCatalogList .item-catalog-card").length');
+  await clickElement("#itemCatalogClose");
+  await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
   await clickElement("#gameMenuClose");
 
   const scoreStress = await evaluate(`(() => {
@@ -709,6 +764,26 @@ for (const viewport of selectedViewports) {
   await waitFor('document.querySelector("#draftRerollValue")?.textContent === "0"');
   await wait(180);
   await capture(`${viewport.name}-draft-rerolled`);
+  const draftOffersBeforeItemReference = await evaluate('[...document.querySelectorAll("#cardDraftList .draft-card .shop-card-copy strong")].map((node) => node.textContent)');
+  await clickElement("#draftViewItems");
+  await waitFor('document.querySelector("#itemStatus")?.classList.contains("show") && document.querySelector("#cardDraft")?.getAttribute("aria-hidden") === "true"');
+  await wait(180);
+  await capture(`${viewport.name}-draft-owned-items`);
+  const draftItemReference = await evaluate(`(() => {
+    const panel = document.querySelector("#itemStatus .collection-status-panel")?.getBoundingClientRect();
+    return {
+      shown: document.querySelector("#itemStatus")?.classList.contains("show"),
+      title: document.querySelector("#itemStatusTitle")?.textContent?.trim(),
+      count: document.querySelector("#draftItemCount")?.textContent?.trim(),
+      close_label: document.querySelector("#itemStatusClose")?.textContent?.trim(),
+      draft_hidden_from_accessibility: document.querySelector("#cardDraft")?.getAttribute("aria-hidden") === "true",
+      above_draft: Number(getComputedStyle(document.querySelector("#itemStatus")).zIndex) > Number(getComputedStyle(document.querySelector("#cardDraft")).zIndex),
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+    };
+  })()`);
+  await clickElement("#itemStatusClose");
+  await waitFor('!document.querySelector("#itemStatus")?.classList.contains("show") && document.querySelector("#cardDraft")?.classList.contains("show") && document.querySelector("#cardDraft")?.getAttribute("aria-hidden") !== "true"');
+  draftItemReference.offers_preserved = JSON.stringify(draftOffersBeforeItemReference) === JSON.stringify(await evaluate('[...document.querySelectorAll("#cardDraftList .draft-card .shop-card-copy strong")].map((node) => node.textContent)'));
   const draft = await evaluate(`(() => {
     const panel = document.querySelector(".draft-reward-panel")?.getBoundingClientRect();
     const panelElement = document.querySelector(".draft-reward-panel");
@@ -740,10 +815,12 @@ for (const viewport of selectedViewports) {
       grid_scroll_free: Boolean(grid && grid.scrollHeight <= grid.clientHeight + 1),
       card_content_fits: cards.every((card) => card.scrollWidth <= card.clientWidth + 1 && card.scrollHeight <= card.clientHeight + 1),
       compact_height: Boolean(panel && panel.height <= innerHeight * .86),
+      prep_slot_removed: Boolean(document.querySelector("#prepSlotPreview")?.hidden && document.querySelector("#prepSlotPreview")?.childElementCount === 0),
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
     };
   })()`);
   draft.offers_changed = JSON.stringify(offerNamesBefore) !== JSON.stringify(draft.offer_names);
+  draft.item_reference = draftItemReference;
 
   await evaluate('document.querySelector("#deleteConfirm").classList.add("show")');
   const deleteLayout = await evaluate(`(() => {
@@ -791,11 +868,26 @@ for (const viewport of selectedViewports) {
       card_choice_id: [...document.querySelectorAll(".item-draft-card")].find((card) => /^A[1-8]$/.test(card.dataset.itemId))?.dataset.itemId ?? null,
       has_category_choice: Boolean(document.querySelector('.item-draft-card[data-item-id="C19"]')),
       has_persistent: Boolean(document.querySelector(".item-draft-card:not(.is-consumable)")),
+      new_art: [...document.querySelectorAll(".item-draft-icon")].every((icon) => getComputedStyle(icon).backgroundImage.includes("item-sprites/v024")),
     };
   })()`);
+  await clickElement(".item-draft-card");
+  await waitFor('document.querySelector("#itemCatalogDetail")?.classList.contains("show") && !document.querySelector("#itemCatalogDetailChoose")?.hidden');
+  await wait(160);
+  await capture(`${viewport.name}-item-draft-detail`);
+  itemDraft.inspect_detail = await evaluate(`(() => ({
+    return_label: document.querySelector("#itemCatalogDetailClose")?.textContent,
+    choose_label: document.querySelector("#itemCatalogDetailChoose")?.textContent,
+    source_hidden: document.querySelector("#itemDraft")?.getAttribute("aria-hidden") === "true",
+    image: getComputedStyle(document.querySelector("#itemCatalogDetailArt .meta-sprite")).backgroundImage,
+  }))()`);
+  await clickElement("#itemCatalogDetailClose");
+  await waitFor('document.querySelector("#itemDraft")?.classList.contains("show") && !document.querySelector("#itemCatalogDetail")?.classList.contains("show")');
   let itemChoice = { shown: false };
   if (itemDraft.card_choice_id) {
     await clickElement(`.item-draft-card[data-item-id="${itemDraft.card_choice_id}"]`);
+    await waitFor('document.querySelector("#itemCatalogDetail")?.classList.contains("show") && !document.querySelector("#itemCatalogDetailChoose")?.hidden');
+    await clickElement("#itemCatalogDetailChoose");
     await waitFor('document.querySelector("#itemCardChoice")?.classList.contains("show") && document.querySelectorAll("#itemCardChoice .draft-card").length === 3');
     await wait(180);
     await capture(`${viewport.name}-item-card-choice`);
@@ -817,10 +909,14 @@ for (const viewport of selectedViewports) {
     await clickElement("#itemCardChoice .draft-card");
   } else if (itemDraft.has_category_choice) {
     await clickElement('.item-draft-card[data-item-id="C19"]');
+    await waitFor('document.querySelector("#itemCatalogDetail")?.classList.contains("show") && !document.querySelector("#itemCatalogDetailChoose")?.hidden');
+    await clickElement("#itemCatalogDetailChoose");
     await waitFor('document.querySelector("#itemCategoryChoice")?.classList.contains("show") && document.querySelectorAll("#itemCategoryChoice .item-category-button").length >= 1');
     await clickElement("#itemCategoryChoice .item-category-button");
   } else {
     await clickElement(itemDraft.has_persistent ? ".item-draft-card:not(.is-consumable)" : ".item-draft-card");
+    await waitFor('document.querySelector("#itemCatalogDetail")?.classList.contains("show") && !document.querySelector("#itemCatalogDetailChoose")?.hidden');
+    await clickElement("#itemCatalogDetailChoose");
   }
   await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === "4/15"', 12000);
   const nextRound = await evaluate(`(() => ({
@@ -842,7 +938,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_statistics: homeStatistics, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, summary_settings: summarySettings, long_deck_timing: longDeckTiming, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, summary_target: summaryTarget, summary_performance: summaryPerformance, summary_receipt: summaryReceipt, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, difficulty_select: difficultySelect, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_statistics: homeStatistics, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, summary_settings: summarySettings, long_deck_timing: longDeckTiming, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, item_catalog: itemCatalog, summary_target: summaryTarget, summary_performance: summaryPerformance, summary_receipt: summaryReceipt, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -853,7 +949,8 @@ const failures = [
   ...browserErrors,
   ...reports.flatMap((entry) => [
     entry.tutorial_goal.chapter === "先说怎么赢" && entry.tutorial_goal.message.includes("拿分") && entry.tutorial_goal.objective.includes("清空餐盘") && entry.tutorial_goal.progress.includes("1/8") && entry.tutorial_goal.score_focused && entry.tutorial_goal.inside_viewport && !entry.tutorial_goal.horizontal_overflow && (!entry.viewport.mobile || entry.tutorial_goal.font_mode === "large") ? null : `${entry.viewport.name}: score-first tutorial goal is missing or outside viewport`,
-    entry.tutorial_milestone.message.includes("80") && entry.tutorial_milestone.message.includes("200") && entry.tutorial_milestone.message.includes("600") && entry.tutorial_milestone.progress.includes("2/8") ? null : `${entry.viewport.name}: milestone targets were not split into their own tutorial step`,
+    entry.difficulty_select.count === 11 && JSON.stringify(entry.difficulty_select.enabled) === JSON.stringify([0]) && entry.difficulty_select.locked === 10 && entry.difficulty_select.cumulative_copy && entry.difficulty_select.topmost && entry.difficulty_select.inside_viewport ? null : `${entry.viewport.name}: standard difficulty ladder is incomplete, unlocked out of order, layered incorrectly, or outside viewport`,
+    entry.tutorial_milestone.message.includes("60") && entry.tutorial_milestone.message.includes("180") && entry.tutorial_milestone.message.includes("500") && entry.tutorial_milestone.progress.includes("2/8") ? null : `${entry.viewport.name}: difficulty-zero milestone tutorial is stale`,
     entry.tutorial_practice.message === "卡牌可以直接拖动。" && entry.tutorial_practice.gesture.includes("轻拖") && entry.tutorial_practice.progress.includes("3/8") && entry.tutorial_practice.card_uncovered ? null : `${entry.viewport.name}: practice coachmark covers the card or contains too much copy`,
     entry.tutorial_drag.legend_visible && (entry.tutorial_drag.legend_text.includes("吃牌") || entry.tutorial_drag.legend_text.includes("后置")) && entry.tutorial_drag.progress.includes("4/8") && entry.tutorial_drag.card_count_unchanged && entry.tutorial_drag.active_card_unchanged && entry.tutorial_drag.gesture_prompt_cleared && entry.tutorial_drag.focus_visible ? null : `${entry.viewport.name}: drag tutorial did not recognize a safe practice drag`,
     entry.home.title === "CardEater" ? null : `${entry.viewport.name}: wrong home title`,
@@ -871,7 +968,7 @@ const failures = [
     entry.home_statistics.viewport_cover && entry.home_statistics.panel_inside && entry.home_statistics.list_scroll_contained ? null : `${entry.viewport.name}: home statistics panel escapes the viewport`,
     entry.overlay_layering.count >= 16 && entry.overlay_layering.all_fixed && entry.overlay_layering.all_cover_viewport && entry.overlay_layering.all_above_topbar ? null : `${entry.viewport.name}: one or more modal layers do not cover the viewport`,
     entry.home_menu.viewport_cover && entry.home_menu.top_edge_owned && entry.home_menu.panel_inside && entry.home_menu.welcome_remains_underneath ? null : `${entry.viewport.name}: home menu does not fully cover the animated home screen`,
-    entry.unlock.endless_enabled && entry.unlock.hard_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
+    entry.unlock.endless_enabled && entry.unlock.mutation_enabled ? null : `${entry.viewport.name}: advanced modes did not unlock after victory`,
     entry.home.inside_viewport ? null : `${entry.viewport.name}: home outside viewport`,
     entry.home.horizontal_overflow ? `${entry.viewport.name}: home horizontal overflow` : null,
     entry.home_theme.selected === "day" && entry.home_theme.saved === "day" && entry.home_theme.toggle_label.includes("白昼") && entry.home_theme.title_contrast >= 4.5 && entry.home_theme.copy_contrast >= 4.5 ? null : `${entry.viewport.name}: day home text is low contrast or theme did not save`,
@@ -901,7 +998,7 @@ const failures = [
     entry.playing.has_gold || entry.playing.timer_visible ? `${entry.viewport.name}: standard mode shows economy HUD` : null,
     entry.playing.horizontal_overflow ? `${entry.viewport.name}: gameplay horizontal overflow` : null,
     entry.score_stress.score_inside && entry.score_stress.postpone_inside && entry.score_stress.card_inside && entry.score_stress.rows_ordered && entry.score_stress.art_track_safe && (!entry.viewport.mobile || entry.score_stress.copy_above_art) && entry.score_stress.font_mode === "large" ? null : `${entry.viewport.name}: large-font score, art, or copy layout overlaps`,
-    entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule && entry.menu.has_score_priority && entry.menu.objective.includes("80 / 200 / 600") ? null : `${entry.viewport.name}: menu rules or milestone targets are incomplete`,
+    entry.menu.rule_count >= 8 && entry.menu.has_home && entry.menu.has_autosave_rule && entry.menu.has_score_priority && entry.menu.objective.includes("60 / 180 / 500") ? null : `${entry.viewport.name}: menu rules or milestone targets are incomplete`,
     entry.menu.viewport_cover && entry.menu.top_edge_owned && entry.menu.panel_inside && entry.menu.background_action_blocked ? null : `${entry.viewport.name}: menu layer leaks the background or allows gameplay input`,
     entry.summary_settings.defaults.pause === "false" && entry.summary_settings.defaults.skip === "false" && entry.summary_settings.defaults.speed === "normal" && entry.summary_settings.defaults.collapsed && entry.summary_settings.collapsed_after && entry.summary_settings.pause === true && entry.summary_settings.speed === "normal" && entry.summary_settings.skip === false && entry.summary_settings.pause_label === "开启" && entry.summary_settings.selected_speed === "normal" ? null : `${entry.viewport.name}: summary settings defaults, collapse, controls, or persistence are invalid`,
     entry.summary_settings.button_audio ? null : `${entry.viewport.name}: buttons do not produce UI sound feedback`,
@@ -911,20 +1008,24 @@ const failures = [
     entry.catalog.count === 89 && entry.catalog.effects_present && entry.catalog.effects_inside && entry.catalog.inspectable && entry.catalog.point_rows_horizontal && entry.catalog.standard_selected && entry.catalog.viewport_cover ? null : `${entry.viewport.name}: catalog summaries are clipped, uncovered, or not inspectable`,
     entry.catalog_modes.shop_selected && entry.catalog_modes.shop_summary.includes("商店效果") && entry.catalog_modes.shop_effect.includes("金币") && entry.catalog_modes.standard_effect_changed ? null : `${entry.viewport.name}: catalog shop effect switch is invalid`,
     entry.catalog_detail.effect_visible && entry.catalog_detail.shop_effect_visible && entry.catalog_detail.standard_effect_visible && entry.catalog_detail.standard_selected && entry.catalog_detail.preview_visible && entry.catalog_detail.inside_viewport && entry.catalog_detail.viewport_cover ? null : `${entry.viewport.name}: catalog detail dialog or effect switch is invalid`,
-    entry.summary_target.includes("目标 80 分") ? null : `${entry.viewport.name}: first milestone target UI is stale`,
+    entry.item_catalog.count === 39 && entry.item_catalog.effects_visible && entry.item_catalog.named_icons && entry.item_catalog.replacement_art && entry.item_catalog.inside_viewport && entry.item_catalog.viewport_cover && entry.item_catalog.economy_count === 7 && entry.item_catalog.detail.title === "投币吸管" && entry.item_catalog.detail.effect.includes("金币") && entry.item_catalog.detail.acquisition.includes("基础价格") && entry.item_catalog.detail.icon_visible && entry.item_catalog.detail.inside_viewport ? null : `${entry.viewport.name}: item catalog list, replacement art, filters, or detail dialog is invalid`,
+    entry.summary_target.includes("目标 60 分") ? null : `${entry.viewport.name}: first milestone target UI is stale`,
     entry.summary_performance.state === "review-paused" && entry.summary_performance.pause_held && entry.summary_performance.card_count === entry.summary_performance.expected_count && entry.summary_performance.visible_cards === entry.summary_performance.expected_count && entry.summary_performance.score_labels.every(Boolean) && entry.summary_performance.pixel_background && entry.summary_performance.inside_viewport ? null : `${entry.viewport.name}: scored cards do not remain paused together on the pixel review stage`,
     entry.summary_receipt.numeric_rows > 0 && entry.summary_receipt.all_started_at_zero && entry.summary_receipt.stamp_phase === "settled" && entry.summary_receipt.stamp_inside_receipt && entry.summary_receipt.distressed_ink ? null : `${entry.viewport.name}: receipt counters or continuous distressed stamp are invalid`,
     entry.draft.offer_count === 3 && entry.draft.reroll_value === "0" && entry.draft.offers_changed ? null : `${entry.viewport.name}: draft reroll failed`,
     entry.draft.equal_actions ? null : `${entry.viewport.name}: draft action buttons are unequal`,
     entry.draft.actions_single_row ? null : `${entry.viewport.name}: draft actions are not kept on one row`,
     entry.draft.point_rows_horizontal ? null : `${entry.viewport.name}: draft points are not horizontal`,
+    entry.draft.prep_slot_removed ? null : `${entry.viewport.name}: non-prep card draft still exposes a prep-slot frame`,
+    entry.draft.item_reference.shown && entry.draft.item_reference.title === "本局道具" && entry.draft.item_reference.close_label === "返回选牌" && entry.draft.item_reference.draft_hidden_from_accessibility && entry.draft.item_reference.above_draft && entry.draft.item_reference.inside_viewport && entry.draft.item_reference.offers_preserved ? null : `${entry.viewport.name}: card draft cannot safely inspect owned items`,
     JSON.stringify(entry.draft.wallet_labels) === JSON.stringify(["删牌标记", "刷新标记"]) && entry.draft.wallet_labels_fit && entry.draft.wallet_values_fit ? null : `${entry.viewport.name}: draft wallet content overflows`,
     entry.viewport.mobile && entry.draft.wallet_label_max_size > 8 ? `${entry.viewport.name}: draft wallet labels remain too large` : null,
     entry.draft.inside_viewport ? null : `${entry.viewport.name}: draft outside viewport`,
     !entry.viewport.mobile || (entry.draft.title_single_line && entry.draft.panel_scroll_free && entry.draft.grid_scroll_free && entry.draft.card_content_fits && entry.draft.compact_height) ? null : `${entry.viewport.name}: large-font draft remains oversized, needs scrolling, or clips content`,
     entry.delete_layout.equal_actions ? null : `${entry.viewport.name}: delete buttons are unequal`,
     entry.save_home.continue_enabled && entry.save_home.save_exists ? null : `${entry.viewport.name}: autosave/continue failed`,
-    entry.item_draft.count === 3 && entry.item_draft.equal_cards && entry.item_draft.item_ids.every((id) => /^(A[1-8]|B[1-3]|C(?:[1-9]|1\d|20|30))$/.test(id)) ? null : `${entry.viewport.name}: item draft invalid`,
+    entry.item_draft.count === 3 && entry.item_draft.equal_cards && entry.item_draft.new_art && entry.item_draft.item_ids.every((id) => /^(A[1-8]|B[1-3]|C(?:[1-9]|1\d|20|30))$/.test(id)) ? null : `${entry.viewport.name}: item draft or replacement art invalid`,
+    entry.item_draft.inspect_detail.return_label === "返回三选一" && entry.item_draft.inspect_detail.choose_label.includes("确认") && entry.item_draft.inspect_detail.source_hidden && entry.item_draft.inspect_detail.image.includes("item-sprites/v024") ? null : `${entry.viewport.name}: item draft detail inspection or confirmation is invalid`,
     JSON.stringify(entry.item_draft.item_slots) === JSON.stringify(["relevant", "bridge", "wild"]) ? null : `${entry.viewport.name}: item draft slots are not relevant/bridge/wild`,
     entry.item_draft.inside_viewport ? null : `${entry.viewport.name}: item draft outside viewport`,
     !entry.item_draft.card_choice_id || (entry.item_choice.shown && entry.item_choice.count === 3 && entry.item_choice.equal_cards && entry.item_choice.inside_viewport && entry.item_choice.point_rows_horizontal) ? null : `${entry.viewport.name}: consumable item card choice is invalid`,

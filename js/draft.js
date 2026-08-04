@@ -1,11 +1,14 @@
-import { GAME_CONFIG, GAME_MODES } from "./config.js";
+import { GAME_CONFIG, GAME_MODES, getStandardDifficultyConfig } from "./config.js";
 import { createCardPool } from "./data.js";
 import { recordCardDeletion, recordReroll } from "./statistics.js";
+import { filterMutationDraftPool } from "./mutations.js";
 
 const RARITY_WEIGHT = Object.freeze({ "普通": 54, "罕见": 28, "稀有": 14, "传奇": 4 });
+const LOWERED_RARITY_WEIGHT = Object.freeze({ "普通": 72, "罕见": 22, "稀有": 5, "传奇": 1 });
 
-function weightedIndex(cards, random) {
-  const weights = cards.map((card) => RARITY_WEIGHT[card.rarity] ?? 1);
+function weightedIndex(cards, random, lowered = false) {
+  const rarityWeights = lowered ? LOWERED_RARITY_WEIGHT : RARITY_WEIGHT;
+  const weights = cards.map((card) => rarityWeights[card.rarity] ?? 1);
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   let cursor = random() * total;
   for (let index = 0; index < cards.length; index += 1) {
@@ -20,12 +23,16 @@ export function createDraftService(options = {}) {
   const createId = options.create_id ?? ((card, index) => `${card.id}-draft-${Date.now()}-${index}`);
 
   function getOffers(state, count = GAME_CONFIG.draft_size, excludedIds = []) {
+    const loweredRarity = state.mode === GAME_MODES.NORMAL
+      && getStandardDifficultyConfig(state.difficulty).lower_card_draft_rarity;
     const excluded = new Set(excludedIds);
     let pool = createCardPool().filter((card) => (
       (card.min_draft_round ?? 1) <= state.current_round && !excluded.has(card.id)
     ));
+    pool = filterMutationDraftPool(state, pool);
     if (pool.length < count) {
       pool = createCardPool().filter((card) => (card.min_draft_round ?? 1) <= state.current_round);
+      pool = filterMutationDraftPool(state, pool);
     }
     const offers = [];
     const forcedTypes = [...new Set([
@@ -36,13 +43,13 @@ export function createDraftService(options = {}) {
       if (offers.length >= count) break;
       const forcedPool = pool.filter((card) => card.type === forcedType);
       if (forcedPool.length > 0) {
-        const chosen = forcedPool[weightedIndex(forcedPool, random)];
+        const chosen = forcedPool[weightedIndex(forcedPool, random, loweredRarity)];
         offers.push(chosen);
         pool = pool.filter((card) => card.id !== chosen.id);
       }
     }
     while (offers.length < count && pool.length > 0) {
-      const [chosen] = pool.splice(weightedIndex(pool, random), 1);
+      const [chosen] = pool.splice(weightedIndex(pool, random, loweredRarity), 1);
       offers.push(chosen);
     }
     return offers;
@@ -54,6 +61,7 @@ export function createDraftService(options = {}) {
       ...card,
       synergy_tags: [...(card.synergy_tags ?? [])],
       effect: card.effect ? { ...card.effect, keywords: [...(card.effect.keywords ?? [])] } : null,
+      fusion_parts: card.fusion_parts ? card.fusion_parts.map((part) => ({ ...part })) : undefined,
       uuid: createId(card, state.deck.length),
     };
     state.deck.push(owned);

@@ -18,14 +18,17 @@ export function getRarityPrice(rarity) {
   return RARITY_MODEL[rarity]?.price ?? RARITY_MODEL["普通"].price;
 }
 
-export function getShopWeight(card, round) {
+export function getShopWeight(card, round, loweredRarity = false) {
   const base = RARITY_MODEL[card.rarity]?.shop_weight ?? 1;
   if ((card.min_shop_round ?? 1) > round) return 0;
   if (card.rarity === "传奇" && round < 8) return 0;
-  if (card.rarity === "稀有" && round < 3) return base * 0.18;
-  if (card.rarity === "普通" && round >= 10) return base * 0.42;
-  if (card.rarity === "稀有" && round >= 8) return base * 2.1;
-  if (card.rarity === "传奇" && round >= 13) return base * 5;
-  if (card.rarity === "传奇" && round >= 10) return base * 2.2;
-  return base;
+  let weight = base;
+  if (card.rarity === "稀有" && round < 3) weight = base * 0.18;
+  else if (card.rarity === "普通" && round >= 10) weight = base * 0.42;
+  else if (card.rarity === "稀有" && round >= 8) weight = base * 2.1;
+  else if (card.rarity === "传奇" && round >= 13) weight = base * 5;
+  else if (card.rarity === "传奇" && round >= 10) weight = base * 2.2;
+  if (!loweredRarity) return weight;
+  const penalty = { "普通": 1.35, "罕见": 0.72, "稀有": 0.35, "传奇": 0.15 }[card.rarity] ?? 1;
+  return weight * penalty;
 }

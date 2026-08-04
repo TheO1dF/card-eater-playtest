@@ -1,4 +1,5 @@
 import { createLifetimeStatistics, mergeCompletedRun } from "./statistics.js";
+import { GAME_MODES, STANDARD_DIFFICULTY_MAX, normalizeStandardDifficulty } from "./config.js";
 
 const RECORD_KEY = "cardeater.run-history.v1";
 const TUTORIAL_KEY = "cardeater.story-tutorial.v1";
@@ -18,15 +19,47 @@ const DEFAULT_SETTINGS = Object.freeze({
   summary_skip: false,
 });
 
-const EMPTY_PROGRESSION = Object.freeze({ runs_played: 0, victories: 0, shop_victories: 0, endless_victories: 0, god: false, mode_victories: Object.freeze({}) });
+const EMPTY_PROGRESSION = Object.freeze({ runs_played: 0, victories: 0, shop_victories: 0, endless_victories: 0, god: false, mode_victories: Object.freeze({}), normal_difficulty_victories: Object.freeze({}), normal_difficulty_max_unlocked: 0 });
+
+function getNormalDifficultyMaxUnlocked(victories = {}) {
+  let highest = 0;
+  for (let level = 0; level < STANDARD_DIFFICULTY_MAX; level += 1) {
+    if ((Number(victories[level]) || 0) < 1) break;
+    highest = level + 1;
+  }
+  return highest;
+}
 
 function normalizeProgression(value = {}) {
-  return { ...EMPTY_PROGRESSION, ...value, mode_victories: { ...(value?.mode_victories ?? {}) } };
+  const modeVictories = { ...(value?.mode_victories ?? {}) };
+  if ((modeVictories.hard ?? 0) > 0 && (modeVictories[GAME_MODES.MUTATION] ?? 0) === 0) {
+    modeVictories[GAME_MODES.MUTATION] = modeVictories.hard;
+  }
+  const normalDifficultyVictories = { ...(value?.normal_difficulty_victories ?? {}) };
+  if (Object.keys(normalDifficultyVictories).length === 0 && (modeVictories[GAME_MODES.NORMAL] ?? 0) > 0) {
+    normalDifficultyVictories[0] = modeVictories[GAME_MODES.NORMAL];
+  }
+  return {
+    ...EMPTY_PROGRESSION,
+    ...value,
+    mode_victories: modeVictories,
+    normal_difficulty_victories: normalDifficultyVictories,
+    normal_difficulty_max_unlocked: getNormalDifficultyMaxUnlocked(normalDifficultyVictories),
+  };
 }
 
 function getModeVictories(records) {
   return records.reduce((counts, record) => {
     if (record?.outcome === "victory" && record?.mode) counts[record.mode] = (counts[record.mode] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function getNormalDifficultyVictories(records) {
+  return records.reduce((counts, record) => {
+    if (record?.outcome !== "victory" || record?.mode !== GAME_MODES.NORMAL) return counts;
+    const difficulty = normalizeStandardDifficulty(record.difficulty);
+    counts[difficulty] = (counts[difficulty] ?? 0) + 1;
     return counts;
   }, {});
 }
@@ -37,6 +70,10 @@ function loadProgression() {
     if (saved) {
       const progress = normalizeProgression(saved);
       if (Object.keys(progress.mode_victories).length === 0) progress.mode_victories = getModeVictories(loadRecords());
+      if (Object.keys(progress.normal_difficulty_victories).length === 0) {
+        progress.normal_difficulty_victories = getNormalDifficultyVictories(loadRecords());
+      }
+      progress.normal_difficulty_max_unlocked = getNormalDifficultyMaxUnlocked(progress.normal_difficulty_victories);
       return progress;
     }
   } catch { /* Fall through to legacy records. */ }
@@ -50,6 +87,7 @@ function loadProgression() {
     endless_victories: records.filter((record) => record?.outcome === "victory" && record?.mode === "endless").length,
     god: records.some((record) => record?.outcome === "victory" && record?.mode === "endless"),
     mode_victories: modeVictories,
+    normal_difficulty_victories: getNormalDifficultyVictories(records),
   });
 }
 
@@ -65,6 +103,10 @@ function recordRunProgress(record) {
   if (record?.outcome === "victory") {
     progress.victories += 1;
     if (record?.mode) progress.mode_victories[record.mode] = (progress.mode_victories[record.mode] ?? 0) + 1;
+    if (record?.mode === GAME_MODES.NORMAL) {
+      const difficulty = normalizeStandardDifficulty(record.difficulty);
+      progress.normal_difficulty_victories[difficulty] = (progress.normal_difficulty_victories[difficulty] ?? 0) + 1;
+    }
   }
   if (record?.outcome === "victory" && record?.mode === "shop") progress.shop_victories += 1;
   if (record?.outcome === "victory" && record?.mode === "endless") {
@@ -82,7 +124,8 @@ function getUnlocks() {
     shop: progress.victories >= 1,
     contract_shop: progress.shop_victories >= 1,
     endless: progress.victories >= 1,
-    hard: progress.victories >= 1,
+    mutation: progress.victories >= 1,
+    normal_difficulty_max: progress.normal_difficulty_max_unlocked,
     god: Boolean(progress.god),
   };
 }
@@ -260,7 +303,7 @@ export function migrateRunState(state) {
     state.rare_shop_weight_bonus ??= 0;
     state.rule_history ??= [];
   }
-  if (state.schema_version === 24 && state.round) {
+  if ([24, 25, 26].includes(state.schema_version) && state.round) {
     state.active_rules = Array.isArray(state.active_rules) ? state.active_rules : [];
     state.rule_history = Array.isArray(state.rule_history) ? state.rule_history : [];
     state.round.gold_sources ??= [];
@@ -275,7 +318,21 @@ export function migrateRunState(state) {
       if (count > 0 && !state.round.postponed_uuids.includes(uuid)) state.round.postponed_uuids.push(uuid);
     }
   }
-  return state.schema_version === 24 ? state : null;
+  if (state.schema_version === 24) {
+    state.schema_version = 25;
+    state.difficulty = state.mode === GAME_MODES.NORMAL ? normalizeStandardDifficulty(state.difficulty) : 0;
+  }
+  if (state.schema_version === 25) {
+    state.schema_version = 26;
+    if (state.mode === "hard") state.mode = GAME_MODES.MUTATION;
+    state.mutation_id ??= state.mode === GAME_MODES.MUTATION ? "cat_army" : null;
+    state.mutation_history ??= [];
+    state.mutation_task_history ??= [];
+    state.active_mutation_task ??= null;
+    state.mutation_draft_picks_remaining ??= 0;
+    state.pending_fusion_card_id ??= null;
+  }
+  return state.schema_version === 26 ? state : null;
 }
 
 function loadRun() {

@@ -1,5 +1,6 @@
-import { GAME_CONFIG, GAME_MODES, MODE_LABELS, getFinalRound, getMilestoneTarget, getNextMilestone, isShopMode } from "./config.js";
+import { GAME_CONFIG, GAME_MODES, MODE_LABELS, STANDARD_DIFFICULTY_STEPS, getFinalRound, getMilestoneTarget, getNextMilestone, getStandardDifficultyConfig, isShopMode } from "./config.js";
 import {
+  createItemCatalogPool,
   getCurrentItemDescription,
   getItemById,
   getItemLevelLabel,
@@ -14,6 +15,7 @@ import { getPlateSummary } from "./plate.js";
 import { getReshuffleStatus } from "./reshuffle.js";
 import { getRuleUnlockRound } from "./rules.js";
 import { getLiveHudValues } from "./live-hud.js";
+import { MUTATION_IDS, MUTATION_LIBRARY, getMutation, getMutationTaskMultiplier, isMutationMode } from "./mutations.js";
 import {
   getRoundGrade,
   getScoreHeat,
@@ -83,8 +85,9 @@ const cardArtUrl = (card) => card.runtime_art_mode === "atlas"
   : `./assets/${card.art_file}?v=${CARD_ART_VERSION}`;
 
 function warmCardArt(cards) {
-  const ready = cards.map((card) => {
-    if (!card.art_file) return;
+  const artCards = cards.flatMap((card) => card.runtime_art_mode === "fusion" ? card.fusion_parts ?? [] : [card]);
+  const ready = artCards.map((card) => {
+    if (!card.art_file && card.runtime_art_mode !== "atlas") return;
     const url = cardArtUrl(card);
     if (cardArtCache.has(url)) return cardArtCache.get(url).ready;
     const image = new Image();
@@ -99,6 +102,13 @@ function warmCardArt(cards) {
 }
 
 function spriteStyle(card) {
+  if (card.id === "VOID") {
+    return "--sprite-image:radial-gradient(circle at 50% 48%,#05020a 0 18%,#43295d 20% 28%,#12091d 31% 43%,#9b68bd 45% 47%,transparent 50%),repeating-conic-gradient(from 45deg,#21102e 0 12deg,#08040e 12deg 24deg);--sprite-x:50%;--sprite-y:50%;--sprite-size-x:100%;--sprite-size-y:100%;--sprite-hue:0deg;--sprite-scale:.82;";
+  }
+  if (card.runtime_art_mode === "fusion" && card.fusion_parts?.length >= 2) {
+    const [first, second] = card.fusion_parts;
+    return `--sprite-image:url('${cardArtUrl(first)}'),url('${cardArtUrl(second)}');--sprite-position:18% 50%,82% 50%;--sprite-size:62% 62%,62% 62%;--sprite-hue:0deg;--sprite-scale:1;`;
+  }
   const hue = Number(card.sprite_hue ?? 0);
   const scale = Number(card.sprite_scale ?? 1);
   if (card.runtime_art_mode === "atlas") {
@@ -136,6 +146,9 @@ function setText(node, value) {
 }
 
 function metaStyle(entry) {
+  if (entry.icon_file) {
+    return `--meta-image:url('./assets/${entry.icon_file}?v=24');--meta-size-x:100%;--meta-size-y:100%;--meta-x:0%;--meta-y:0%;`;
+  }
   const x = entry.icon_x * 100 / Math.max(1, entry.icon_columns - 1);
   const y = entry.icon_y * 100 / Math.max(1, entry.icon_rows - 1);
   return `--meta-image:url('./assets/${entry.icon_atlas}?v=14');--meta-size-x:${entry.icon_columns * 100}%;--meta-size-y:${entry.icon_rows * 100}%;--meta-x:${x}%;--meta-y:${y}%;`;
@@ -193,7 +206,7 @@ function cardElement(card, active, depth, fogged = false, postponeCount = 0, pos
   article.style.setProperty("--depth", depth);
   article.style.zIndex = String(10 - depth);
   article.dataset.cardUuid = card.uuid;
-  article.setAttribute("aria-label", fogged ? "被星云遮蔽的未处理卡牌" : `${card.name}，吃牌 ${card.eat_points} 分，弃牌 ${card.discard_points} 分${postponed ? `，${postponeText}` : ""}`);
+  article.setAttribute("aria-label", fogged ? "卡背朝上的未公开卡牌" : `${card.name}，吃牌 ${card.eat_points} 分，弃牌 ${card.discard_points} 分${postponed ? `，${postponeText}` : ""}`);
   article.innerHTML = `
     <div class="card-noise" aria-hidden="true"></div>
     <div class="card-head"><span class="rarity-tag">${card.rarity}</span><span class="edibility-tag">${EDIBILITY_LABEL[card.edibility] ?? "特殊"}</span></div>
@@ -205,16 +218,18 @@ function cardElement(card, active, depth, fogged = false, postponeCount = 0, pos
   return article;
 }
 
-function ruleElement(rule, onChoose) {
+function ruleElement(rule, onChoose, options = {}) {
   const button = document.createElement("button");
   button.className = "rule-card";
   button.type = "button";
   const unlockRound = getRuleUnlockRound(rule);
   const tier = unlockRound >= 6 ? "后期" : unlockRound >= 3 ? "进阶" : "基础";
+  const taskMode = Boolean(options.mutation_task);
+  const reward = taskMode ? `永久 ×${getMutationTaskMultiplier(rule)}` : `+${rule.gold_reward} 金币`;
   button.innerHTML = `
     <span class="rule-icon">✦</span>
-    <span class="rule-copy"><small class="rule-tier">${tier}合约 · 第 ${unlockRound} 轮起</small><strong>${rule.name}</strong><em>${rule.description}</em></span>
-    <span class="rule-multiplier">+${rule.gold_reward} 金币</span>
+    <span class="rule-copy"><small class="rule-tier">${tier}${taskMode ? "任务" : "合约"} · 第 ${unlockRound} 轮起</small><strong>${rule.name}</strong><em>${rule.description}</em></span>
+    <span class="rule-multiplier">${reward}</span>
   `;
   button.addEventListener("click", () => onChoose(rule), { once: true });
   return button;
@@ -278,8 +293,10 @@ function summaryScoreCardElement(entry, mode) {
     type: entry.type,
     rarity: entry.rarity,
     edibility: entry.edibility,
+    runtime_art_mode: entry.runtime_art_mode,
+    fusion_parts: entry.fusion_parts,
   };
-  const card = { ...source, name: entry.name ?? source.name, type: entry.type ?? source.type };
+  const card = { ...source, name: entry.name ?? source.name, type: entry.type ?? source.type, runtime_art_mode: entry.runtime_art_mode ?? source.runtime_art_mode, fusion_parts: entry.fusion_parts ?? source.fusion_parts };
   const points = finiteNumber(entry.points);
   const impact = getScoreImpact(points);
   const article = document.createElement("article");
@@ -315,7 +332,7 @@ function formatReceiptAnimatedValue(item, value) {
   }
 }
 
-function itemDraftElement(entry, onChoose) {
+function itemDraftElement(entry, onChoose, onInspect) {
   const button = document.createElement("button");
   button.className = `item-draft-card item-rarity-${RARITY_CLASS[entry.rarity] ?? "common"}${entry.consumable ? " is-consumable" : ""}`;
   button.type = "button";
@@ -324,9 +341,10 @@ function itemDraftElement(entry, onChoose) {
   button.innerHTML = `
     <span class="item-draft-icon meta-sprite" style="${metaStyle(entry)}"></span>
     <span class="item-draft-copy"><small>${entry.rarity} · ${entry.role}</small><strong>${entry.name}</strong><em>${entry.description}</em></span>
-    <span class="draft-pick-label">领取</span>
+    <span class="draft-pick-label">查看并领取</span>
   `;
-  button.addEventListener("click", () => onChoose(entry), { once: true });
+  button.setAttribute("aria-label", `查看${entry.name}详情，再决定是否领取`);
+  button.addEventListener("click", () => onInspect(entry, onChoose));
   return button;
 }
 
@@ -408,6 +426,10 @@ export function createUI(root) {
     gameMenu: get("#gameMenu"), menuButton: get("#menuButton"),
     cardCatalog: get("#cardCatalog"), catalogList: get("#catalogList"),
     catalogCardDetail: get("#catalogCardDetail"), catalogCardPreview: get("#catalogCardPreview"),
+    itemCatalog: get("#itemCatalog"), itemCatalogList: get("#itemCatalogList"),
+    itemCatalogDetail: get("#itemCatalogDetail"), itemCatalogDetailArt: get("#itemCatalogDetailArt"),
+    normalDifficultySelect: get("#normalDifficultySelect"), normalDifficultyList: get("#normalDifficultyList"),
+    mutationSelect: get("#mutationSelect"), mutationSelectList: get("#mutationSelectList"),
   };
 
   let tutorialFocus = null;
@@ -419,6 +441,10 @@ export function createUI(root) {
   let homeRainTimer = null;
   let catalogMode = "standard";
   let catalogActiveCardId = null;
+  let itemDetailReturnLayer = "catalog";
+  let itemDetailReturnFocusId = null;
+  let itemStatusReturnFocusId = null;
+  let itemStatusParentOverlay = null;
   let summaryPresentationRun = 0;
   let summaryAdvance = null;
   const homeRainCards = createCardPool();
@@ -751,7 +777,7 @@ export function createUI(root) {
       logo.classList.toggle("cleared-prep", (modeVictories.prep ?? 0) > 0);
       logo.classList.toggle("cleared-shop", (modeVictories.shop ?? 0) > 0);
       logo.classList.toggle("cleared-contract", (modeVictories.contract_shop ?? 0) > 0);
-      logo.classList.toggle("cleared-hard", (modeVictories.hard ?? 0) > 0);
+      logo.classList.toggle("cleared-hard", (modeVictories.mutation ?? modeVictories.hard ?? 0) > 0);
       logo.classList.toggle("cleared-endless", (modeVictories.endless ?? 0) > 0);
       logo.classList.toggle("is-god", Boolean(god));
     }
@@ -845,6 +871,123 @@ export function createUI(root) {
     }
   }
 
+  function closeItemCatalogDetail() {
+    nodes.itemCatalogDetail?.classList.remove("show");
+    const returnLayer = itemDetailReturnLayer === "draft" ? nodes.itemDraft : nodes.itemCatalog;
+    returnLayer?.removeAttribute("aria-hidden");
+    const choose = get("#itemCatalogDetailChoose");
+    if (choose) {
+      choose.hidden = true;
+      choose.onclick = null;
+      choose.disabled = false;
+    }
+    const focusSelector = itemDetailReturnLayer === "draft"
+      ? `.item-draft-card[data-item-id="${itemDetailReturnFocusId}"]`
+      : `.item-catalog-card[data-item-id="${itemDetailReturnFocusId}"]`;
+    get(focusSelector)?.focus();
+    itemDetailReturnLayer = "catalog";
+    itemDetailReturnFocusId = null;
+  }
+
+  function closeItemCatalogToMenu() {
+    closeItemCatalogDetail();
+    nodes.itemCatalog?.classList.remove("show");
+    if (menuState || menuOpenedFromHome) {
+      nodes.gameMenu?.classList.add("show");
+      get("#itemCatalogButton")?.focus();
+    }
+  }
+
+  function itemCatalogGroupLabel(item) {
+    if (item.catalog_group === "economy") return "商店道具";
+    if (item.catalog_group === "consumable") return "一次性道具";
+    return "永久道具";
+  }
+
+  function itemCatalogAcquisitionText(item) {
+    if (item.catalog_group === "economy") {
+      const rounds = item.min_shop_round
+        ? `第 ${item.min_shop_round} 轮起${item.max_shop_round ? `至第 ${item.max_shop_round} 轮` : ""}`
+        : "商店中";
+      return `${rounds}可能出售 · 基础价格 ${item.shop_price ?? "随稀有度"} 金币`;
+    }
+    if (item.catalog_group === "consumable") return "道具三选一中获得 · 选择后立即生效并消耗";
+    return "道具三选一中获得 · 加入本局道具栏并持续生效";
+  }
+
+  function itemCatalogCardElement(item) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `item-catalog-card item-rarity-${RARITY_CLASS[item.rarity] ?? "common"}`;
+    button.dataset.itemId = item.id;
+    button.setAttribute("aria-label", `查看道具${item.name}：${item.description}`);
+    button.innerHTML = `
+      <span class="item-catalog-icon meta-sprite" style="${metaStyle(item)}"></span>
+      <span class="item-catalog-copy">
+        <small>${item.rarity} · ${itemCatalogGroupLabel(item)}</small>
+        <strong>${item.name}</strong>
+        <i>${item.role}</i>
+        <em>${item.description}</em>
+        <b>查看详情 →</b>
+      </span>
+    `;
+    button.addEventListener("click", () => openItemCatalogDetail(item.id));
+    return button;
+  }
+
+  function renderItemCatalogList() {
+    if (!nodes.itemCatalogList) return;
+    const group = get("#itemCatalogGroupFilter")?.value ?? "all";
+    const rarity = get("#itemCatalogRarityFilter")?.value ?? "all";
+    const items = createItemCatalogPool().filter((item) => (
+      (group === "all" || item.catalog_group === group)
+      && (rarity === "all" || item.rarity === rarity)
+    ));
+    setText(get("#itemCatalogSummary"), `${items.length} 件道具`);
+    nodes.itemCatalogList.replaceChildren(...items.map(itemCatalogCardElement));
+  }
+
+  function openItemCatalogDetail(itemOrId, focusClose = true, options = {}) {
+    const itemId = typeof itemOrId === "string" ? itemOrId : itemOrId?.id;
+    const item = createItemCatalogPool().find((entry) => entry.id === itemId);
+    if (!item) return;
+    itemDetailReturnLayer = options.return_layer === "draft" ? "draft" : "catalog";
+    itemDetailReturnFocusId = item.id;
+    nodes.itemCatalogDetailArt?.replaceChildren();
+    if (nodes.itemCatalogDetailArt) {
+      const art = document.createElement("span");
+      art.className = "item-catalog-detail-icon meta-sprite";
+      art.setAttribute("style", metaStyle(item));
+      nodes.itemCatalogDetailArt.appendChild(art);
+    }
+    const copy = get("#itemCatalogDetailCopy");
+    if (copy) copy.innerHTML = `
+      <small>${item.rarity} · ${itemCatalogGroupLabel(item)}</small>
+      <strong>${item.name}</strong>
+      <div class="item-catalog-role">${item.role}</div>
+      <section><small>ITEM EFFECT · 道具效果</small><p>${item.description}</p></section>
+      <section class="item-catalog-source"><small>HOW TO OBTAIN · 获取方式</small><p>${itemCatalogAcquisitionText(item)}</p></section>
+    `;
+    setText(get("#itemCatalogDetailTitle"), item.name);
+    const returnLayer = itemDetailReturnLayer === "draft" ? nodes.itemDraft : nodes.itemCatalog;
+    returnLayer?.setAttribute("aria-hidden", "true");
+    const close = get("#itemCatalogDetailClose");
+    if (close) close.textContent = itemDetailReturnLayer === "draft" ? "返回三选一" : "返回图鉴";
+    const choose = get("#itemCatalogDetailChoose");
+    if (choose) {
+      choose.hidden = itemDetailReturnLayer !== "draft";
+      choose.textContent = item.consumable ? `确认使用 · ${item.name}` : `确认领取 · ${item.name}`;
+      choose.onclick = itemDetailReturnLayer !== "draft" ? null : () => {
+        choose.disabled = true;
+        nodes.itemCatalogDetail?.classList.remove("show");
+        nodes.itemDraft?.removeAttribute("aria-hidden");
+        options.on_choose?.(item);
+      };
+    }
+    nodes.itemCatalogDetail?.classList.add("show");
+    if (focusClose) get("#itemCatalogDetailClose")?.focus();
+  }
+
   function catalogUsesEconomyCards() {
     return catalogMode === "shop";
   }
@@ -929,6 +1072,14 @@ export function createUI(root) {
   });
   root.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
+    if (nodes.normalDifficultySelect?.classList.contains("show")) {
+      closeNormalDifficultySelect();
+      return;
+    }
+    if (nodes.itemCatalogDetail?.classList.contains("show")) {
+      closeItemCatalogDetail();
+      return;
+    }
     if (nodes.catalogCardDetail?.classList.contains("show")) {
       closeCatalogCardDetail();
       return;
@@ -941,10 +1092,15 @@ export function createUI(root) {
       closeCatalogToMenu();
       return;
     }
+    if (nodes.itemCatalog?.classList.contains("show")) {
+      closeItemCatalogToMenu();
+      return;
+    }
     const statusOverlay = [nodes.deckStatus, nodes.questStatus, nodes.ruleStatus, nodes.itemStatus]
       .find((overlay) => overlay?.classList.contains("show"));
     if (statusOverlay) {
-      statusOverlay.classList.remove("show");
+      if (statusOverlay === nodes.itemStatus) closeItemStatus();
+      else statusOverlay.classList.remove("show");
       return;
     }
     if (nodes.gameMenu?.classList.contains("show")) {
@@ -1019,7 +1175,7 @@ export function createUI(root) {
       : "出牌阶段只能查看；轮末三选一时可消耗删牌标记删除卡牌。");
     nodes.questStatus?.classList.remove("show");
     nodes.ruleStatus?.classList.remove("show");
-    nodes.itemStatus?.classList.remove("show");
+    closeItemStatus(false);
     nodes.deckStatus?.classList.add("show");
   }
 
@@ -1039,16 +1195,40 @@ export function createUI(root) {
     } else {
       setText(title, "任务记录");
       content.innerHTML = state.quest_history.length === 0
-        ? '<p class="quest-status-empty">当前没有危险任务。高难模式会在第 4 / 8 / 12 轮强制三选一。</p>'
+        ? '<p class="quest-status-empty">当前没有任务记录。</p>'
         : `<ul class="quest-history-list">${state.quest_history.map((history) => `<li class="${history.completed ? "success" : "failed"}"><b>${history.completed ? "✓" : "×"} ${history.name}</b><span>第 ${history.round} 轮 · ${history.reward}</span></li>`).join("")}</ul>`;
     }
     nodes.deckStatus?.classList.remove("show");
     nodes.ruleStatus?.classList.remove("show");
-    nodes.itemStatus?.classList.remove("show");
+    closeItemStatus(false);
     nodes.questStatus?.classList.add("show");
   }
 
   function openRuleStatus(state) {
+    if (isMutationMode(state)) {
+      const mutation = getMutation(state.mutation_id);
+      setText(get("#ruleStatusEyebrow"), "ACTIVE MUTATION");
+      setText(get("#ruleStatusTitle"), mutation?.name ?? "异变规则");
+      const multiplier = (state.permanent_multipliers ?? []).reduce((value, entry) => value * (entry.multiplier ?? 1), 1);
+      get("#ruleStatusSummary").innerHTML = `<b>${mutation?.icon ?? "异"} ${mutation?.name ?? "未知异变"}</b><span>${mutation?.description ?? "本局附加了一条特殊规则。"}</span>`;
+      const list = get("#ruleStatusList");
+      const cards = [];
+      if (state.active_mutation_task) {
+        const task = state.active_mutation_task;
+        cards.push(`<article class="collection-status-card rule-status-card"><span class="collection-index">本轮</span><span><small>重回经典 · 当前任务</small><strong>${task.name}</strong><em>${task.description}</em></span><b>达成后 ×${getMutationTaskMultiplier(task)}</b></article>`);
+      }
+      if ((state.mutation_task_history ?? []).length > 0) {
+        cards.push(`<article class="collection-status-card rule-status-card"><span class="collection-index">累计</span><span><small>永久倍率可叠加</small><strong>经典任务成长</strong><em>已完成 ${(state.mutation_task_history ?? []).filter((entry) => entry.passed).length} 个任务</em></span><b>当前 ×${Number(multiplier.toFixed(3))}</b></article>`);
+      }
+      list.innerHTML = cards.join("") || '<p class="collection-status-empty">本局异变始终生效，可随时回到这里查看。</p>';
+      nodes.deckStatus?.classList.remove("show");
+      nodes.questStatus?.classList.remove("show");
+      closeItemStatus(false);
+      nodes.ruleStatus?.classList.add("show");
+      return;
+    }
+    setText(get("#ruleStatusEyebrow"), "ACTIVE CONTRACTS");
+    setText(get("#ruleStatusTitle"), "并行条约");
     const rules = state.active_rules;
     get("#ruleStatusSummary").innerHTML = `<b>${rules.length ? `${rules.length} 条并行条约` : "暂无条约"}</b><span>每轮共同判定；完成即领取金币，未完成会保留到下一轮。</span>`;
     const list = get("#ruleStatusList");
@@ -1056,20 +1236,36 @@ export function createUI(root) {
     else list.replaceChildren(...rules.map(selectedRuleElement));
     nodes.deckStatus?.classList.remove("show");
     nodes.questStatus?.classList.remove("show");
-    nodes.itemStatus?.classList.remove("show");
+    closeItemStatus(false);
     nodes.ruleStatus?.classList.add("show");
   }
 
-  function openItemStatus(state) {
+  function closeItemStatus(restoreFocus = true) {
+    nodes.itemStatus?.classList.remove("show");
+    itemStatusParentOverlay?.removeAttribute("aria-hidden");
+    const returnFocusId = itemStatusReturnFocusId;
+    itemStatusParentOverlay = null;
+    itemStatusReturnFocusId = null;
+    setText(get("#itemStatusClose"), "返回游戏");
+    if (restoreFocus && returnFocusId) get(`#${returnFocusId}`)?.focus();
+  }
+
+  function openItemStatus(state, { parentOverlay = null, returnFocusId = null, closeLabel = "返回游戏" } = {}) {
+    closeItemStatus(false);
     const items = state.items;
-    get("#itemStatusSummary").innerHTML = `<b>${items.length} 件永久道具</b><span>普通、罕见、稀有与传奇道具均会直接改变本局规则；一次性道具使用后不会留在此处。</span>`;
+    get("#itemStatusSummary").innerHTML = `<b>${items.length} 件永久道具</b>`;
     const list = get("#itemStatusList");
     if (items.length === 0) list.innerHTML = '<p class="collection-status-empty">尚未获得永久道具。完成第 3 轮后会出现第一次道具三选一。</p>';
     else list.replaceChildren(...items.map(ownedItemElement));
     nodes.deckStatus?.classList.remove("show");
     nodes.questStatus?.classList.remove("show");
     nodes.ruleStatus?.classList.remove("show");
+    itemStatusParentOverlay = parentOverlay;
+    itemStatusReturnFocusId = returnFocusId;
+    itemStatusParentOverlay?.setAttribute("aria-hidden", "true");
+    setText(get("#itemStatusClose"), closeLabel);
     nodes.itemStatus?.classList.add("show");
+    get("#itemStatusClose")?.focus();
   }
 
   function renderItems(state) {
@@ -1119,12 +1315,14 @@ export function createUI(root) {
     if (nodes.itemInfoButton) {
       nodes.itemInfoButton.title = `查看道具（${state.items.length} 件）`;
       nodes.itemInfoButton.onclick = () => {
-        if (nodes.itemStatus?.classList.contains("show")) nodes.itemStatus.classList.remove("show");
+        if (nodes.itemStatus?.classList.contains("show")) closeItemStatus();
         else openItemStatus(state);
       };
     }
     if (nodes.ruleInfoButton) {
-      nodes.ruleInfoButton.hidden = state.mode !== GAME_MODES.CONTRACT_SHOP;
+      nodes.ruleInfoButton.hidden = state.mode !== GAME_MODES.CONTRACT_SHOP && !isMutationMode(state);
+      nodes.ruleInfoButton.textContent = isMutationMode(state) ? "异" : "约";
+      nodes.ruleInfoButton.setAttribute("aria-label", isMutationMode(state) ? "查看本局异变规则" : "查看并行条约");
       nodes.ruleInfoButton.onclick = () => openRuleStatus(state);
     }
     const postponeButton = get("#postponeButton");
@@ -1177,10 +1375,73 @@ export function createUI(root) {
       ["备料模式", unlocks.prep, `${Math.min(progress.runs_played ?? 0, 2)}/2 局`],
       ["商店模式", unlocks.shop, `${Math.min(progress.victories ?? 0, 1)}/1 次通关`],
       ["条约商店", unlocks.contract_shop, `${Math.min(progress.shop_victories ?? 0, 1)}/1 次商店通关`],
-      ["无尽 / 高难", unlocks.endless && unlocks.hard, `${Math.min(progress.victories ?? 0, 1)}/1 次通关`],
+      ["无尽 / 异变", unlocks.endless && unlocks.mutation, `${Math.min(progress.victories ?? 0, 1)}/1 次通关`],
       ["GOD 标记", unlocks.god, `${Math.min(progress.endless_victories ?? 0, 1)}/1 次无尽通关`],
     ];
-    host.innerHTML = rows.map(([name, unlocked, value]) => `<span class="${unlocked ? "is-unlocked" : ""}"><b>${unlocked ? "✓" : "◇"} ${name}</b><small>${unlocked ? "已解锁" : value}</small></span>`).join("");
+    const victories = progress.normal_difficulty_victories ?? {};
+    const maxUnlocked = Math.max(0, Number(unlocks.normal_difficulty_max) || 0);
+    const difficultyRows = STANDARD_DIFFICULTY_STEPS.map((entry) => {
+      const cleared = (Number(victories[entry.level]) || 0) > 0;
+      const unlocked = entry.level <= maxUnlocked;
+      const status = cleared ? "已通关" : unlocked ? "可挑战" : `通关难度 ${entry.level - 1} 解锁`;
+      return `<span class="${cleared ? "is-cleared" : unlocked ? "is-unlocked" : ""}"><b>${cleared ? "★" : unlocked ? "✓" : "◇"} 标准难度 ${entry.level}</b><small>${status}</small></span>`;
+    });
+    host.innerHTML = `${rows.map(([name, unlocked, value]) => `<span class="${unlocked ? "is-unlocked" : ""}"><b>${unlocked ? "✓" : "◇"} ${name}</b><small>${unlocked ? "已解锁" : value}</small></span>`).join("")}${difficultyRows.join("")}`;
+  }
+
+  function closeNormalDifficultySelect() {
+    nodes.normalDifficultySelect?.classList.remove("show");
+    nodes.welcome?.removeAttribute("aria-hidden");
+    get("#normalModeButton")?.focus();
+  }
+
+  function openNormalDifficultySelect(progression = {}, unlocks = {}, onSelect) {
+    const victories = progression.normal_difficulty_victories ?? {};
+    const maxUnlocked = Math.max(0, Number(unlocks.normal_difficulty_max) || 0);
+    setText(get("#normalDifficultyProgress"), `最高可挑战 · 难度 ${maxUnlocked}`);
+    nodes.normalDifficultyList.replaceChildren(...STANDARD_DIFFICULTY_STEPS.map((entry) => {
+      const cleared = (Number(victories[entry.level]) || 0) > 0;
+      const unlocked = entry.level <= maxUnlocked;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.difficultyLevel = String(entry.level);
+      button.className = `difficulty-option${cleared ? " is-cleared" : entry.level === maxUnlocked ? " is-current" : ""}`;
+      button.disabled = !unlocked;
+      button.innerHTML = `<b>${entry.level}</b><span><strong>${entry.name}</strong><small>${entry.description}</small></span><em>${cleared ? "★ 已通关" : unlocked ? "开始" : `先通关 ${entry.level - 1}`}</em>`;
+      if (unlocked) button.onclick = () => {
+        nodes.normalDifficultySelect?.classList.remove("show");
+        nodes.welcome?.removeAttribute("aria-hidden");
+        onSelect(entry.level);
+      };
+      return button;
+    }));
+    nodes.welcome?.setAttribute("aria-hidden", "true");
+    nodes.normalDifficultySelect?.classList.add("show");
+    nodes.normalDifficultyList.querySelector("button:not(:disabled)")?.focus();
+  }
+
+  function closeMutationSelect() {
+    nodes.mutationSelect?.classList.remove("show");
+    nodes.welcome?.removeAttribute("aria-hidden");
+    get("#mutationModeButton")?.focus();
+  }
+
+  function openMutationSelect(onSelect) {
+    nodes.mutationSelectList?.replaceChildren(...MUTATION_LIBRARY.map((mutation) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "mutation-select-option";
+      button.dataset.mutationId = mutation.id;
+      button.innerHTML = `<b>${mutation.icon}</b><span><strong>${mutation.name}</strong><small>${mutation.description}</small></span>`;
+      button.onclick = () => {
+        closeMutationSelect();
+        onSelect(mutation.id);
+      };
+      return button;
+    }));
+    nodes.welcome?.setAttribute("aria-hidden", "true");
+    nodes.mutationSelect?.classList.add("show");
+    nodes.mutationSelectList?.querySelector("button")?.focus();
   }
 
   function renderHomeStatistics(statistics = {}) {
@@ -1247,26 +1508,40 @@ export function createUI(root) {
       get("#newGameButton").onclick = () => { chooser.hidden = !chooser.hidden; };
       continueButton.onclick = callbacks.onContinue;
       get("#homeMenuButton").onclick = callbacks.onMenu;
-      get("#normalModeButton").onclick = () => callbacks.onNew(GAME_MODES.NORMAL);
+      get("#normalModeButton").onclick = () => openNormalDifficultySelect(options.progression, options.unlocks, (difficulty) => callbacks.onNew(GAME_MODES.NORMAL, { difficulty }));
+      get("#normalDifficultyClose").onclick = closeNormalDifficultySelect;
+      nodes.normalDifficultySelect.onclick = (event) => {
+        if (event.target === nodes.normalDifficultySelect) closeNormalDifficultySelect();
+      };
+      get("#mutationSelectClose").onclick = closeMutationSelect;
+      nodes.mutationSelect.onclick = (event) => {
+        if (event.target === nodes.mutationSelect) closeMutationSelect();
+      };
       for (const [selector, mode, key] of [
         ["#prepModeButton", GAME_MODES.PREP, "prep"],
         ["#shopModeButton", GAME_MODES.SHOP, "shop"],
         ["#contractShopModeButton", GAME_MODES.CONTRACT_SHOP, "contract_shop"],
         ["#endlessModeButton", GAME_MODES.ENDLESS, "endless"],
-        ["#hardModeButton", GAME_MODES.HARD, "hard"],
+        ["#mutationModeButton", GAME_MODES.MUTATION, "mutation"],
       ]) {
         const button = get(selector);
         const unlocked = Boolean(options.unlocks?.[key]);
         button.disabled = !unlocked;
         button.classList.toggle("is-locked", !unlocked);
-        button.onclick = unlocked ? () => callbacks.onNew(mode) : null;
+        button.onclick = unlocked
+          ? () => {
+            if (mode === GAME_MODES.MUTATION && options.developer_mode) {
+              openMutationSelect((mutationId) => callbacks.onNew(mode, { mutation_id: mutationId }));
+            } else callbacks.onNew(mode);
+          }
+          : null;
         if (unlocked) {
           const copy = {
             prep: "单格备料 · 存放一轮可永久移除",
             shop: "经济构筑 · 买牌、扩容与删牌",
             contract_shop: "合约经济 · 12 秒双档限时",
             endless: "突破 15 轮 · 百万分终点",
-            hard: "小餐盘 · 更高阶段目标",
+            mutation: "每局随机追加一条改变玩法的规则",
           }[key];
           if (copy) setText(button.querySelector("small"), copy);
         }
@@ -1275,7 +1550,7 @@ export function createUI(root) {
       randomToggle.disabled = !options.unlocks?.random_start;
       randomToggle.checked = Boolean(options.random_start && options.unlocks?.random_start);
       randomToggle.onchange = () => callbacks.onRandomStart?.(randomToggle.checked);
-      get("#randomStartHint").textContent = options.unlocks?.random_start ? "随机替换初始牌组中的两张牌 · 对所有模式生效" : "游玩 1 局后解锁";
+      get("#randomStartHint").textContent = options.unlocks?.random_start ? "随机替换初始牌组中的两张牌 · 异变模式不生效" : "游玩 1 局后解锁";
       get("#godBadge").hidden = !options.god;
       get("#homeThemeToggle").onclick = () => {
         const nextTheme = nodes.welcome?.dataset.homeTheme === "day" ? "night" : "day";
@@ -1287,6 +1562,9 @@ export function createUI(root) {
     },
     hideWelcome() {
       get("#homeStatisticsOverlay").hidden = true;
+      nodes.normalDifficultySelect?.classList.remove("show");
+      nodes.mutationSelect?.classList.remove("show");
+      nodes.welcome?.removeAttribute("aria-hidden");
       nodes.welcome.classList.remove("show");
       stopHomeCardRain();
     },
@@ -1306,7 +1584,7 @@ export function createUI(root) {
         const postponeCount = getCardPostponeCount(state, card);
         const postponeLimit = state ? getPostponeLimit(state) : 1;
         const markedPostponed = isCardPostponed(state, card);
-        const fogged = Boolean(state.round.hidden_postponed_uuids?.includes(card.uuid));
+        const fogged = Boolean(state?.round?.mutation_face_down || state?.round?.hidden_postponed_uuids?.includes(card.uuid));
         const node = cardElement(card, depth === 0, depth, fogged, postponeCount, postponeLimit, markedPostponed);
         const shuffleSide = depth % 2 === 0 ? -1 : 1;
         const shuffleRank = Math.floor(depth / 2);
@@ -1335,7 +1613,7 @@ export function createUI(root) {
       get("#questStatusClose")?.addEventListener("click", () => nodes.questStatus?.classList.remove("show"));
       get("#deckStatusClose")?.addEventListener("click", () => nodes.deckStatus?.classList.remove("show"));
       get("#ruleStatusClose")?.addEventListener("click", () => nodes.ruleStatus?.classList.remove("show"));
-      get("#itemStatusClose")?.addEventListener("click", () => nodes.itemStatus?.classList.remove("show"));
+      get("#itemStatusClose")?.addEventListener("click", () => closeItemStatus());
     },
     bindTutorial({ onSkip, onContinue, onReplay }) {
       get("#storyGuideSkip")?.addEventListener("click", onSkip);
@@ -1350,10 +1628,12 @@ export function createUI(root) {
       menuState = state;
       menuSettings = currentSettings;
       menuOpenedFromHome = !state;
-      setText(get("#menuModeLabel"), state ? MODE_LABELS[state.mode] : "主界面设置");
+      setText(get("#menuModeLabel"), state
+        ? `${MODE_LABELS[state.mode]}${state.mode === GAME_MODES.NORMAL ? ` · 难度 ${state.difficulty ?? 0}` : ""}`
+        : "主界面设置");
       if (state) {
-        const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode);
-        const targetRoadmap = [5, 10, 15].map((round) => formatScore(getMilestoneTarget(round, state.mode))).join(" / ");
+        const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode, state.difficulty);
+        const targetRoadmap = [5, 10, 15].map((round) => formatScore(getMilestoneTarget(round, state.mode, state.difficulty))).join(" / ");
         setText(get("#menuObjective"), milestone.endless
           ? `首要目标：尽量获得高分 · 前 15 轮阶段目标 ${targetRoadmap} · 无尽第 ${state.current_round} 轮累计 ${formatScore(state.total_score)} 分`
           : `首要目标：尽量获得高分 · 第 5 / 10 / 15 轮累计目标 ${targetRoadmap} · 当前需在第 ${milestone.round} 轮达到 ${formatScore(milestone.target)} 分（已有 ${formatScore(state.total_score)}）`);
@@ -1362,13 +1642,26 @@ export function createUI(root) {
           [GAME_MODES.SHOP]: "商店模式：轮末不进行免费卡牌/道具三选一，也不免费扩容；吃牌赚取金币，在商店中权衡买牌、扩容和删牌。",
           [GAME_MODES.CONTRACT_SHOP]: "条约商店：包含完整商店经济；每轮接取一条新条约，所有条约并行判定，未完成会跨轮保留；12 秒内清盘 +1 金币，8 秒内清盘 +2 金币。",
           [GAME_MODES.ENDLESS]: `无尽模式：道具可以重复获得；每 5 轮扩容并获得删牌标记，餐盘最多 ${GAME_CONFIG.endless_max_plate_capacity} 张；累计 1,000,000 分通关。`,
-          [GAME_MODES.HARD]: "高难模式：初始餐盘少 1 格，第 5 / 10 / 15 轮目标提高 20%。",
-          [GAME_MODES.NORMAL]: "标准模式：轮末免费选牌，每轮免费刷新一次；每 3 轮获得一次可跳过的道具选择。",
+          [GAME_MODES.MUTATION]: `${getMutation(state.mutation_id)?.name ?? "异变模式"}：${getMutation(state.mutation_id)?.description ?? "本局会额外应用一条特殊规则。"}`,
+          [GAME_MODES.NORMAL]: `标准模式 · 难度 ${state.difficulty ?? 0}：限制逐层累计。本层为“${STANDARD_DIFFICULTY_STEPS[state.difficulty ?? 0]?.name ?? "教学难度"}”——${STANDARD_DIFFICULTY_STEPS[state.difficulty ?? 0]?.description ?? ""}`,
         };
         setText(get("#menuModeRules"), modeRules[state.mode] ?? "");
+        const difficulty = state.mode === GAME_MODES.NORMAL ? getStandardDifficultyConfig(state.difficulty) : null;
+        setText(get("#menuRefreshRule"), difficulty && !difficulty.free_round_reroll
+          ? "本难度每轮不赠送免费刷新；刷新必须消耗刷新标记。"
+          : "每轮可免费更换一次三张候选；之后每次刷新消耗 1 枚刷新标记。");
+        setText(get("#menuDeleteRule"), difficulty && difficulty.initial_delete_tokens === 0
+          ? "本难度开局不赠送删牌标记；之后获得的标记仍可在轮末选牌阶段使用。"
+          : "轮末选牌阶段可点击牌组，消耗 1 枚删牌标记删除 1 张实体牌；至少保留 1 张。");
+        setText(get("#menuPlateRule"), difficulty?.skip_round_five_plate_upgrade
+          ? "第 5 轮不再免费扩容；成功完成第 10、15 轮时餐盘上限仍永久 +1。"
+          : "成功完成第 5、10、15 轮时，餐盘上限永久 +1。");
       } else {
         setText(get("#menuObjective"), "首要目标：尽量获得高分，并在阶段轮次达到累计目标；对局会在操作、选牌与轮次结算后自动保存。");
         setText(get("#menuModeRules"), "完成对局会推进模式解锁；失败也计入游玩局数。所有模式的通关都计入通用通关进度。");
+        setText(get("#menuRefreshRule"), "标准难度 0–5 每轮免费刷新一次；难度 6 起必须消耗刷新标记。");
+        setText(get("#menuDeleteRule"), "标准难度 0–6 开局赠送 1 枚删牌标记；难度 7 起不再赠送。");
+        setText(get("#menuPlateRule"), "标准难度 9 起取消第 5 轮免费扩容；其余模式按各自规则执行。");
       }
       get("#menuHomeButton").hidden = !state;
       get("#tutorialInfoButton").hidden = !state;
@@ -1378,6 +1671,8 @@ export function createUI(root) {
       if (state) suspendStoryForMenu();
       nodes.cardCatalog?.classList.remove("show");
       closeCatalogCardDetail();
+      nodes.itemCatalog?.classList.remove("show");
+      closeItemCatalogDetail();
       nodes.gameMenu?.classList.add("show");
     },
     bindMenu({ onMusic, onEffects, onFontSize, onSummaryPause, onSummarySpeed, onSummarySkip, onHome }) {
@@ -1409,6 +1704,11 @@ export function createUI(root) {
         renderCatalogList();
         nodes.cardCatalog?.classList.add("show");
       });
+      get("#itemCatalogButton")?.addEventListener("click", () => {
+        nodes.gameMenu?.classList.remove("show");
+        renderItemCatalogList();
+        nodes.itemCatalog?.classList.add("show");
+      });
       root.querySelectorAll("[data-catalog-mode]").forEach((button) => {
         button.addEventListener("click", () => setCatalogMode(button.dataset.catalogMode));
       });
@@ -1419,6 +1719,13 @@ export function createUI(root) {
       get("#catalogCardDetailClose")?.addEventListener("click", closeCatalogCardDetail);
       nodes.catalogCardDetail?.addEventListener("click", (event) => {
         if (event.target === nodes.catalogCardDetail) closeCatalogCardDetail();
+      });
+      get("#itemCatalogGroupFilter")?.addEventListener("change", renderItemCatalogList);
+      get("#itemCatalogRarityFilter")?.addEventListener("change", renderItemCatalogList);
+      get("#itemCatalogClose")?.addEventListener("click", closeItemCatalogToMenu);
+      get("#itemCatalogDetailClose")?.addEventListener("click", closeItemCatalogDetail);
+      nodes.itemCatalogDetail?.addEventListener("click", (event) => {
+        if (event.target === nodes.itemCatalogDetail) closeItemCatalogDetail();
       });
     },
     applyFontSize(fontSize) {
@@ -1551,14 +1858,24 @@ export function createUI(root) {
       stage.appendChild(flash);
       flash.addEventListener("animationend", () => flash.remove(), { once: true });
     },
-    openRuleDraft(options, state, onChoose) {
-      const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode);
+    openRuleDraft(options, state, onChoose, presentation = {}) {
+      const mutationTask = Boolean(presentation.mutation_task);
+      setText(get("#ruleDraftEyebrow"), mutationTask ? `ROUND ${String(state.current_round).padStart(2, "0")} · CLASSIC TASK` : `ROUND ${String(state.current_round).padStart(2, "0")} · CONTRACT PICK`);
+      setText(get("#ruleDraftTitle"), mutationTask ? "选择本轮任务" : "接取一条新条约");
+      setText(get("#ruleDraftLead"), mutationTask ? "本轮仅判定所选任务。达成后获得永久且可叠加的得分倍率。" : "每轮可以新增一条条约；所有条约并行判定，未完成的条约会保留。");
+      const help = get("#ruleDraftHelp");
+      if (help) {
+        help.innerHTML = mutationTask
+          ? "<b>倍率成长</b><span>任务越难，奖励倍率越高；获得后本局之后每轮都生效。</span>"
+          : "<b>限时经济</b><span>12 秒内清盘 +1 金币；8 秒内清盘 +2 金币。可与条约奖励叠加。</span>";
+      }
+      const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode, state.difficulty);
       if (milestone.endless) {
         setText(get("#draftRoundValue"), String(state.current_round).padStart(2, "0"));
         setText(get("#draftTargetText"), "无尽模式 · 已通过全部累计分数门槛");
         setText(get("#draftTargetProgress"), `当前 ${formatScore(state.total_score)} 分 · 继续构筑直到你主动离开`);
         get("#draftTargetFill")?.style.setProperty("width", "100%");
-        nodes.draftList.replaceChildren(...options.map((rule) => ruleElement(rule, onChoose)));
+        nodes.draftList.replaceChildren(...options.map((rule) => ruleElement(rule, onChoose, presentation)));
         nodes.draft.classList.add("show");
         return;
       }
@@ -1567,9 +1884,11 @@ export function createUI(root) {
       const progress = milestone.target > 0 ? Math.max(0, Math.min(100, state.total_score / milestone.target * 100)) : 100;
       setText(get("#draftRoundValue"), String(state.current_round).padStart(2, "0"));
       setText(get("#draftTargetText"), `第 ${milestone.round} 轮结算前累计达到 ${formatScore(milestone.target)} 分`);
-      setText(get("#draftTargetProgress"), `当前 ${formatScore(state.total_score)} · 还差 ${formatScore(scoreNeeded)} · 剩余 ${roundsRemaining} 轮 · 已有 ${state.active_rules.length} 条并行条约`);
+      setText(get("#draftTargetProgress"), mutationTask
+        ? `当前 ${formatScore(state.total_score)} · 还差 ${formatScore(scoreNeeded)} · 剩余 ${roundsRemaining} 轮`
+        : `当前 ${formatScore(state.total_score)} · 还差 ${formatScore(scoreNeeded)} · 剩余 ${roundsRemaining} 轮 · 已有 ${state.active_rules.length} 条并行条约`);
       get("#draftTargetFill")?.style.setProperty("width", `${progress}%`);
-      nodes.draftList.replaceChildren(...options.map((rule) => ruleElement(rule, onChoose)));
+      nodes.draftList.replaceChildren(...options.map((rule) => ruleElement(rule, onChoose, presentation)));
       nodes.draft.classList.add("show");
     },
     closeRuleDraft() { nodes.draft.classList.remove("show"); },
@@ -1640,7 +1959,7 @@ export function createUI(root) {
       const eyebrow = get("#summaryEyebrow");
       const button = get("#summaryContinueBtn");
       const list = get("#summaryBreakdownList");
-      const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode);
+      const milestone = getNextMilestone(state.current_round, state.milestone_delays, state.mode, state.difficulty);
       const roundsRemaining = milestone.round === null ? 0 : Math.max(0, milestone.round - state.current_round);
       const milestoneProgress = milestone.target > 0
         ? Math.max(0, Math.min(100, state.total_score / milestone.target * 100))
@@ -1664,7 +1983,8 @@ export function createUI(root) {
           shop: progress.victories >= 1,
           contract_shop: progress.shop_victories >= 1,
           endless: progress.victories >= 1,
-          hard: progress.victories >= 1,
+          mutation: progress.victories >= 1,
+          normal_difficulty_max: progress.normal_difficulty_max_unlocked ?? 0,
           god: Boolean(progress.god),
         });
         unlockPanel.hidden = false;
@@ -1678,7 +1998,7 @@ export function createUI(root) {
       } else if (outcome === "defeat") {
         eyebrow.textContent = "TARGET MISSED";
         title.textContent = "挑战失败";
-        tip.textContent = `本阶段需要 ${formatScore(getNextMilestone(state.current_round, state.milestone_delays, state.mode).target)} 分，当前为 ${formatScore(state.total_score)} 分。`;
+        tip.textContent = `本阶段需要 ${formatScore(getNextMilestone(state.current_round, state.milestone_delays, state.mode, state.difficulty).target)} 分，当前为 ${formatScore(state.total_score)} 分。`;
         button.textContent = "重新开始";
         button.classList.add("danger-action");
       } else {
@@ -1748,6 +2068,15 @@ export function createUI(root) {
     openCardDraft(state, cards, callbacks) {
       renderHud(state);
       const prepMode = state.mode === GAME_MODES.PREP;
+      const mutation = getMutation(state.mutation_id);
+      const fusionDraft = isMutationMode(state) && state.mutation_id === MUTATION_IDS.FUSION_CARDS;
+      const doubleDraft = isMutationMode(state) && state.mutation_id === MUTATION_IDS.START_FROM_STAR;
+      if (fusionDraft) {
+        setText(get("#cardDraftTitle"), state.pending_fusion_card_id ? "选择第二张牌完成融合" : "选择第一张融合素材");
+      } else if (doubleDraft) {
+        const step = Math.max(1, 3 - (state.mutation_draft_picks_remaining ?? 2));
+        setText(get("#cardDraftTitle"), `本轮第 ${step} 次选牌`);
+      } else setText(get("#cardDraftTitle"), "选择一张加入牌组");
       const updateTokens = () => {
         setText(get("#draftResourceLabel"), prepMode ? "备料位" : "删牌标记");
         setText(get("#draftTokenValue"), prepMode ? (state.prep_slot?.card ? "1/1" : "0/1") : state.delete_tokens ?? 0);
@@ -1757,7 +2086,11 @@ export function createUI(root) {
         const host = get("#prepSlotPreview");
         if (!host) return;
         host.hidden = !prepMode;
-        if (!prepMode) return;
+        host.setAttribute("aria-hidden", String(!prepMode));
+        if (!prepMode) {
+          host.replaceChildren();
+          return;
+        }
         const slot = state.prep_slot;
         if (!slot?.card) {
           host.innerHTML = "<b>备料位为空</b><span>整理牌组时可放入一张牌；下一轮不会登场，并保证三选一中出现同类别牌。</span>";
@@ -1782,10 +2115,21 @@ export function createUI(root) {
       nodes.cardDraftList.replaceChildren(...cards.map((card) => draftCardElement(card, callbacks.onChoose)));
       setText(get("#draftMessage"), prepMode
         ? "整理牌组可调整唯一备料位；备料牌下一轮不会登场。"
-        : "");
+        : fusionDraft
+          ? (state.pending_fusion_card_id ? "第二张牌会与第一张牌合并，点数与效果均保留。" : "先选一张素材，再从新的三张牌中选择另一张。")
+          : doubleDraft ? `${mutation?.name}：本轮可连续获得两张新牌。` : "");
       updateTokens();
       updatePrepPreview();
       setText(get("#draftRerollValue"), state.reroll_tokens ?? 0);
+      setText(get("#draftItemCount"), state.items.length);
+      const viewItems = get("#draftViewItems");
+      viewItems.title = `查看本局已获得的 ${state.items.length} 件永久道具`;
+      viewItems.setAttribute("aria-label", `查看已获得道具，共 ${state.items.length} 件`);
+      viewItems.onclick = () => openItemStatus(state, {
+        parentOverlay: nodes.cardDraft,
+        returnFocusId: "draftViewItems",
+        closeLabel: "返回选牌",
+      });
       get("#draftManageDeck").onclick = () => openDeckStatus(state);
       const reroll = get("#draftReroll");
       reroll.disabled = (state.free_rerolls ?? 0) < 1 && (state.reroll_tokens ?? 0) < 1;
@@ -1801,6 +2145,7 @@ export function createUI(root) {
     },
     closeCardDraft() {
       closeDeleteConfirmation();
+      if (itemStatusParentOverlay === nodes.cardDraft) closeItemStatus(false);
       nodes.deckStatus?.classList.remove("show");
       nodes.cardDraft?.classList.remove("show");
       deckRemovalHandler = null;
@@ -1808,7 +2153,9 @@ export function createUI(root) {
     openItemDraft(state, items, onChoose, onSkip) {
       renderHud(state);
       setText(get("#itemDraftRound"), `第 ${state.current_round} 轮赠礼`);
-      nodes.itemDraftList.replaceChildren(...items.map((entry) => itemDraftElement(entry, onChoose)));
+      nodes.itemDraftList.replaceChildren(...items.map((entry) => itemDraftElement(entry, onChoose, (item, choose) => {
+        openItemCatalogDetail(item.id, true, { return_layer: "draft", on_choose: choose });
+      })));
       get("#itemDraftSkip").onclick = onSkip;
       nodes.itemDraft?.classList.add("show");
     },

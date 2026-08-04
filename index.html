@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#17121b" />
     <title>CardEater · 构筑你的餐盘</title>
     <link rel="icon" href="./assets/favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=49" />
+    <link rel="stylesheet" href="./styles.css?v=51" />
   </head>
   <body>
     <main class="app" id="app">
@@ -14,7 +14,7 @@
         <header class="topbar">
           <div class="brand"><span class="brand-mark">CE</span><span><b>CARD EATER</b><small id="phaseValue">准备中</small></span></div>
           <div class="topbar-actions">
-            <button class="icon-button rule-info-button" id="ruleInfoButton" type="button" aria-label="查看并行条约" hidden>约</button>
+            <button class="icon-button rule-info-button" id="ruleInfoButton" type="button" aria-label="查看特殊规则" hidden>约</button>
             <button class="icon-button item-info-button" id="itemInfoButton" type="button" aria-label="查看永久道具">具</button>
             <button class="icon-button deck-info-button" id="deckInfoButton" type="button" aria-label="查看永久牌组">组</button>
             <button class="icon-button menu-button" id="menuButton" type="button" aria-label="打开游戏菜单">☰</button>
@@ -54,7 +54,7 @@
           <section class="welcome-panel home-panel">
             <div class="home-hero" aria-labelledby="welcomeTitle">
               <div class="home-logo" id="homeLogo"><span>CARD</span><span>EATER</span><i class="home-logo-flare" aria-hidden="true"></i><b class="god-badge" id="godBadge" hidden>GOD</b></div>
-              <div class="home-mode-sigils" id="homeModeSigils" aria-label="模式解锁与通关徽记"><i data-home-mode="normal" title="标准模式">◆</i><i data-home-mode="prep" title="备料模式">▣</i><i data-home-mode="shop" title="商店模式">$</i><i data-home-mode="contract_shop" title="条约商店">✦</i><i data-home-mode="hard" title="高难模式">▲</i><i data-home-mode="endless" title="无尽模式">∞</i></div>
+              <div class="home-mode-sigils" id="homeModeSigils" aria-label="模式解锁与通关徽记"><i data-home-mode="normal" title="标准模式">◆</i><i data-home-mode="prep" title="备料模式">▣</i><i data-home-mode="shop" title="商店模式">$</i><i data-home-mode="contract_shop" title="条约商店">✦</i><i data-home-mode="mutation" title="异变模式">※</i><i data-home-mode="endless" title="无尽模式">∞</i></div>
               <h1 id="welcomeTitle">CardEater</h1>
             </div>
             <div class="home-actions">
@@ -64,12 +64,12 @@
             </div>
             <div class="mode-chooser" id="modeChooser" hidden>
               <label class="random-start-toggle"><input id="randomStartToggle" type="checkbox" /><span><b>随机开局</b><small id="randomStartHint">游玩 1 局后解锁 · 随机替换初始牌组中的两张牌</small></span></label>
-              <button class="mode-button" id="normalModeButton" type="button"><b>标准模式</b><small>15 轮 · 目标 80 / 200 / 600</small></button>
+              <button class="mode-button" id="normalModeButton" type="button"><b>标准模式</b><small>标准模式</small></button>
               <button class="mode-button prep-mode-button" id="prepModeButton" type="button"><b>备料模式</b><small>游玩 2 局解锁 · 单格备料替代删牌</small></button>
               <button class="mode-button shop-mode-button" id="shopModeButton" type="button"><b>商店模式</b><small>通关 1 次解锁 · 经济、买牌、扩容与删牌</small></button>
               <button class="mode-button contract-mode-button" id="contractShopModeButton" type="button"><b>条约商店</b><small>通关商店模式 1 次解锁 · 每轮三选一合约</small></button>
               <button class="mode-button endless-mode-button" id="endlessModeButton" type="button"><b>无尽模式</b><small>通关后解锁 · 第 15 轮后继续</small></button>
-              <button class="mode-button hard-mode-button" id="hardModeButton" type="button"><b>高难模式</b><small>通关后解锁 · 小餐盘与更高目标</small></button>
+              <button class="mode-button mutation-mode-button" id="mutationModeButton" type="button"><b>异变模式</b><small>通关后解锁 · 每局一条随机规则</small></button>
               <div class="developer-mode-notice" id="developerModeNotice" hidden>DEV MODE · 全模式已解锁</div>
             </div>
             <div class="home-footer"><span>BEST <strong id="welcomeBestScore">--</strong></span><div class="home-footer-actions"><button class="home-theme-toggle" id="homeStatisticsButton" type="button" aria-haspopup="dialog">▦ 统计</button><button class="home-theme-toggle" id="homeThemeToggle" type="button" aria-label="切换主界面昼夜色调">☾ 夜间</button></div></div>
@@ -81,6 +81,19 @@
               <div class="home-card-statistics"><div class="home-statistics-section-title"><div><b id="homeCardStatisticsTitle">水果记录</b><small>每张卡牌分别统计吃牌与弃牌</small></div><span id="homeCardStatisticsTotal"></span></div><div class="home-statistics-type-tabs" id="homeStatisticsTypeTabs" role="group" aria-label="选择卡牌类别"></div><label class="home-statistics-type-select"><span>卡牌类别</span><select id="homeStatisticsTypeSelect" aria-label="选择卡牌类别"></select></label><div class="home-card-statistics-list" id="homeCardStatisticsList"></div></div>
             </section>
           </div>
+        </div>
+
+        <div class="overlay difficulty-select-overlay" id="normalDifficultySelect" role="dialog" aria-modal="true" aria-labelledby="normalDifficultyTitle" aria-describedby="normalDifficultyLead">
+          <section class="modal-panel difficulty-select-panel">
+            <div class="difficulty-heading"><div><div class="eyebrow">STANDARD DIFFICULTY</div><h1 id="normalDifficultyTitle">选择标准模式难度</h1></div><span id="normalDifficultyProgress">已解锁 0 / 10</span></div>
+            <p class="modal-lead" id="normalDifficultyLead">难度限制会逐层累计。通关当前最高难度，才会解锁下一层。</p>
+            <div class="difficulty-grid" id="normalDifficultyList"></div>
+            <button class="shop-reroll-button difficulty-close" id="normalDifficultyClose" type="button">返回模式选择</button>
+          </section>
+        </div>
+
+        <div class="overlay mutation-select-overlay" id="mutationSelect" role="dialog" aria-modal="true" aria-labelledby="mutationSelectTitle">
+          <section class="modal-panel mutation-select-panel"><div class="difficulty-heading"><div><div class="eyebrow">DEVELOPER MUTATION SELECT</div><h1 id="mutationSelectTitle">选择异变规则</h1></div><span>开发者测试</span></div><div class="mutation-select-grid" id="mutationSelectList"></div><button class="shop-reroll-button difficulty-close" id="mutationSelectClose" type="button">返回模式选择</button></section>
         </div>
 
         <aside class="story-guide" id="storyGuide" role="status" aria-live="polite" aria-atomic="true" hidden>
@@ -110,18 +123,18 @@
                 <button class="setting-toggle summary-setting-toggle" id="summarySkipToggle" type="button" aria-pressed="false"><span><b>跳过结算动画</b><small>直接显示完整清单与最终印章</small></span><strong data-setting-state>关闭</strong></button>
               </div>
             </details>
-            <button class="menu-wide-button" id="cardCatalogButton" type="button"><b>卡牌图鉴</b></button>
-            <section class="unlock-progress" id="unlockProgress"><b>模式解锁进度</b><div id="unlockProgressList"></div></section>
-            <details class="menu-rules" id="menuRules"><summary>规则与细则</summary><div class="menu-objective" id="menuObjective">首要目标：尽量获得高分，并在第 5 / 10 / 15 轮累计达到 80 / 200 / 600 分</div><div class="menu-mode-rules" id="menuModeRules"></div><ul>
+            <div class="menu-catalog-buttons"><button class="menu-wide-button" id="cardCatalogButton" type="button"><b>卡牌图鉴</b></button><button class="menu-wide-button" id="itemCatalogButton" type="button"><b>道具图鉴</b></button></div>
+            <details class="unlock-progress" id="unlockProgress"><summary><b>模式解锁进度</b><strong aria-hidden="true">▸</strong></summary><div id="unlockProgressList"></div></details>
+            <details class="menu-rules" id="menuRules"><summary>规则与细则</summary><div class="menu-objective" id="menuObjective">首要目标：尽量获得高分，并在第 5 / 10 / 15 轮累计达到目标</div><div class="menu-mode-rules" id="menuModeRules"></div><ul>
               <li><b>如何操作</b><span>直接拖动最上层卡牌：向下吃、向上弃、向左或向右后置；也可以使用底部按钮。</span></li>
               <li><b>随机餐盘</b><span>每轮从永久牌组随机抽取不超过餐盘上限的卡牌；未登场牌下轮会重新参与抽取。</span></li>
               <li><b>吃与弃</b><span>可食用牌通常适合吃，不可食用牌通常适合弃；错误食性仍按牌面和效果结算。</span></li>
               <li><b>后置</b><span>把当前牌移到餐盘末尾，不结算、不占用行动；每轮每张实体牌限一次。</span></li>
               <li><b>轮末选牌</b><span>本轮结束后从三张随机卡中选一张加入永久牌组，也可以跳过。</span></li>
-              <li><b>刷新</b><span>每轮可免费更换一次三张候选；之后每次刷新消耗 1 枚刷新标记。</span></li>
+              <li><b>刷新</b><span id="menuRefreshRule">每轮可免费更换一次三张候选；之后每次刷新消耗 1 枚刷新标记。</span></li>
               <li><b>道具赠礼</b><span>每 3 轮三选一。道具有普通、罕见、稀有与传奇四档；一次性道具会立即使用。</span></li>
-              <li><b>删牌标记</b><span>轮末选牌阶段可点击牌组，消耗 1 枚删牌标记删除 1 张实体牌；至少保留 1 张。</span></li>
-              <li><b>餐盘扩容</b><span>成功完成第 5、10、15 轮时，餐盘上限永久 +1。</span></li>
+              <li><b>删牌标记</b><span id="menuDeleteRule">轮末选牌阶段可点击牌组，消耗 1 枚删牌标记删除 1 张实体牌；至少保留 1 张。</span></li>
+              <li><b>餐盘扩容</b><span id="menuPlateRule">成功完成第 5、10、15 轮时，餐盘上限永久 +1。</span></li>
               <li><b>自动保存</b><span>操作、结算和选择后自动保存，可从主界面继续。</span></li>
             </ul></details>
             <button class="menu-wide-button" id="tutorialInfoButton" type="button"><b>重玩咔嚓新手教学</b></button>
@@ -142,6 +155,21 @@
           <section class="modal-panel catalog-detail-panel"><div class="catalog-detail-heading"><div><div class="eyebrow">CARD DETAIL</div><h1 id="catalogCardDetailTitle">卡牌详情</h1></div><button class="shop-reroll-button" id="catalogCardDetailClose" type="button">返回图鉴</button></div><div class="catalog-detail-mode-row"><div class="catalog-mode-switch" role="group" aria-label="在卡牌详情中切换效果版本"><button type="button" data-catalog-mode="standard" aria-pressed="true">标准效果</button><button type="button" data-catalog-mode="shop" aria-pressed="false">商店效果</button></div></div><div class="catalog-detail-layout"><div class="catalog-card-preview" id="catalogCardPreview"></div><div class="catalog-detail-copy" id="catalogCardDetailCopy"></div></div></section>
         </div>
 
+        <div class="overlay catalog-overlay" id="itemCatalog" role="dialog" aria-modal="true" aria-labelledby="itemCatalogTitle">
+          <section class="modal-panel catalog-panel item-catalog-panel">
+            <div class="catalog-heading"><div><div class="eyebrow">FULL ITEM LIBRARY</div><h1 id="itemCatalogTitle">道具图鉴</h1></div><button class="shop-reroll-button" id="itemCatalogClose" type="button">返回菜单</button></div>
+            <div class="catalog-tools item-catalog-tools"><label for="itemCatalogGroupFilter">类别</label><select id="itemCatalogGroupFilter"><option value="all">全部道具</option><option value="standard">永久道具</option><option value="consumable">一次性道具</option><option value="economy">商店道具</option></select><label for="itemCatalogRarityFilter">稀有度</label><select id="itemCatalogRarityFilter"><option value="all">全部稀有度</option><option value="普通">普通</option><option value="罕见">罕见</option><option value="稀有">稀有</option><option value="传奇">传奇</option></select><span id="itemCatalogSummary">0 件道具</span></div>
+            <div class="item-catalog-grid" id="itemCatalogList"></div>
+          </section>
+        </div>
+
+        <div class="overlay catalog-detail-overlay" id="itemCatalogDetail" role="dialog" aria-modal="true" aria-labelledby="itemCatalogDetailTitle">
+          <section class="modal-panel catalog-detail-panel item-catalog-detail-panel">
+            <div class="catalog-detail-heading"><div><div class="eyebrow">ITEM DETAIL</div><h1 id="itemCatalogDetailTitle">道具详情</h1></div><button class="shop-reroll-button" id="itemCatalogDetailClose" type="button">返回图鉴</button></div>
+            <div class="item-catalog-detail-layout"><div class="item-catalog-art-frame" id="itemCatalogDetailArt"></div><div class="catalog-detail-copy item-catalog-detail-copy" id="itemCatalogDetailCopy"></div></div><button class="primary-button item-catalog-choose" id="itemCatalogDetailChoose" type="button" hidden>确认领取</button>
+          </section>
+        </div>
+
         <div class="overlay round-summary-overlay" id="roundSummary" role="dialog" aria-modal="true" aria-labelledby="summaryTitle" data-presentation-state="idle">
           <section class="modal-panel summary-panel">
             <div class="summary-performance" id="summaryPerformance">
@@ -158,7 +186,7 @@
             <div class="summary-receipt-stage" id="summaryReceiptStage" hidden>
               <div class="summary-heading-row"><div><div class="eyebrow" id="summaryEyebrow">ROUND CLEAR</div><h1 id="summaryTitle">本轮结算</h1></div><div class="summary-receipt-live"><small>本轮得分</small><strong id="summaryReceiptScore">+0</strong></div></div>
               <p class="modal-lead" id="summaryTip">卡牌效果与牌面已经结算。</p>
-              <div class="milestone-summary"><span id="summaryMilestoneRounds">距离第 5 轮目标还有 4 轮</span><strong id="summaryMilestoneScore">累计 0 / 目标 80 分</strong><div class="milestone-meter"><i id="summaryMilestoneFill"></i></div></div>
+              <div class="milestone-summary"><span id="summaryMilestoneRounds">距离第 5 轮目标还有 4 轮</span><strong id="summaryMilestoneScore">累计 0 / 目标 60 分</strong><div class="milestone-meter"><i id="summaryMilestoneFill"></i></div></div>
               <div class="receipt-wrap"><div class="receipt" id="summaryBreakdownList"></div><div class="summary-grade-stage" id="summaryGradeStage" hidden><div class="summary-grade-stamp" id="summaryGradeStamp"><small>ROUND RANK</small><strong id="summaryGradeValue">C</strong><span id="summaryGradeLabel">继续加热</span></div></div></div>
               <div class="unlock-progress summary-unlocks" id="summaryUnlockProgress" hidden><b>解锁进度</b><div id="summaryUnlockProgressList"></div></div>
               <button class="summary-skip-hint summary-receipt-skip" id="summaryReceiptSkip" type="button">点击任意位置 · 加速当前数字</button>
@@ -168,11 +196,11 @@
         </div>
 
         <div class="overlay" id="cardDraft" role="dialog" aria-modal="true" aria-labelledby="cardDraftTitle">
-          <section class="modal-panel shop-panel-inner draft-reward-panel"><div class="shop-heading"><div><div class="eyebrow">BETWEEN ROUNDS</div><h1 id="cardDraftTitle">选择一张加入牌组</h1></div><div class="draft-wallets"><div class="shop-wallet"><span id="draftResourceLabel">删牌标记</span><strong id="draftTokenValue">0</strong></div><div class="shop-wallet"><span>刷新标记</span><strong id="draftRerollValue">0</strong></div></div></div><p class="modal-lead" id="draftMessage"></p><div class="prep-slot-preview" id="prepSlotPreview" hidden></div><div class="shop-grid draft-reward-grid" id="cardDraftList"></div><div class="draft-actions"><button class="shop-reroll-button" id="draftManageDeck" type="button">整理牌组</button><button class="shop-reroll-button" id="draftReroll" type="button">刷新 · 0</button><button class="primary-button" id="draftSkip" type="button">跳过 · 不加牌</button></div></section>
+          <section class="modal-panel shop-panel-inner draft-reward-panel"><div class="shop-heading"><div><div class="eyebrow">BETWEEN ROUNDS</div><h1 id="cardDraftTitle">选择一张加入牌组</h1></div><div class="draft-wallets"><div class="shop-wallet"><span id="draftResourceLabel">删牌标记</span><strong id="draftTokenValue">0</strong></div><div class="shop-wallet"><span>刷新标记</span><strong id="draftRerollValue">0</strong></div></div></div><div class="draft-reference-bar"><p class="modal-lead" id="draftMessage"></p><button class="draft-items-button" id="draftViewItems" type="button"><span>查看已获道具</span><strong id="draftItemCount">0</strong></button></div><div class="prep-slot-preview" id="prepSlotPreview" hidden></div><div class="shop-grid draft-reward-grid" id="cardDraftList"></div><div class="draft-actions"><button class="shop-reroll-button" id="draftManageDeck" type="button">整理牌组</button><button class="shop-reroll-button" id="draftReroll" type="button">刷新 · 0</button><button class="primary-button" id="draftSkip" type="button">跳过 · 不加牌</button></div></section>
         </div>
 
         <div class="overlay item-draft-overlay" id="itemDraft" role="dialog" aria-modal="true" aria-labelledby="itemDraftTitle">
-          <section class="modal-panel item-draft-panel"><div class="eyebrow" id="itemDraftRound">第 3 轮赠礼</div><h1 id="itemDraftTitle">选择一件道具</h1><p class="modal-lead">道具拥有稀有度。永久道具持续生效；标有“一次性”的道具会在选择后立即使用。</p><div class="item-draft-grid" id="itemDraftList"></div><button class="shop-reroll-button item-skip-button" id="itemDraftSkip" type="button">跳过 · 不领取道具</button></section>
+          <section class="modal-panel item-draft-panel"><div class="eyebrow" id="itemDraftRound">第 3 轮赠礼</div><h1 id="itemDraftTitle">选择一件道具</h1><p class="modal-lead">点击候选可先查看大图与完整效果，再决定是否领取。永久道具持续生效；标有“一次性”的道具会在选择后立即使用。</p><div class="item-draft-grid" id="itemDraftList"></div><button class="shop-reroll-button item-skip-button" id="itemDraftSkip" type="button">跳过 · 不领取道具</button></section>
         </div>
 
         <div class="overlay item-choice-overlay" id="itemCardChoice" role="dialog" aria-modal="true" aria-labelledby="itemCardChoiceTitle">
@@ -184,11 +212,11 @@
         </div>
 
         <div class="overlay" id="ruleDraft" role="dialog" aria-modal="true" aria-labelledby="ruleDraftTitle">
-          <section class="modal-panel draft-panel"><div class="eyebrow">ROUND <span id="draftRoundValue">01</span> · CONTRACT PICK</div><h1 id="ruleDraftTitle">接取一条新条约</h1><p class="modal-lead">每轮可以新增一条条约；所有条约并行判定，未完成的条约会保留。</p><div class="rule-help"><b>限时经济</b><span>12 秒内清盘 +1 金币；8 秒内清盘 +2 金币。可与条约奖励叠加。</span></div><div class="target-banner"><span>阶段目标</span><strong id="draftTargetText">第 5 轮累计达到 80 分</strong><small id="draftTargetProgress">当前 0 分</small><i><b id="draftTargetFill"></b></i></div><div class="option-grid" id="ruleDraftList"></div></section>
+          <section class="modal-panel draft-panel"><div class="eyebrow" id="ruleDraftEyebrow">ROUND <span id="draftRoundValue">01</span> · CONTRACT PICK</div><h1 id="ruleDraftTitle">接取一条新条约</h1><p class="modal-lead" id="ruleDraftLead">每轮可以新增一条条约；所有条约并行判定，未完成的条约会保留。</p><div class="rule-help" id="ruleDraftHelp"><b>限时经济</b><span>12 秒内清盘 +1 金币；8 秒内清盘 +2 金币。可与条约奖励叠加。</span></div><div class="target-banner"><span>阶段目标</span><strong id="draftTargetText">第 5 轮累计达到 80 分</strong><small id="draftTargetProgress">当前 0 分</small><i><b id="draftTargetFill"></b></i></div><div class="option-grid" id="ruleDraftList"></div></section>
         </div>
 
         <div class="overlay collection-overlay" id="ruleStatus" role="dialog" aria-modal="true" aria-labelledby="ruleStatusTitle">
-          <section class="modal-panel collection-status-panel"><div class="eyebrow">ACTIVE CONTRACTS</div><h1 id="ruleStatusTitle">并行条约</h1><div class="collection-status-summary" id="ruleStatusSummary"></div><div class="collection-status-list" id="ruleStatusList"></div><button class="primary-button" id="ruleStatusClose" type="button">返回游戏</button></section>
+          <section class="modal-panel collection-status-panel"><div class="eyebrow" id="ruleStatusEyebrow">ACTIVE CONTRACTS</div><h1 id="ruleStatusTitle">并行条约</h1><div class="collection-status-summary" id="ruleStatusSummary"></div><div class="collection-status-list" id="ruleStatusList"></div><button class="primary-button" id="ruleStatusClose" type="button">返回游戏</button></section>
         </div>
 
         <div class="overlay" id="shopPanel" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
@@ -204,6 +232,6 @@
         </div>
       </section>
     </main>
-    <script type="module" src="./js/main.js?v=49"></script>
+    <script type="module" src="./js/main.js?v=50"></script>
   </body>
 </html>

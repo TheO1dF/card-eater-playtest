@@ -1,4 +1,4 @@
-import { GAME_CONFIG, GAME_MODES, isPlateUpgradeRound, isShopMode } from "./config.js";
+import { GAME_CONFIG, GAME_MODES, getStandardDifficultyConfig, isPlateUpgradeRound, isShopMode, normalizeStandardDifficulty } from "./config.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "./state.js";
 import { createGestureController } from "./gesture.js";
 import { createRoundEngine } from "./engine.js";
@@ -16,6 +16,16 @@ import { getCurrentCard } from "./round-pile.js";
 import { ensureRunStatistics, observeRunGold } from "./statistics.js";
 import { activateReshuffle, getReshuffleStatus } from "./reshuffle.js";
 import { CARD_TYPES, getCardById } from "./data.js";
+import {
+  MUTATION_IDS,
+  createFusionCard,
+  getMutation,
+  getMutationTaskMultiplier,
+  getRoundDraftPickCount,
+  initializeMutationRun,
+  isMutationMode,
+  pickRandomMutation,
+} from "./mutations.js";
 import {
   activateCategoryRoundItem,
   applyRoundItemDrawSetup,
@@ -134,11 +144,12 @@ function renderTutorial() {
     return;
   }
   if (!tutorial.goal_acknowledged) {
+    const targets = getStandardDifficultyConfig(state.difficulty).targets;
     ui.showStoryGuide({
       step: "milestone",
       chapter: "记住三个门槛",
-      message: "第 5 轮 80 分，第 10 轮 200 分，第 15 轮 600 分。",
-      objective: "任一门槛没达到，本局结束。现在先盯住：第 5 轮 80 分。",
+      message: `第 5 轮 ${targets[5]} 分，第 10 轮 ${targets[10]} 分，第 15 轮 ${targets[15]} 分。`,
+      objective: `任一门槛没达到，本局结束。现在先盯住：第 5 轮 ${targets[5]} 分。`,
       target: "#scoreValue",
       progress: tutorialProgress(2),
       can_continue: true,
@@ -286,7 +297,7 @@ function finishRoundCycle() {
   state.draft_resolved = false;
   state.item_draft_resolved = false;
   saveGame();
-  prepareRound();
+  enterRoundStart();
 }
 
 function completeItemReward(message) {
@@ -391,6 +402,8 @@ function finishCardDraft() {
   draftBuffer = [];
   state.pending_draft_ids = [];
   state.draft_resolved = false;
+  state.mutation_draft_picks_remaining = 0;
+  state.pending_fusion_card_id = null;
   if (state.current_round % GAME_CONFIG.item_draft_interval === 0) {
     transitionPhase(state, GAME_PHASES.ITEM_DRAFT, { round: state.current_round });
     itemBuffer = randomDraftItems(state, 3, browserPlatform.random);
@@ -401,6 +414,22 @@ function finishCardDraft() {
     return;
   }
   finishRoundCycle();
+}
+
+function continueCardDraft(message) {
+  state.mutation_draft_picks_remaining = Math.max(0, (state.mutation_draft_picks_remaining ?? 1) - 1);
+  draftBuffer = [];
+  state.pending_draft_ids = [];
+  ui.closeCardDraft();
+  if (effectsEnabled) playSound("draft", 1);
+  ui.showPickBurst(message, "card");
+  saveGame();
+  if (state.mutation_draft_picks_remaining > 0) {
+    window.setTimeout(enterCardDraft, 540);
+    return;
+  }
+  state.draft_resolved = true;
+  window.setTimeout(finishCardDraft, 740);
 }
 
 function enterCardDraft() {
@@ -419,14 +448,23 @@ function enterCardDraft() {
   ui.openCardDraft(state, draftBuffer, {
     onChoose: (card) => {
       if (state.phase !== GAME_PHASES.CARD_DRAFT || state.draft_resolved) return;
+      if (isMutationMode(state) && state.mutation_id === MUTATION_IDS.FUSION_CARDS) {
+        if (!state.pending_fusion_card_id) {
+          state.pending_fusion_card_id = card.id;
+          continueCardDraft(`已选择「${card.name}」· 再选一张完成融合`);
+          return;
+        }
+        const first = getCardById(state.pending_fusion_card_id);
+        const fused = createFusionCard(first, card);
+        const addedFusion = draftService.addCard(state, fused);
+        if (!addedFusion) return;
+        state.pending_fusion_card_id = null;
+        continueCardDraft(`融合完成 ·「${fused.name}」加入牌组`);
+        return;
+      }
       const added = draftService.addCard(state, card);
       if (!added) return;
-      state.draft_resolved = true;
-      ui.closeCardDraft();
-      if (effectsEnabled) playSound("draft", 1);
-      ui.showPickBurst(`「${card.name}」加入牌组`, "card");
-      saveGame();
-      window.setTimeout(finishCardDraft, 740);
+      continueCardDraft(`「${card.name}」加入牌组`);
     },
     onReroll: () => {
       const result = draftService.reroll(state, draftBuffer);
@@ -441,6 +479,8 @@ function enterCardDraft() {
     onSkip: () => {
       if (state.phase !== GAME_PHASES.CARD_DRAFT) return;
       draftService.skip(state);
+      state.mutation_draft_picks_remaining = 0;
+      state.pending_fusion_card_id = null;
       state.draft_resolved = true;
       saveGame();
       finishCardDraft();
@@ -503,6 +543,27 @@ function completeRound() {
   renderTutorial();
   if (state.round.started_at_ms) state.round.elapsed_ms = Math.max(1, browserPlatform.now() - state.round.started_at_ms);
   const result = engine.finalizeRound(state);
+  if (isMutationMode(state) && state.mutation_id === MUTATION_IDS.RETURN_CLASSIC && state.active_mutation_task) {
+    const task = state.active_mutation_task;
+    const passed = Boolean(evaluateRule(state, task));
+    const multiplier = getMutationTaskMultiplier(task);
+    if (passed) {
+      state.permanent_multipliers.push({
+        id: `classic-task-${state.current_round}-${task.id}`,
+        name: task.name,
+        multiplier,
+      });
+    }
+    const taskResult = { ...task, passed, multiplier: passed ? multiplier : 1, round: state.current_round };
+    state.mutation_task_history.push(taskResult);
+    state.active_mutation_task = null;
+    result.mutation_task_result = taskResult;
+    result.breakdown.splice(-1, 0, {
+      label: `经典任务 · ${task.name}`,
+      text: passed ? `已达成 · 永久得分倍率 ×${multiplier}` : "未达成 · 本轮不获得倍率",
+      kind: passed ? "rule" : "detail",
+    });
+  }
   if (isShopMode(state.mode)) {
     const baseGold = engine.getGoldReward(state);
     const slowGoldPerCard = state.round.elapsed_ms > 30_000 ? 2 : state.round.elapsed_ms > 20_000 ? 1 : 0;
@@ -567,7 +628,10 @@ function completeRound() {
   const milestone = engine.levelProgressCheck(state);
   const failed = milestone.target > 0 && !milestone.passed;
 
-  if (!failed && !isShopMode(state.mode) && isPlateUpgradeRound(state.current_round)) {
+  const skipsRoundFiveUpgrade = state.mode === GAME_MODES.NORMAL
+    && state.current_round === 5
+    && getStandardDifficultyConfig(state.difficulty).skip_round_five_plate_upgrade;
+  if (!failed && !isShopMode(state.mode) && isPlateUpgradeRound(state.current_round) && !skipsRoundFiveUpgrade) {
     const capacityLimit = state.mode === GAME_MODES.ENDLESS
       ? GAME_CONFIG.endless_max_plate_capacity
       : GAME_CONFIG.max_plate_capacity;
@@ -593,6 +657,7 @@ function completeRound() {
       score: state.total_score,
       outcome,
       mode: state.mode,
+      difficulty: state.mode === GAME_MODES.NORMAL ? normalizeStandardDifficulty(state.difficulty) : 0,
       round: state.current_round,
       finished_at: new Date().toISOString(),
       schema_version: state.schema_version,
@@ -604,6 +669,8 @@ function completeRound() {
     if (effectsEnabled) playSound(outcome === "victory" ? "milestone" : "error", 1);
   } else if (!isShopMode(state.mode)) {
     state.draft_resolved = false;
+    state.mutation_draft_picks_remaining = getRoundDraftPickCount(state);
+    state.pending_fusion_card_id = null;
     draftBuffer = draftService.getOffers(state);
     state.pending_draft_ids = draftBuffer.map((card) => card.id);
     void ui.preloadCardArt(draftBuffer);
@@ -766,7 +833,11 @@ const gesture = createGestureController({
 
 function prepareRound() {
   resetRoundState(state);
-  state.free_rerolls = 1;
+  state.round.mutation_face_down = isMutationMode(state) && state.mutation_id === MUTATION_IDS.DARKNESS;
+  state.free_rerolls = state.mode === GAME_MODES.NORMAL
+    && !getStandardDifficultyConfig(state.difficulty).free_round_reroll
+    ? 0
+    : 1;
   const roundStartMessages = [
     ...applyRoundItemSetup(state, { create_id: browserPlatform.create_id }),
     ...engine.applyRoundStartEffects(state),
@@ -791,6 +862,33 @@ function prepareRound() {
     if (roundStartMessages.length > 0) ui.showEffectFlash(roundStartMessages.join(" · "));
     renderTutorial();
   });
+}
+
+function enterMutationTaskDraft() {
+  if (state.phase === GAME_PHASES.INIT || state.phase === GAME_PHASES.NEXT_ROUND) {
+    transitionPhase(state, GAME_PHASES.RULE_DRAFT, { round: state.current_round, mutation: MUTATION_IDS.RETURN_CLASSIC });
+  }
+  const recent = (state.mutation_task_history ?? []).slice(-3).map((entry) => ({ id: entry.id }));
+  const choices = randomDraftRules(GAME_CONFIG.draft_size, recent, browserPlatform.random, state.deck, state.current_round);
+  if (choices.length === 0) {
+    saveGame();
+    prepareRound();
+    return;
+  }
+  ui.renderHud(state);
+  ui.openRuleDraft(choices, state, (rule) => {
+    if (state.phase !== GAME_PHASES.RULE_DRAFT) return;
+    state.active_mutation_task = { ...rule, selected_round: state.current_round };
+    ui.closeRuleDraft();
+    saveGame();
+    prepareRound();
+  }, { mutation_task: true });
+}
+
+function enterRoundStart() {
+  if (isMutationMode(state) && state.mutation_id === MUTATION_IDS.RETURN_CLASSIC) enterMutationTaskDraft();
+  else if (state.mode === GAME_MODES.CONTRACT_SHOP) enterRuleDraft();
+  else prepareRound();
 }
 
 function enterRuleDraft() {
@@ -897,6 +995,7 @@ function enterShop() {
 
 function restoreRun(saved) {
   state = saved;
+  state.difficulty = state.mode === GAME_MODES.NORMAL ? normalizeStandardDifficulty(state.difficulty) : 0;
   ensureRunStatistics(state);
   state.items ??= [];
   hydrateOwnedItems(state);
@@ -908,12 +1007,26 @@ function restoreRun(saved) {
   state.draft_resolved ??= false;
   state.item_draft_resolved ??= false;
   state.reroll_tokens ??= 0;
-  state.free_rerolls ??= 1;
+  state.free_rerolls ??= state.mode === GAME_MODES.NORMAL
+    && !getStandardDifficultyConfig(state.difficulty).free_round_reroll
+    ? 0
+    : 1;
   state.prep_slot ??= null;
   state.gold ??= 0;
   state.pending_shop ??= null;
   state.active_rules = Array.isArray(state.active_rules) ? state.active_rules : [];
   state.rule_history ??= [];
+  state.mutation_id = isMutationMode(state)
+    ? (getMutation(state.mutation_id)?.id ?? MUTATION_IDS.CAT_ARMY)
+    : null;
+  state.mutation_history = Array.isArray(state.mutation_history) ? state.mutation_history : [];
+  state.mutation_task_history = Array.isArray(state.mutation_task_history) ? state.mutation_task_history : [];
+  state.active_mutation_task ??= null;
+  state.pending_fusion_card_id ??= null;
+  state.mutation_draft_picks_remaining = Math.max(0, Number(state.mutation_draft_picks_remaining) || 0);
+  if (isMutationMode(state) && state.phase === GAME_PHASES.CARD_DRAFT && !state.draft_resolved && state.mutation_draft_picks_remaining === 0) {
+    state.mutation_draft_picks_remaining = state.pending_fusion_card_id ? 1 : getRoundDraftPickCount(state);
+  }
   draftBuffer = state.pending_draft_ids.map(getCardById).filter(Boolean);
   itemBuffer = state.pending_item_ids.map(getItemById).filter(Boolean);
   ui.hideWelcome();
@@ -944,7 +1057,8 @@ function restoreRun(saved) {
   }
   if (state.phase === GAME_PHASES.RULE_DRAFT) {
     refreshTable();
-    enterRuleDraft();
+    if (isMutationMode(state) && state.mutation_id === MUTATION_IDS.RETURN_CLASSIC) enterMutationTaskDraft();
+    else enterRuleDraft();
     return;
   }
   prepareRound();
@@ -1058,7 +1172,8 @@ const developerUnlocks = Object.freeze({
   shop: true,
   contract_shop: true,
   endless: true,
-  hard: true,
+  mutation: true,
+  normal_difficulty_max: 10,
   god: true,
 });
 const getCurrentUnlocks = () => developerMode ? developerUnlocks : browserPlatform.get_unlocks();
@@ -1066,16 +1181,19 @@ const progression = browserPlatform.load_progression();
 const unlocks = getCurrentUnlocks();
 document.documentElement.dataset.developerMode = developerMode ? "true" : "false";
 ui.openWelcome({
-  onNew: (mode) => {
+  onNew: (mode, runOptions = {}) => {
     startSound();
     browserPlatform.clear_run();
-    const randomStart = unlocks.random_start && settings.random_start;
-    state = createInitialPlayerState({ create_id: browserPlatform.create_id, mode, random_start: randomStart, random: browserPlatform.random });
+    const randomStart = mode !== GAME_MODES.MUTATION && unlocks.random_start && settings.random_start;
+    const mutation = mode === GAME_MODES.MUTATION
+      ? getMutation(runOptions.mutation_id) ?? pickRandomMutation(browserPlatform.random)
+      : null;
+    state = createInitialPlayerState({ create_id: browserPlatform.create_id, mode, difficulty: runOptions.difficulty, mutation_id: mutation?.id, random_start: randomStart, random: browserPlatform.random });
+    if (mutation) initializeMutationRun(state, mutation.id, { create_id: browserPlatform.create_id, random: browserPlatform.random });
     ui.hideWelcome();
     const launch = () => {
-      if (!browserPlatform.load_tutorial_complete() && mode === GAME_MODES.NORMAL) startTutorial();
-      if (mode === GAME_MODES.CONTRACT_SHOP) enterRuleDraft();
-      else prepareRound();
+      if (!browserPlatform.load_tutorial_complete() && mode === GAME_MODES.NORMAL && state.difficulty === 0) startTutorial();
+      enterRoundStart();
     };
     if (isShopMode(mode) && !browserPlatform.load_shop_tutorial_complete()) {
       ui.openShopTutorial(mode, () => { browserPlatform.save_shop_tutorial_complete(); launch(); });

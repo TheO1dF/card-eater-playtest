@@ -31,6 +31,7 @@ import {
 } from "./permanent-points.js";
 import { grantRoundGold, queueRoundGold } from "./economy.js";
 import { recordCardAction } from "./statistics.js";
+import { applyMutationActionScore } from "./mutations.js";
 import {
   getFinalRemainingCard,
   getCurrentCard,
@@ -163,7 +164,7 @@ function addBuff(state, buff) {
 
 function consumeOncePerRound(state, card, effect) {
   if (!effect.once_per_round) return true;
-  const key = `card:${card.uuid}:${effect.kind}`;
+  const key = `card:${card.uuid}:${effect.kind}:${effect.fusion_component_id ?? "base"}`;
   if (state.round.effect_trigger_counts[key]) return false;
   state.round.effect_trigger_counts[key] = 1;
   return true;
@@ -282,7 +283,17 @@ function createGeneratedCard(state, sourceCard, template, options = {}) {
 
 function prepareImmediateEffect(state, action, card) {
   const effect = card.effect;
-  if (!effect || action !== (effect.trigger_action ?? ACTIONS.EAT)) return { bonus: 0, detail: null };
+  if (!effect) return { bonus: 0, detail: null };
+  if (effect.kind === "fusion") {
+    return (effect.components ?? []).reduce((result, component) => {
+      const resolved = prepareImmediateEffect(state, action, { ...card, name: component.source_name ?? card.name, effect: component.effect });
+      return {
+        bonus: safeAdd(result.bonus, resolved.bonus),
+        detail: [result.detail, resolved.detail].filter(Boolean).join(" · ") || null,
+      };
+    }, { bonus: 0, detail: null });
+  }
+  if (action !== (effect.trigger_action ?? ACTIONS.EAT)) return { bonus: 0, detail: null };
   if (effect.kind === "absorb_debuff") {
     const negative = state.round.buffs.filter((buff) => buff.kind === "flat" && buff.value < 0);
     const raw = negative.reduce((total, buff) => safeAdd(total, Math.abs(buff.value) * buff.remaining), 0);
@@ -307,6 +318,17 @@ function markEffect(entry, card, detail = card.effect?.description) {
 function applyCardEffect(state, action, card, entry, random = Math.random) {
   const effect = card.effect;
   if (!effect) return;
+  if (effect.kind === "fusion") {
+    for (const component of effect.components ?? []) {
+      if (!component.effect) continue;
+      applyCardEffect(state, action, {
+        ...card,
+        name: component.source_name ?? card.name,
+        effect: component.effect,
+      }, entry, random);
+    }
+    return;
+  }
 
   if (effect.kind === "flat_action_bonus"
     && action === effect.trigger_action
@@ -2221,9 +2243,12 @@ export function createRoundEngine(options = {}) {
         state.round.nebula_postpone_counts[sourceUuid] = safeAdd(state.round.nebula_postpone_counts[sourceUuid] ?? 0, 1);
       }
     }
+    const cardEffects = card.effect?.kind === "fusion"
+      ? (card.effect.components ?? []).map((component) => component.effect).filter(Boolean)
+      : card.effect ? [card.effect] : [];
     const comboWasProtected = (state.round.fruit_combo ?? 0) > 0 && (
       Boolean(state.round.fruit_combo_unbreakable)
-      || card.effect?.kind === "fruit_combo_unbreakable"
+      || cardEffects.some((effect) => effect.kind === "fruit_combo_unbreakable")
       || (action === ACTIONS.DISCARD && Boolean(state.round.fruit_combo_discard_shield))
     );
     if ((action !== ACTIONS.EAT || card.type !== "水果") && !comboWasProtected) {
@@ -2231,7 +2256,7 @@ export function createRoundEngine(options = {}) {
       state.round.fruit_combo = 0;
     }
     const immediateEffect = prepareImmediateEffect(state, action, card);
-    if (card.effect?.kind === "clear_debuff" && action === ACTIONS.EAT) {
+    if (cardEffects.some((effect) => effect.kind === "clear_debuff") && action === ACTIONS.EAT) {
       state.round.buffs = state.round.buffs.filter((buff) => buff.kind !== "flat" || buff.value >= 0);
     }
 
@@ -2289,6 +2314,8 @@ export function createRoundEngine(options = {}) {
       type: card.type,
       edibility: card.edibility,
       rarity: card.rarity,
+      runtime_art_mode: card.runtime_art_mode,
+      fusion_parts: card.fusion_parts ? card.fusion_parts.map((part) => ({ ...part })) : undefined,
       keywords: [...new Set([...(card.effect?.keywords ?? []), ...(card.status_keywords ?? [])])],
       action,
       printed_points: printedPoints,
@@ -2425,13 +2452,20 @@ export function createRoundEngine(options = {}) {
       { id: "effect-bonus", operation: "add", layer: EFFECT_LAYERS.AFTERMATH, source: card.name, value: entry.effect_bonus },
     ]);
     entry.points = scoreResolution.event.value;
-    if (card.effect?.kind === "postpone_penalty_comeback"
-      && action === ACTIONS.DISCARD
-      && entry.points <= (card.effect.threshold ?? -5)) {
-      const bonus = card.effect.bonus ?? 20;
-      entry.effect_bonus = safeAdd(entry.effect_bonus, bonus);
-      entry.points = safeAdd(entry.points, bonus);
-      markEffect(entry, card, `${card.name}：弃置得分不高于 ${card.effect.threshold ?? -5}，反击 +${bonus}`);
+    for (const effect of cardEffects.filter((candidate) => candidate.kind === "postpone_penalty_comeback")) {
+      if (action === ACTIONS.DISCARD && entry.points <= (effect.threshold ?? -5)) {
+        const bonus = effect.bonus ?? 20;
+        entry.effect_bonus = safeAdd(entry.effect_bonus, bonus);
+        entry.points = safeAdd(entry.points, bonus);
+        markEffect(entry, card, `${card.name}：弃置得分不高于 ${effect.threshold ?? -5}，反击 +${bonus}`);
+      }
+    }
+    const mutationPoints = applyMutationActionScore(state, action, entry.points);
+    if (mutationPoints !== entry.points) {
+      markEffect(entry, card, action === ACTIONS.EAT
+        ? `异变·大吃特吃：本次吃牌得分翻倍至 ${formatScore(mutationPoints)}`
+        : `异变·大吃特吃：弃牌正分归零`);
+      entry.points = mutationPoints;
     }
     const allItemMessages = [...itemEffects.messages, ...itemAfterEffects.messages];
     if (allItemMessages.length > 0) {
@@ -2556,6 +2590,8 @@ export function createRoundEngine(options = {}) {
         wrong_edibility: entry.wrong_edibility,
         destroyed_self: entry.destroyed_self,
         keywords: [...(entry.keywords ?? [])],
+        runtime_art_mode: entry.runtime_art_mode,
+        fusion_parts: entry.fusion_parts,
       })),
       rule_results: [],
       completed_rule_ids: [],
@@ -2567,7 +2603,7 @@ export function createRoundEngine(options = {}) {
     const milestones = Object.keys(GAME_CONFIG.milestone_targets)
       .map(Number)
       .filter((baseRound) => getEffectiveMilestoneRound(baseRound, state.milestone_delays) === state.current_round);
-    const target = milestones.reduce((highest, baseRound) => Math.max(highest, getMilestoneTarget(baseRound, state.mode)), 0);
+    const target = milestones.reduce((highest, baseRound) => Math.max(highest, getMilestoneTarget(baseRound, state.mode, state.difficulty)), 0);
     return { passed: target === 0 || state.total_score >= target, target, base_round: milestones.at(-1) ?? null };
   }
 
@@ -2591,7 +2627,7 @@ export function createRoundEngine(options = {}) {
     applyRoundStartEffects,
     getGoldReward,
     levelProgressCheck,
-    getNextTargetInfo: (state) => getNextMilestone(state.current_round, state.milestone_delays, state.mode),
+    getNextTargetInfo: (state) => getNextMilestone(state.current_round, state.milestone_delays, state.mode, state.difficulty),
     getFinalRound: (state) => getFinalRound(state.milestone_delays, state.mode),
   };
 }

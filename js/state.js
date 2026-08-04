@@ -1,4 +1,4 @@
-import { GAME_CONFIG, GAME_MODES } from "./config.js";
+import { GAME_CONFIG, GAME_MODES, getStandardDifficultyConfig, normalizeStandardDifficulty } from "./config.js";
 import { createInitialDeck } from "./data.js";
 import { createRunStatistics } from "./statistics.js";
 
@@ -108,25 +108,29 @@ export function createRoundState() {
     item_destroy_protected: false,
     item_generation_copied: false,
     pending_item_messages: [],
+    mutation_face_down: false,
   };
 }
 
 export function createInitialPlayerState(options = {}) {
   const createId = options.create_id;
   const mode = options.mode ?? GAME_MODES.NORMAL;
+  const difficulty = mode === GAME_MODES.NORMAL ? normalizeStandardDifficulty(options.difficulty) : 0;
+  const difficultyConfig = getStandardDifficultyConfig(difficulty);
   return {
     schema_version: GAME_CONFIG.schema_version,
     phase: GAME_PHASES.INIT,
     mode,
+    difficulty,
     current_round: 1,
     total_score: 0,
-    delete_tokens: 1,
+    delete_tokens: mode === GAME_MODES.NORMAL ? difficultyConfig.initial_delete_tokens : 1,
     reroll_tokens: 0,
-    free_rerolls: 1,
-    plate_capacity: mode === GAME_MODES.HARD ? GAME_CONFIG.initial_plate_capacity - 1 : GAME_CONFIG.initial_plate_capacity,
+    free_rerolls: mode === GAME_MODES.NORMAL && !difficultyConfig.free_round_reroll ? 0 : 1,
+    plate_capacity: GAME_CONFIG.initial_plate_capacity,
     plate_upgrade_count: 0,
-    deck: createInitialDeck({ create_id: createId, random_start: options.random_start, random: options.random }),
-    random_start: Boolean(options.random_start),
+    deck: createInitialDeck({ create_id: createId, random_start: mode !== GAME_MODES.MUTATION && options.random_start, random: options.random, difficulty }),
+    random_start: mode !== GAME_MODES.MUTATION && Boolean(options.random_start),
     prep_slot: null,
     gold: 0,
     remove_card_cost: 0,
@@ -138,6 +142,12 @@ export function createInitialPlayerState(options = {}) {
     rare_shop_weight_bonus: 0,
     active_rules: [],
     rule_history: [],
+    mutation_id: mode === GAME_MODES.MUTATION ? options.mutation_id ?? null : null,
+    mutation_history: [],
+    mutation_task_history: [],
+    active_mutation_task: null,
+    mutation_draft_picks_remaining: 0,
+    pending_fusion_card_id: null,
     items: [],
     item_history: [],
     item_serial: 0,

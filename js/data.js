@@ -148,9 +148,50 @@ const CARD_DEFS = [
   card({ id: "U008", name: "覆膜机", rarity: "稀有", type: "通用", edibility: INEDIBLE, eat_points: -2, discard_points: 1, role: SETUP, synergy_tags: ["通用", "后置", "机制"], effect: { kind: "mark_all_protect_decrease", description: "弃：将牌堆剩余牌全部标记为已后置；本轮这些牌的牌面点数不会减少，增加仍会生效", trigger_action: "discard" } }),
 ];
 
+const CARD_RARITY_REBALANCE = Object.freeze({
+  F001: "普通", F002: "普通", F003: "罕见", F004: "罕见", F005: "稀有",
+  F006: "普通", F007: "稀有", F008: "传奇", F009: "稀有", F010: "罕见",
+  F011: "普通", F012: "稀有", F013: "罕见",
+  K001: "普通", K002: "普通", K003: "罕见", K004: "普通", K005: "罕见",
+  K006: "普通", K007: "罕见", K008: "稀有", K009: "罕见", K010: "稀有",
+  K011: "稀有", K012: "普通",
+  D001: "普通", D002: "稀有", D003: "普通", D004: "稀有", D005: "罕见",
+  D006: "传奇", D007: "稀有", D008: "普通", D009: "稀有", D010: "罕见",
+  D011: "罕见",
+  B001: "罕见", B002: "罕见", B003: "普通", B004: "普通", B005: "稀有",
+  B006: "罕见", B007: "罕见", B008: "普通", B009: "罕见", B010: "稀有",
+  B011: "普通", B012: "稀有",
+  A001: "普通", A002: "稀有", A003: "普通", A004: "罕见", A005: "传奇",
+  A006: "稀有", A007: "罕见", A008: "罕见", A009: "罕见", A010: "罕见",
+  A011: "普通", A012: "罕见",
+  C001: "普通", C002: "稀有", C003: "稀有", C004: "罕见", C005: "传奇",
+  C006: "罕见", C007: "稀有", C008: "传奇", C009: "罕见", C010: "罕见",
+  C011: "罕见",
+  P001: "普通", P002: "罕见", P003: "罕见", P004: "稀有", P005: "稀有",
+  P006: "罕见", P007: "普通", P008: "罕见", P009: "普通", P010: "罕见",
+  U001: "稀有", U002: "传奇", U003: "罕见", U004: "稀有", U005: "普通",
+  U006: "罕见", U007: "罕见", U008: "稀有",
+});
+
+if (Object.keys(CARD_RARITY_REBALANCE).length !== CARD_DEFS.length
+  || CARD_DEFS.some((entry) => !CARD_RARITY_REBALANCE[entry.id])) {
+  throw new Error("Card rarity table must classify every card exactly once.");
+}
+
+for (const entry of CARD_DEFS) {
+  entry.rarity = CARD_RARITY_REBALANCE[entry.id] ?? entry.rarity;
+  entry.min_draft_round = entry.rarity === "传奇" ? 7 : entry.rarity === "稀有" ? 3 : 1;
+}
+
 // Seven unique teaching cards: four edible, three inedible. Both fruits teach
 // the combo immediately; three effect-free cards keep the opening readable.
 const STARTER_IDS = Object.freeze(["F002", "F001", "K001", "D001", "A001", "A008", "A004"]);
+export const VOID_CARD_ID = "VOID";
+const VOID_CARD = Object.freeze({
+  ...card({ id: VOID_CARD_ID, name: "虚空牌", rarity: "诅咒", type: "通用", edibility: INEDIBLE, eat_points: -1, discard_points: -1, role: SACRIFICE, synergy_tags: ["通用", "虚空", "负担"], flavor: "无论吃掉还是弃掉，都会失去 1 分。", effect: null }),
+  art_file: null,
+  min_draft_round: Number.POSITIVE_INFINITY,
+});
 
 function cloneCard(source) {
   return {
@@ -226,10 +267,14 @@ export function createInitialDeck(options = {}) {
       ids[position] = candidates.splice(Math.floor(random() * candidates.length), 1)[0].id;
     }
   }
-  return ids.map((id, index) => {
+  const deck = ids.map((id, index) => {
     const source = CARD_LIBRARY[id];
     return { ...cloneCard(source), uuid: createId(source, index) };
   });
+  if ((Number(options.difficulty) || 0) >= 10) {
+    deck.push({ ...cloneCard(VOID_CARD), uuid: createId(VOID_CARD, deck.length) });
+  }
+  return deck;
 }
 
 export function createCardPool(options = {}) { return CARD_DEFS.map(options.economy ? economyVariant : cloneCard); }
@@ -238,6 +283,7 @@ export function createCardPool(options = {}) { return CARD_DEFS.map(options.econ
 export function createShopCardPool(options = {}) { return createCardPool(options); }
 
 export function getCardById(id, options = {}) {
+  if (id === VOID_CARD_ID) return cloneCard(VOID_CARD);
   const source = CARD_LIBRARY[id];
   return source ? (options.economy ? economyVariant(source) : cloneCard(source)) : null;
 }

@@ -1,4 +1,4 @@
-import { GAME_CONFIG, GAME_MODES } from "./config.js";
+import { GAME_CONFIG, GAME_MODES, getStandardDifficultyConfig } from "./config.js";
 import { createShopCardPool, getCardById } from "./data.js";
 import { safeAdd, safeProduct } from "./numbers.js";
 import { queueRoundGold } from "./economy.js";
@@ -18,8 +18,10 @@ const CARD_POOL_ITEMS = Object.freeze([
 ]);
 
 const RARITY_WEIGHT = Object.freeze({ "普通": 12, "罕见": 6, "稀有": 3, "传奇": 1 });
+const LOWERED_RARITY_WEIGHT = Object.freeze({ "普通": 20, "罕见": 5, "稀有": 1, "传奇": 0.2 });
 
 const defineItem = (definition, iconIndex) => Object.freeze({
+  icon_file: `item-sprites/v024/${definition.id.toLowerCase()}.png`,
   icon_atlas: "meta-atlas.webp",
   icon_columns: 4,
   icon_rows: 4,
@@ -67,7 +69,30 @@ const definitions = [
   { id: "C30", name: "反烤甜点铲", rarity: "罕见", role: "甜点 · 永久成长", builds: ["dessert", "growth"], bridge: true, description: "每次弃置甜点时，该甜点的吃分永久 +1。", effect: { kind: "dessert_discard_growth", bonus: 1 } },
 ];
 
-export const ITEM_LIBRARY = Object.freeze(definitions.map((entry, index) => defineItem(entry, index)));
+const ITEM_RARITY_REBALANCE = Object.freeze({
+  A1: "普通", A2: "普通", A3: "普通", A4: "普通",
+  A5: "普通", A6: "普通", A7: "普通", A8: "普通",
+  B1: "传奇", B2: "稀有", B3: "罕见",
+  C1: "稀有", C2: "稀有", C3: "普通", C4: "稀有", C5: "罕见",
+  C6: "稀有", C7: "稀有", C8: "罕见", C9: "传奇", C10: "罕见",
+  C11: "普通", C12: "稀有", C13: "稀有", C14: "稀有", C15: "传奇",
+  C16: "罕见", C17: "稀有", C18: "罕见", C19: "稀有", C20: "普通",
+  C30: "稀有",
+});
+
+if (Object.keys(ITEM_RARITY_REBALANCE).length !== definitions.length
+  || definitions.some((entry) => !ITEM_RARITY_REBALANCE[entry.id])) {
+  throw new Error("Item rarity table must classify every item exactly once.");
+}
+
+export const ITEM_LIBRARY = Object.freeze(definitions.map((entry, index) => defineItem({
+  ...entry,
+  rarity: ITEM_RARITY_REBALANCE[entry.id] ?? entry.rarity,
+}, index)));
+const ECONOMY_ITEM_RARITIES = Object.freeze({
+  E101: "普通", E102: "普通", E103: "罕见", E104: "稀有",
+  E105: "罕见", E106: "普通", E107: "罕见",
+});
 const ECONOMY_ITEM_LIBRARY = Object.freeze([
   { id: "E101", name: "投币吸管", rarity: "普通", role: "饮料经济", shop_price: 4, min_shop_round: 2, max_shop_round: 8, description: "每轮第一次吃掉并摧毁饮料时，结算金币 +1。", effect: { kind: "drink_first_gold", gold: 1 } },
   { id: "E102", name: "工会徽章", rarity: "普通", role: "人物经济", shop_price: 4, min_shop_round: 2, max_shop_round: 10, description: "每轮第一次弃掉人物牌时，结算金币 +1。", effect: { kind: "first_type_gold", target_type: "人物", action: "discard", gold: 1 } },
@@ -76,7 +101,11 @@ const ECONOMY_ITEM_LIBRARY = Object.freeze([
   { id: "E105", name: "餐盘量尺", rarity: "普通", role: "扩容经济", shop_price: 5, min_shop_round: 2, description: "餐盘扩容费用永久 -1，最低仍为 1 金币。", effect: { kind: "plate_upgrade_discount", amount: 1 } },
   { id: "E106", name: "连击钱旗", rarity: "罕见", role: "水果经济", shop_price: 5, min_shop_round: 3, description: "每轮水果连击首次达到 3 或以上时，结算金币 +1。", effect: { kind: "fruit_combo_first_gold", threshold: 3, gold: 1 } },
   { id: "E107", name: "苦差零钱袋", rarity: "罕见", role: "风险刷新", shop_price: 5, min_shop_round: 3, description: "每轮首次选择牌面负分的一侧时，随后商店获得 1 次免费刷新。", effect: { kind: "negative_action_free_reroll", count: 1 } },
-].map((entry, index) => defineItem({ ...entry, builds: ["economy"] }, index + 8)));
+].map((entry, index) => defineItem({
+  ...entry,
+  rarity: ECONOMY_ITEM_RARITIES[entry.id],
+  builds: ["economy"],
+}, index + 8)));
 const ALL_ITEMS = Object.freeze([...ITEM_LIBRARY, ...ECONOMY_ITEM_LIBRARY]);
 const ITEM_BY_ID = Object.freeze(Object.fromEntries(ALL_ITEMS.map((entry) => [entry.id, entry])));
 
@@ -98,6 +127,12 @@ function createOwnedItem(source, saved = {}) {
 
 export function getItemById(id) { return cloneItem(ITEM_BY_ID[id]); }
 export function createItemPool() { return ITEM_LIBRARY.map(cloneItem); }
+export function createItemCatalogPool() {
+  return ALL_ITEMS.map((entry) => cloneItem({
+    ...entry,
+    catalog_group: entry.id.startsWith("E") ? "economy" : entry.consumable ? "consumable" : "standard",
+  }));
+}
 export function createShopItemPool() {
   const price = { "普通": 5, "罕见": 7, "稀有": 10, "传奇": 14 };
   return [...ITEM_LIBRARY.filter((entry) => !entry.consumable && entry.effect.kind !== "delete_every_rounds"), ...ECONOMY_ITEM_LIBRARY]
@@ -130,13 +165,14 @@ function deckBuilds(state) {
   return builds;
 }
 
-function weightedTake(pool, predicate, selected, random) {
+function weightedTake(pool, predicate, selected, random, loweredRarity = false) {
   const candidates = pool.filter((item) => !selected.some((picked) => picked.id === item.id) && predicate(item));
   if (candidates.length === 0) return null;
-  const total = candidates.reduce((sum, item) => sum + (RARITY_WEIGHT[item.rarity] ?? 1), 0);
+  const rarityWeights = loweredRarity ? LOWERED_RARITY_WEIGHT : RARITY_WEIGHT;
+  const total = candidates.reduce((sum, item) => sum + (rarityWeights[item.rarity] ?? 1), 0);
   let roll = random() * total;
   for (const candidate of candidates) {
-    roll -= RARITY_WEIGHT[candidate.rarity] ?? 1;
+    roll -= rarityWeights[candidate.rarity] ?? 1;
     if (roll <= 0) return candidate;
   }
   return candidates.at(-1);
@@ -150,16 +186,18 @@ export function randomDraftItems(state, count = 3, random = Math.random) {
   const pool = createItemPool().filter((entry) => !seen.has(entry.id));
   const active = deckBuilds(state);
   const selected = [];
-  const relevant = weightedTake(pool, (item) => !item.bridge && !item.wild && item.builds.some((build) => active.has(build)), selected, random)
-    ?? weightedTake(pool, (item) => !item.bridge && !item.wild, selected, random);
+  const loweredRarity = state.mode === GAME_MODES.NORMAL
+    && getStandardDifficultyConfig(state.difficulty).lower_shop_rarity;
+  const relevant = weightedTake(pool, (item) => !item.bridge && !item.wild && item.builds.some((build) => active.has(build)), selected, random, loweredRarity)
+    ?? weightedTake(pool, (item) => !item.bridge && !item.wild, selected, random, loweredRarity);
   if (relevant) selected.push(relevant);
-  const bridge = weightedTake(pool, (item) => item.bridge && item.builds.some((build) => active.has(build)), selected, random)
-    ?? weightedTake(pool, (item) => item.bridge, selected, random);
+  const bridge = weightedTake(pool, (item) => item.bridge && item.builds.some((build) => active.has(build)), selected, random, loweredRarity)
+    ?? weightedTake(pool, (item) => item.bridge, selected, random, loweredRarity);
   if (bridge) selected.push(bridge);
-  const wild = weightedTake(pool, (item) => item.wild, selected, random);
+  const wild = weightedTake(pool, (item) => item.wild, selected, random, loweredRarity);
   if (wild) selected.push(wild);
   while (selected.length < count) {
-    const fallback = weightedTake(pool, () => true, selected, random);
+    const fallback = weightedTake(pool, () => true, selected, random, loweredRarity);
     if (!fallback) break;
     selected.push(fallback);
   }
