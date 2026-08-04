@@ -163,6 +163,7 @@ for (const viewport of selectedViewports) {
     localStorage.removeItem("cardeater.settings.v1");
     localStorage.removeItem("cardeater.progression.v1");
     localStorage.removeItem("cardeater.story-tutorial.v1");
+    localStorage.removeItem("cardeater.companion.v1");
   })()`);
   await send("Page.reload", { ignoreCache: true });
   await waitFor('document.readyState === "complete" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
@@ -172,7 +173,7 @@ for (const viewport of selectedViewports) {
   await clickElement("#newGameButton");
   await waitFor('!document.querySelector("#modeChooser")?.hidden');
   await clickElement("#normalModeButton");
-  await waitFor('document.querySelector("#normalDifficultySelect")?.classList.contains("show") && document.querySelectorAll("#normalDifficultyList .difficulty-option").length === 11');
+  await waitFor('document.querySelector("#normalDifficultySelect")?.classList.contains("show") && document.querySelectorAll("#normalDifficultyList .difficulty-option").length === 2');
   await wait(220);
   const difficultySelect = await evaluate(`(() => {
     const panel = document.querySelector("#normalDifficultySelect .difficulty-select-panel")?.getBoundingClientRect();
@@ -188,6 +189,36 @@ for (const viewport of selectedViewports) {
   })()`);
   await capture(`${viewport.name}-difficulty-select`);
   await clickElement('[data-difficulty-level="0"]');
+  await waitFor('!document.querySelector("#companionScene")?.hidden && document.querySelector("#companionScene")?.dataset.visual === "black"', 12000);
+  const prologue = [];
+  for (let step = 0; step < 3; step += 1) {
+    await wait(step === 0 ? 320 : 920);
+    prologue.push(await evaluate(`(() => ({
+      speaker: document.querySelector("#companionSceneSpeaker")?.textContent,
+      message: document.querySelector("#companionSceneMessage")?.textContent,
+      detail: document.querySelector("#companionSceneDetail")?.textContent,
+      visual: document.querySelector("#companionScene")?.dataset.visual,
+    }))()`));
+    await capture(`${viewport.name}-prologue-${step + 1}`);
+    await clickElement("#companionSceneNext");
+    if (step < 2) await waitFor(`document.querySelector("#companionScene")?.dataset.step === "${step + 2}"`);
+  }
+  await waitFor('document.querySelector("#storyGuide")?.dataset.step === "cat-rescue" && !document.querySelector("#storyGuide")?.hidden', 12000);
+  await wait(760);
+  const catRescue = await evaluate(`(() => ({
+    message: document.querySelector("#storyGuideMessage")?.textContent,
+    objective: document.querySelector("#storyGuideObjective")?.textContent,
+    active_name: document.querySelector(".game-card.is-active .card-title strong")?.textContent,
+    speech: document.querySelector(".card-speech-bubble")?.textContent,
+    eat_hidden: getComputedStyle(document.querySelector("#eatButton")).visibility === "hidden" || parseFloat(getComputedStyle(document.querySelector("#eatButton")).opacity) < .01,
+    discard_visible: getComputedStyle(document.querySelector("#discardButton")).visibility !== "hidden" && parseFloat(getComputedStyle(document.querySelector("#discardButton")).opacity) > .5,
+  }))()`);
+  await capture(`${viewport.name}-cat-rescue`);
+  await clickElement("#discardButton");
+  await waitFor('document.querySelector("#storyGuide")?.dataset.step === "cat-question"', 12000);
+  await clickElement("#storyGuideNext");
+  await waitFor('document.querySelector("#storyGuide")?.dataset.step === "cat-intro"');
+  await clickElement("#storyGuideNext");
   await waitFor('document.querySelector("#storyGuide")?.dataset.step === "goal" && !document.querySelector("#storyGuide")?.hidden', 12000);
   await wait(320);
   const tutorialGoal = await evaluate(`(() => {
@@ -233,8 +264,13 @@ for (const viewport of selectedViewports) {
   await capture(`${viewport.name}-tutorial-practice`);
   const cardsBeforePracticeDrag = await evaluate('document.querySelectorAll("#cardStack .game-card").length');
   const activeCardBeforePracticeDrag = await evaluate('document.querySelector(".game-card.is-active")?.dataset.cardUuid');
-  await dragElement(".game-card.is-active", 40, 0);
+  for (const distance of [24, 32, 40]) {
+    await dragElement(".game-card.is-active", 0, distance);
+    await wait(360);
+    if (await evaluate('document.querySelector("#storyGuide")?.dataset.step !== "drag"')) break;
+  }
   await waitFor('document.querySelector("#storyGuide")?.dataset.step !== "drag"');
+  await wait(320);
   const tutorialDrag = await evaluate(`(() => ({
     step: document.querySelector("#storyGuide")?.dataset.step,
     legend_visible: !document.querySelector("#storyGestureLegend")?.hidden,
@@ -245,7 +281,6 @@ for (const viewport of selectedViewports) {
     gesture_prompt_cleared: document.querySelector("#swipeStatus")?.textContent === "" && parseFloat(getComputedStyle(document.querySelector("#swipeStatus")).opacity) < .01,
     focus_visible: Boolean(document.querySelector(".tutorial-focus")),
   }))()`);
-  await wait(120);
   await capture(`${viewport.name}-tutorial-drag`);
   await evaluate(`(() => {
     localStorage.removeItem("cardeater.active-run.v2");
@@ -286,6 +321,18 @@ for (const viewport of selectedViewports) {
       horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     };
   })()`);
+  await clickElement("#homeCompanion");
+  await waitFor('!document.querySelector("#homeCompanionBubble")?.hidden');
+  const homeCompanion = await evaluate(`(() => {
+    const cat = document.querySelector("#homeCompanion")?.getBoundingClientRect();
+    const bubble = document.querySelector("#homeCompanionBubble")?.getBoundingClientRect();
+    return {
+      message: document.querySelector("#homeCompanionMessage")?.textContent,
+      cat_inside: Boolean(cat && cat.left >= -1 && cat.right <= innerWidth + 1 && cat.top >= -1 && cat.bottom <= innerHeight + 1),
+      bubble_inside: Boolean(bubble && bubble.left >= -1 && bubble.right <= innerWidth + 1 && bubble.top >= -1 && bubble.bottom <= innerHeight + 1),
+    };
+  })()`);
+  Object.assign(home, { companion: homeCompanion });
   await clickElement("#homeStatisticsButton");
   await waitFor('!document.querySelector("#homeStatisticsOverlay")?.hidden');
   await wait(180);
@@ -469,7 +516,6 @@ for (const viewport of selectedViewports) {
   await clickElement('[data-difficulty-level="0"]');
   await waitFor('getComputedStyle(document.querySelector("#cardStack")).animationName === "shuffleDeckSettle"');
   await wait(320);
-  await capture(`${viewport.name}-deal`);
   const dealing = await evaluate(`(() => {
     const layer = document.querySelector(".deal-layer");
     const dealtCards = [...document.querySelectorAll("#cardStack .game-card[data-deal-instance='true']")];
@@ -492,6 +538,7 @@ for (const viewport of selectedViewports) {
       inventory_hidden: (() => { const inventory = document.querySelector(".inventory-bar"); const style = getComputedStyle(inventory); return style.visibility === "hidden" && parseFloat(style.opacity) === 0; })(),
     };
   })()`);
+  await capture(`${viewport.name}-deal`);
   await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中"', 12000);
   await capture(`${viewport.name}-round-1`);
   const playing = await evaluate(`(() => ({
@@ -938,7 +985,7 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, difficulty_select: difficultySelect, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_statistics: homeStatistics, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, summary_settings: summarySettings, long_deck_timing: longDeckTiming, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, item_catalog: itemCatalog, summary_target: summaryTarget, summary_performance: summaryPerformance, summary_receipt: summaryReceipt, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
+  reports.push({ viewport, difficulty_select: difficultySelect, prologue, cat_rescue: catRescue, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_statistics: homeStatistics, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, summary_settings: summarySettings, long_deck_timing: longDeckTiming, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, item_catalog: itemCatalog, summary_target: summaryTarget, summary_performance: summaryPerformance, summary_receipt: summaryReceipt, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -948,12 +995,15 @@ socket.close();
 const failures = [
   ...browserErrors,
   ...reports.flatMap((entry) => [
-    entry.tutorial_goal.chapter === "先说怎么赢" && entry.tutorial_goal.message.includes("拿分") && entry.tutorial_goal.objective.includes("清空餐盘") && entry.tutorial_goal.progress.includes("1/8") && entry.tutorial_goal.score_focused && entry.tutorial_goal.inside_viewport && !entry.tutorial_goal.horizontal_overflow && (!entry.viewport.mobile || entry.tutorial_goal.font_mode === "large") ? null : `${entry.viewport.name}: score-first tutorial goal is missing or outside viewport`,
-    entry.difficulty_select.count === 11 && JSON.stringify(entry.difficulty_select.enabled) === JSON.stringify([0]) && entry.difficulty_select.locked === 10 && entry.difficulty_select.cumulative_copy && entry.difficulty_select.topmost && entry.difficulty_select.inside_viewport ? null : `${entry.viewport.name}: standard difficulty ladder is incomplete, unlocked out of order, layered incorrectly, or outside viewport`,
-    entry.tutorial_milestone.message.includes("60") && entry.tutorial_milestone.message.includes("180") && entry.tutorial_milestone.message.includes("500") && entry.tutorial_milestone.progress.includes("2/8") ? null : `${entry.viewport.name}: difficulty-zero milestone tutorial is stale`,
-    entry.tutorial_practice.message === "卡牌可以直接拖动。" && entry.tutorial_practice.gesture.includes("轻拖") && entry.tutorial_practice.progress.includes("3/8") && entry.tutorial_practice.card_uncovered ? null : `${entry.viewport.name}: practice coachmark covers the card or contains too much copy`,
-    entry.tutorial_drag.legend_visible && (entry.tutorial_drag.legend_text.includes("吃牌") || entry.tutorial_drag.legend_text.includes("后置")) && entry.tutorial_drag.progress.includes("4/8") && entry.tutorial_drag.card_count_unchanged && entry.tutorial_drag.active_card_unchanged && entry.tutorial_drag.gesture_prompt_cleared && entry.tutorial_drag.focus_visible ? null : `${entry.viewport.name}: drag tutorial did not recognize a safe practice drag`,
+    entry.prologue.length === 3 && entry.prologue[0].message === "……" && entry.prologue[1].message.includes("哪里") && entry.prologue[1].visual === "wake" && entry.prologue[2].message.includes("餐盘") ? null : `${entry.viewport.name}: first-meeting waking prologue is incomplete`,
+    entry.cat_rescue.active_name === "橘猫" && entry.cat_rescue.message.includes("不要吃我") && entry.cat_rescue.speech.includes("不要吃我") && entry.cat_rescue.discard_visible && entry.cat_rescue.eat_hidden ? null : `${entry.viewport.name}: Kacha is not the forced first card or rescue action is unclear`,
+    entry.tutorial_goal.chapter === "先说怎么赢" && entry.tutorial_goal.message.includes("拿分") && entry.tutorial_goal.objective.includes("清空餐盘") && entry.tutorial_goal.progress.includes("4/11") && entry.tutorial_goal.score_focused && entry.tutorial_goal.inside_viewport && !entry.tutorial_goal.horizontal_overflow && (!entry.viewport.mobile || entry.tutorial_goal.font_mode === "large") ? null : `${entry.viewport.name}: score-first tutorial goal is missing or outside viewport`,
+    entry.difficulty_select.count === 2 && JSON.stringify(entry.difficulty_select.enabled) === JSON.stringify([0]) && entry.difficulty_select.locked === 1 && entry.difficulty_select.cumulative_copy && entry.difficulty_select.topmost && entry.difficulty_select.inside_viewport ? null : `${entry.viewport.name}: standard difficulty ladder is not progressively revealed, unlocked out of order, layered incorrectly, or outside viewport`,
+    entry.tutorial_milestone.message.includes("60") && entry.tutorial_milestone.message.includes("180") && entry.tutorial_milestone.message.includes("500") && entry.tutorial_milestone.progress.includes("5/11") ? null : `${entry.viewport.name}: difficulty-zero milestone tutorial is stale`,
+    entry.tutorial_practice.message === "卡牌可以直接拖动。" && entry.tutorial_practice.gesture.includes("轻拖") && entry.tutorial_practice.progress.includes("6/11") && entry.tutorial_practice.card_uncovered ? null : `${entry.viewport.name}: practice coachmark covers the card or contains too much copy`,
+    entry.tutorial_drag.legend_visible && (entry.tutorial_drag.legend_text.includes("吃牌") || entry.tutorial_drag.legend_text.includes("后置")) && entry.tutorial_drag.progress.includes("7/11") && entry.tutorial_drag.card_count_unchanged && entry.tutorial_drag.active_card_unchanged && entry.tutorial_drag.gesture_prompt_cleared && entry.tutorial_drag.focus_visible ? null : `${entry.viewport.name}: drag tutorial did not recognize a safe practice drag`,
     entry.home.title === "CardEater" ? null : `${entry.viewport.name}: wrong home title`,
+    entry.home.companion.message.length > 3 && entry.home.companion.cat_inside && entry.home.companion.bubble_inside ? null : `${entry.viewport.name}: home Kacha is missing, silent, or outside viewport`,
     JSON.stringify(entry.home.action_labels) === JSON.stringify(["新游戏", "继续", "菜单"]) ? null : `${entry.viewport.name}: wrong home actions`,
     entry.home.continue_disabled ? null : `${entry.viewport.name}: continue should start disabled`,
     entry.home.rain_count >= 24 && entry.home.rain_unique_cards >= 16 && entry.home.logo_lines === 2 ? null : `${entry.viewport.name}: home card rain is not varied`,

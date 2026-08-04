@@ -7,7 +7,10 @@ const SETTINGS_KEY = "cardeater.settings.v1";
 const RUN_SAVE_KEY = "cardeater.active-run.v2";
 const PROGRESSION_KEY = "cardeater.progression.v1";
 const SHOP_TUTORIAL_KEY = "cardeater.shop-tutorial.v1";
+const COMPANION_PROGRESS_KEY = "cardeater.companion.v1";
 const STATISTICS_KEY = "cardeater.statistics.v1";
+const RELEASE_GENERATION_KEY = "cardeater.release-generation";
+export const RELEASE_GENERATION = "1.0.0";
 const DEFAULT_SETTINGS = Object.freeze({
   music: true,
   effects: true,
@@ -20,6 +23,32 @@ const DEFAULT_SETTINGS = Object.freeze({
 });
 
 const EMPTY_PROGRESSION = Object.freeze({ runs_played: 0, victories: 0, shop_victories: 0, endless_victories: 0, god: false, mode_victories: Object.freeze({}), normal_difficulty_victories: Object.freeze({}), normal_difficulty_max_unlocked: 0 });
+
+export function prepareReleaseGeneration(storage = globalThis.localStorage) {
+  try {
+    if (!storage || storage.getItem(RELEASE_GENERATION_KEY) === RELEASE_GENERATION) return false;
+
+    const keys = new Set([
+      RECORD_KEY,
+      TUTORIAL_KEY,
+      SETTINGS_KEY,
+      RUN_SAVE_KEY,
+      PROGRESSION_KEY,
+      SHOP_TUTORIAL_KEY,
+      COMPANION_PROGRESS_KEY,
+      STATISTICS_KEY,
+    ]);
+    for (let index = 0; index < Number(storage.length || 0); index += 1) {
+      const key = storage.key?.(index);
+      if (key?.startsWith("cardeater.") && key !== RELEASE_GENERATION_KEY) keys.add(key);
+    }
+    for (const key of keys) storage.removeItem(key);
+    storage.setItem(RELEASE_GENERATION_KEY, RELEASE_GENERATION);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function getNormalDifficultyMaxUnlocked(victories = {}) {
   let highest = 0;
@@ -198,6 +227,29 @@ function saveTutorialComplete() {
   return true;
 }
 
+function loadCompanionProgress() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(COMPANION_PROGRESS_KEY) ?? "null");
+    return {
+      seen_mode_intros: Array.isArray(stored?.seen_mode_intros) ? [...new Set(stored.seen_mode_intros.filter(Boolean))] : [],
+    };
+  } catch {
+    return { seen_mode_intros: [] };
+  }
+}
+
+function hasSeenModeIntro(mode) {
+  return loadCompanionProgress().seen_mode_intros.includes(mode);
+}
+
+function saveModeIntroSeen(mode) {
+  if (!mode) return loadCompanionProgress();
+  const progress = loadCompanionProgress();
+  progress.seen_mode_intros = [...new Set([...progress.seen_mode_intros, mode])];
+  try { localStorage.setItem(COMPANION_PROGRESS_KEY, JSON.stringify(progress)); } catch { /* Storage may be disabled. */ }
+  return progress;
+}
+
 function hasCompletedRun() {
   return loadRecords().some((record) => record?.outcome === "victory");
 }
@@ -349,6 +401,7 @@ function clearRun() {
 }
 
 export const browserPlatform = Object.freeze({
+  prepare_release: prepareReleaseGeneration,
   now: () => Date.now(),
   random: () => Math.random(),
   create_id: makeId,
@@ -364,6 +417,9 @@ export const browserPlatform = Object.freeze({
   save_shop_tutorial_complete: () => { try { localStorage.setItem(SHOP_TUTORIAL_KEY, "complete"); } catch { /* noop */ } return true; },
   load_tutorial_complete: loadTutorialComplete,
   save_tutorial_complete: saveTutorialComplete,
+  load_companion_progress: loadCompanionProgress,
+  has_seen_mode_intro: hasSeenModeIntro,
+  save_mode_intro_seen: saveModeIntroSeen,
   load_settings: loadSettings,
   save_settings: saveSettings,
   save_run: saveRun,

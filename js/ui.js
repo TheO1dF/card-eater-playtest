@@ -1,4 +1,4 @@
-import { GAME_CONFIG, GAME_MODES, MODE_LABELS, STANDARD_DIFFICULTY_STEPS, getFinalRound, getMilestoneTarget, getNextMilestone, getStandardDifficultyConfig, isShopMode } from "./config.js";
+import { GAME_CONFIG, GAME_MODES, MODE_LABELS, STANDARD_DIFFICULTY_STEPS, getFinalRound, getMilestoneTarget, getNextMilestone, getStandardDifficultyConfig, getVisibleStandardDifficultySteps, isShopMode } from "./config.js";
 import {
   createItemCatalogPool,
   getCurrentItemDescription,
@@ -16,6 +16,7 @@ import { getReshuffleStatus } from "./reshuffle.js";
 import { getRuleUnlockRound } from "./rules.js";
 import { getLiveHudValues } from "./live-hud.js";
 import { MUTATION_IDS, MUTATION_LIBRARY, getMutation, getMutationTaskMultiplier, isMutationMode } from "./mutations.js";
+import { HOME_COMPANION_ANNOYED_LINES, getHomeCompanionLines, getModeUnlockNotice } from "./companion.js";
 import {
   getRoundGrade,
   getScoreHeat,
@@ -430,6 +431,7 @@ export function createUI(root) {
     itemCatalogDetail: get("#itemCatalogDetail"), itemCatalogDetailArt: get("#itemCatalogDetailArt"),
     normalDifficultySelect: get("#normalDifficultySelect"), normalDifficultyList: get("#normalDifficultyList"),
     mutationSelect: get("#mutationSelect"), mutationSelectList: get("#mutationSelectList"),
+    companionScene: get("#companionScene"), homeCompanion: get("#homeCompanion"), homeCompanionBubble: get("#homeCompanionBubble"),
   };
 
   let tutorialFocus = null;
@@ -439,6 +441,10 @@ export function createUI(root) {
   let menuOpenedFromHome = false;
   let deckRemovalHandler = null;
   let homeRainTimer = null;
+  let homeCompanionBubbleTimer = null;
+  let homeCompanionClickCount = 0;
+  let lastHomeCompanionLine = "";
+  let companionSequenceRun = 0;
   let catalogMode = "standard";
   let catalogActiveCardId = null;
   let itemDetailReturnLayer = "catalog";
@@ -813,12 +819,30 @@ export function createUI(root) {
     tutorialFocus = null;
   }
 
+  function clearActiveCardSpeech() {
+    nodes.stack?.querySelector(".card-speech-bubble")?.remove();
+    nodes.stack?.querySelector(".game-card.is-speaking")?.classList.remove("is-speaking");
+  }
+
+  function setActiveCardSpeech(message) {
+    clearActiveCardSpeech();
+    if (!message) return;
+    const card = nodes.stack?.querySelector(".game-card.is-active");
+    if (!card) return;
+    card.classList.add("is-speaking");
+    const bubble = document.createElement("span");
+    bubble.className = "card-speech-bubble";
+    bubble.textContent = message;
+    nodes.stack.appendChild(bubble);
+  }
+
   function showStoryGuide(model = {}) {
     if (!nodes.storyGuide) return;
     clearTutorialFocus();
     nodes.storyGuide.hidden = false;
     nodes.storyGuide.dataset.step = model.step ?? "story";
     nodes.storyGuide.dataset.placement = model.placement ?? "table";
+    nodes.storyGuide.dataset.speaker = (model.speaker ?? "咔嚓") === "玩家" ? "player" : "kacha";
     setText(get("#storyGuideChapter"), model.chapter ?? "PROLOGUE · 会说话的牌");
     setText(get("#storyGuideSpeaker"), model.speaker ?? "咔嚓");
     setText(get("#storyGuideMessage"), model.message ?? "我会陪你完成这一轮。");
@@ -846,11 +870,124 @@ export function createUI(root) {
       tutorialFocus = get(model.target);
       tutorialFocus?.classList.add("tutorial-focus");
     }
+    setActiveCardSpeech(model.card_speech);
   }
 
   function hideStoryGuide() {
     clearTutorialFocus();
+    clearActiveCardSpeech();
     if (nodes.storyGuide) nodes.storyGuide.hidden = true;
+  }
+
+  function playCompanionSequence(steps = [], onComplete = () => {}, options = {}) {
+    const sequence = steps.filter(Boolean);
+    if (!nodes.companionScene || sequence.length === 0) {
+      onComplete();
+      return;
+    }
+    const runId = ++companionSequenceRun;
+    let index = 0;
+    const nextButton = get("#companionSceneNext");
+    const avatar = get("#companionSceneAvatar");
+    const renderStep = () => {
+      if (runId !== companionSequenceRun) return;
+      if (index >= sequence.length) {
+        nodes.companionScene.hidden = true;
+        nodes.companionScene.classList.remove("is-visible");
+        onComplete();
+        return;
+      }
+      const step = sequence[index];
+      const isKacha = step.speaker === "咔嚓";
+      nodes.companionScene.dataset.visual = step.visual ?? options.visual ?? "mode";
+      nodes.companionScene.dataset.speaker = isKacha ? "kacha" : "player";
+      nodes.companionScene.dataset.step = String(index + 1);
+      setText(get("#companionSceneChapter"), step.chapter ?? (options.chapter ?? (options.prologue ? "FIRST MEETING" : "KACHA'S NOTE")));
+      setText(get("#companionSceneSpeaker"), step.speaker ?? "咔嚓");
+      setText(get("#companionSceneMessage"), step.message ?? "……");
+      setText(get("#companionSceneDetail"), step.detail ?? "");
+      setText(nextButton, step.continue_label ?? (index === sequence.length - 1 ? "开始" : "继续"));
+      avatar.hidden = !isKacha;
+      const panel = nodes.companionScene.querySelector(".companion-dialogue-panel");
+      panel.classList.remove("is-changing");
+      void panel.offsetWidth;
+      panel.classList.add("is-changing");
+      nextButton.focus({ preventScroll: true });
+    };
+    const advance = () => {
+      if (runId !== companionSequenceRun) return;
+      index += 1;
+      renderStep();
+    };
+    nextButton.onclick = advance;
+    nodes.companionScene.onclick = (event) => {
+      if (event.target.closest("button")) return;
+      advance();
+    };
+    nodes.companionScene.hidden = false;
+    nodes.companionScene.classList.add("is-visible");
+    renderStep();
+  }
+
+  function beginFirstMeeting() {
+    root.querySelector(".game-shell")?.classList.add("is-first-meeting", "is-first-meeting-asleep");
+  }
+
+  function beginFirstMeetingDeal() {
+    const shell = root.querySelector(".game-shell");
+    shell?.classList.remove("is-first-meeting-asleep");
+    shell?.classList.add("is-first-meeting-dealing");
+  }
+
+  function beginFirstMeetingRescue() {
+    const shell = root.querySelector(".game-shell");
+    shell?.classList.remove("is-first-meeting-dealing");
+    shell?.classList.add("is-first-meeting-rescue");
+  }
+
+  function finishFirstMeeting() {
+    const shell = root.querySelector(".game-shell");
+    shell?.classList.remove("is-first-meeting-asleep", "is-first-meeting-dealing", "is-first-meeting-rescue");
+    shell?.classList.add("is-first-meeting-unfolding");
+    window.setTimeout(() => shell?.classList.remove("is-first-meeting", "is-first-meeting-unfolding"), 760);
+  }
+
+  function showHomeCompanionMessage(message, mood = "chatty") {
+    if (!nodes.homeCompanionBubble || !nodes.homeCompanion) return;
+    window.clearTimeout(homeCompanionBubbleTimer);
+    setText(get("#homeCompanionMessage"), message);
+    nodes.homeCompanionBubble.hidden = false;
+    nodes.homeCompanion.dataset.mood = mood;
+    nodes.homeCompanionBubble.classList.remove("is-speaking");
+    void nodes.homeCompanionBubble.offsetWidth;
+    nodes.homeCompanionBubble.classList.add("is-speaking");
+    homeCompanionBubbleTimer = window.setTimeout(() => {
+      nodes.homeCompanionBubble.hidden = true;
+      nodes.homeCompanion.dataset.mood = "idle";
+    }, Math.min(6800, Math.max(4000, 2600 + message.length * 82)));
+  }
+
+  function bindHomeCompanion(options = {}) {
+    if (!nodes.homeCompanion) return;
+    const lines = getHomeCompanionLines(options);
+    nodes.homeCompanion.onclick = () => {
+      homeCompanionClickCount += 1;
+      let line;
+      if (homeCompanionClickCount >= 6) {
+        line = HOME_COMPANION_ANNOYED_LINES[Math.min(HOME_COMPANION_ANNOYED_LINES.length - 1, homeCompanionClickCount - 6)];
+      } else {
+        const choices = lines.filter((entry) => entry !== lastHomeCompanionLine);
+        line = choices[Math.floor(Math.random() * Math.max(1, choices.length))] ?? lines[0];
+      }
+      lastHomeCompanionLine = line;
+      showHomeCompanionMessage(line, homeCompanionClickCount >= 6 ? "annoyed" : "chatty");
+    };
+    if (options.companion_notice) {
+      window.setTimeout(() => {
+        if (!nodes.welcome?.classList.contains("show")) return;
+        showHomeCompanionMessage(getModeUnlockNotice(options.companion_notice), "notice");
+      }, 620);
+    }
   }
 
   function closeDeleteConfirmation() {
@@ -1399,7 +1536,7 @@ export function createUI(root) {
     const victories = progression.normal_difficulty_victories ?? {};
     const maxUnlocked = Math.max(0, Number(unlocks.normal_difficulty_max) || 0);
     setText(get("#normalDifficultyProgress"), `最高可挑战 · 难度 ${maxUnlocked}`);
-    nodes.normalDifficultyList.replaceChildren(...STANDARD_DIFFICULTY_STEPS.map((entry) => {
+    nodes.normalDifficultyList.replaceChildren(...getVisibleStandardDifficultySteps(maxUnlocked).map((entry) => {
       const cleared = (Number(victories[entry.level]) || 0) > 0;
       const unlocked = entry.level <= maxUnlocked;
       const button = document.createElement("button");
@@ -1496,6 +1633,12 @@ export function createUI(root) {
       applyHomeProgression(options.progression, options.god, options.unlocks);
       setText(get("#welcomeBestScore"), options.best_score ?? "--");
       renderHomeStatistics(options.statistics);
+      bindHomeCompanion({
+        unlocks: options.unlocks,
+        progression: options.progression,
+        tutorial_complete: options.tutorial_complete,
+        companion_notice: options.companion_notice,
+      });
       const statisticsOverlay = get("#homeStatisticsOverlay");
       const closeStatistics = () => { statisticsOverlay.hidden = true; };
       get("#homeStatisticsButton").onclick = () => { statisticsOverlay.hidden = false; };
@@ -1572,6 +1715,11 @@ export function createUI(root) {
       return Boolean(root.querySelector(".overlay.show"));
     },
     setHomeTheme: applyHomeTheme,
+    playCompanionSequence,
+    beginFirstMeeting,
+    beginFirstMeetingDeal,
+    beginFirstMeetingRescue,
+    finishFirstMeeting,
     showStoryGuide,
     hideStoryGuide,
     renderHud,

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { GAME_CONFIG, GAME_MODES, STANDARD_DIFFICULTY_MAX, getFinalRound, getNextMilestone, getStandardDifficultyConfig, isPlateUpgradeRound } from "../js/config.js";
+import { GAME_CONFIG, GAME_MODES, STANDARD_DIFFICULTY_MAX, getFinalRound, getNextMilestone, getStandardDifficultyConfig, getVisibleStandardDifficultySteps, isPlateUpgradeRound } from "../js/config.js";
 import { CARD_LIBRARY, VOID_CARD_ID, createCardPool, createInitialDeck, createShopCardPool, getCardById } from "../js/data.js";
 import { createDraftService } from "../js/draft.js";
 import { createRoundEngine, evaluateRule } from "../js/engine.js";
@@ -17,7 +17,7 @@ import {
   markCardsPostponed,
 } from "../js/round-pile.js";
 import { CARD_EFFECT_CONTRACTS } from "../js/card-effect-contracts.js";
-import { browserPlatform, migrateRunState } from "../js/platform.js";
+import { RELEASE_GENERATION, browserPlatform, migrateRunState, prepareReleaseGeneration } from "../js/platform.js";
 import { createShopService } from "../js/shop.js";
 import { getRoundGoldSources, grantRoundGold, queueRoundGold, sumRoundGoldSources } from "../js/economy.js";
 import { SUMMARY_RAPID_CARD_THRESHOLD, getRoundGrade, getScoreHeat, getScoreImpact, getSummaryBeatDuration, getSummaryCardTiming } from "../js/round-presentation.js";
@@ -26,6 +26,7 @@ import { EFFECT_LAYERS, createEffectProcessor, resolveLayeredValue } from "../js
 import { changePermanentCard, multiplyFuturePointChanges } from "../js/permanent-points.js";
 import { RULE_LIBRARY, addActiveRule, settleActiveRules } from "../js/rules.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
+import { FIRST_MEETING_PROLOGUE, getHomeCompanionLines, getModeCompanionIntro } from "../js/companion.js";
 import {
   MUTATION_IDS,
   MUTATION_LIBRARY,
@@ -130,6 +131,12 @@ test("标准难度 0 至 10 的限制按层累计", () => {
   assert.equal(getCardById(VOID_CARD_ID).name, "虚空牌");
   assert.equal(getCardById(VOID_CARD_ID).eat_points, -1);
   assert.equal(getCardById(VOID_CARD_ID).discard_points, -1);
+});
+
+test("标准难度菜单只渐进显示已解锁难度与紧邻的下一层", () => {
+  assert.deepEqual(getVisibleStandardDifficultySteps(0).map(({ level }) => level), [0, 1]);
+  assert.deepEqual(getVisibleStandardDifficultySteps(3).map(({ level }) => level), [0, 1, 2, 3, 4]);
+  assert.deepEqual(getVisibleStandardDifficultySteps(10).map(({ level }) => level), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 });
 
 test("八种异变分别改写开局、选牌、计分与融合规则", () => {
@@ -1076,7 +1083,13 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.match(main, /这局最重要的事：拿分/);
   assert.match(main, /const targets = getStandardDifficultyConfig\(state\.difficulty\)\.targets/);
   assert.match(main, /第 5 轮 \$\{targets\[5\]\} 分，第 10 轮 \$\{targets\[10\]\} 分，第 15 轮 \$\{targets\[15\]\} 分/);
-  assert.match(main, /const tutorialProgress = \(current\) => \(\{ current, total: 8 \}\)/);
+  assert.match(main, /total: tutorial\.extended_progress \? 11 : 8/);
+  assert.match(main, /FIRST_MEETING_PROLOGUE/);
+  assert.match(main, /forceCatFirst/);
+  assert.match(main, /不要吃我喵/);
+  assert.match(html, /id="homeCompanion"/);
+  assert.match(html, /id="companionScene"/);
+  assert.match(ui, /playCompanionSequence/);
   assert.match(main, /progress\.progress >= 0\.16/);
   assert.match(gesture, /config\.canCommit/);
   assert.match(main, /developerMode|getCurrentUnlocks/);
@@ -1120,6 +1133,22 @@ test("菜单与主循环包含解锁模式、商店、条约与备料 UI", async
   assert.doesNotMatch(`${main}\n${ui}`, /\.vibrate\(|navigator\.vibrate/);
   assert.match(html, /id="itemDraft"/);
   assert.match(main, /saveGame\(\)/);
+});
+
+test("咔嚓序章、模式说明与主界面提示覆盖完整陪伴路径", () => {
+  assert.deepEqual(FIRST_MEETING_PROLOGUE.map((step) => step.visual), ["black", "wake", "plate"]);
+  assert.match(FIRST_MEETING_PROLOGUE[1].message, /这里是哪里/);
+  for (const mode of [GAME_MODES.PREP, GAME_MODES.SHOP, GAME_MODES.CONTRACT_SHOP, GAME_MODES.ENDLESS]) {
+    const intro = getModeCompanionIntro({ mode });
+    assert.ok(intro.length >= 2, `${mode} 应有独立咔嚓说明`);
+    assert.ok(intro.every((step) => step.speaker === "咔嚓"));
+  }
+  const mutationIntro = getModeCompanionIntro({ mode: GAME_MODES.MUTATION, mutation_id: MUTATION_IDS.DARKNESS });
+  assert.match(mutationIntro.map((step) => `${step.message}${step.detail}`).join(""), /不见光明/);
+  const homeLines = getHomeCompanionLines({ unlocks: { prep: true, shop: true, mutation: true }, tutorial_complete: true });
+  assert.ok(homeLines.some((line) => line.includes("备料")));
+  assert.ok(homeLines.some((line) => line.includes("金币")));
+  assert.ok(homeLines.some((line) => line.includes("异变")));
 });
 
 test("随机开局替换两张教学牌，备料位替代删牌并保证同类候选", () => {
@@ -1329,6 +1358,35 @@ test("解锁进度按完成局数、任意通关与商店通关分别累计", ()
   assert.equal(browserPlatform.load_settings().home_theme, "day");
   assert.equal(browserPlatform.load_settings().summary_speed, "fast");
   delete globalThis.localStorage;
+});
+
+test("正式版首次启动会清除全部旧存档且同一世代不会重复清除", () => {
+  const values = new Map([
+    ["cardeater.progression.v1", JSON.stringify({ runs_played: 99, victories: 9 })],
+    ["cardeater.story-tutorial.v1", "complete"],
+    ["cardeater.active-run.v2", JSON.stringify({ phase: "Playing" })],
+    ["cardeater.legacy-unknown.v9", "legacy"],
+    ["unrelated.preference", "keep"],
+  ]);
+  const storage = {
+    get length() { return values.size; },
+    key: (index) => [...values.keys()][index] ?? null,
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+
+  assert.equal(prepareReleaseGeneration(storage), true);
+  assert.equal(values.get("cardeater.release-generation"), RELEASE_GENERATION);
+  assert.equal(values.has("cardeater.progression.v1"), false);
+  assert.equal(values.has("cardeater.story-tutorial.v1"), false);
+  assert.equal(values.has("cardeater.active-run.v2"), false);
+  assert.equal(values.has("cardeater.legacy-unknown.v9"), false);
+  assert.equal(values.get("unrelated.preference"), "keep");
+
+  values.set("cardeater.progression.v1", JSON.stringify({ runs_played: 1 }));
+  assert.equal(prepareReleaseGeneration(storage), false);
+  assert.equal(values.has("cardeater.progression.v1"), true);
 });
 
 test("标准难度必须依次通关上一层，难度 10 通关后保持封顶", () => {

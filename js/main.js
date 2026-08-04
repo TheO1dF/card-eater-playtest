@@ -16,6 +16,7 @@ import { getCurrentCard } from "./round-pile.js";
 import { ensureRunStatistics, observeRunGold } from "./statistics.js";
 import { activateReshuffle, getReshuffleStatus } from "./reshuffle.js";
 import { CARD_TYPES, getCardById } from "./data.js";
+import { FIRST_MEETING_PROLOGUE, getFirstUnseenUnlockedMode, getModeCompanionIntro } from "./companion.js";
 import {
   MUTATION_IDS,
   createFusionCard,
@@ -37,6 +38,8 @@ import {
   hydrateOwnedItems,
   randomDraftItems,
 } from "./items.js";
+
+browserPlatform.prepare_release();
 
 let state = createInitialPlayerState({ create_id: browserPlatform.create_id });
 const engine = createRoundEngine({ random: browserPlatform.random });
@@ -73,6 +76,11 @@ document.addEventListener("click", (event) => {
 }, { capture: true });
 const tutorial = {
   active: false,
+  first_meeting: false,
+  extended_progress: false,
+  cat_rescue_pending: false,
+  cat_question_acknowledged: false,
+  cat_intro_acknowledged: false,
   goal_intro_acknowledged: false,
   goal_acknowledged: false,
   dragged_card: false,
@@ -122,7 +130,7 @@ function startSound() {
   if (musicEnabled) toggleBGM(true);
 }
 
-const tutorialProgress = (current) => ({ current, total: 8 });
+const tutorialProgress = (current) => ({ current: tutorial.extended_progress ? current + 3 : current, total: tutorial.extended_progress ? 11 : 8 });
 
 function renderTutorial() {
   if (!tutorial.active || state.phase !== GAME_PHASES.PLAYING) {
@@ -130,6 +138,47 @@ function renderTutorial() {
     return;
   }
   const card = getCurrentCard(state);
+  if (tutorial.first_meeting && tutorial.cat_rescue_pending) {
+    ui.showStoryGuide({
+      step: "cat-rescue",
+      placement: "card",
+      chapter: "会说话的第一张牌",
+      speaker: "咔嚓",
+      message: "等、等一下！不要吃我喵！",
+      objective: "向上拖我，或者按左下角“弃掉”。快一点——你看起来真的很饿！",
+      target: ".game-card.is-active",
+      progress: { current: 1, total: 11 },
+      gesture: "discard",
+      card_speech: "不要吃我喵！",
+    });
+    return;
+  }
+  if (tutorial.first_meeting && !tutorial.cat_question_acknowledged) {
+    ui.showStoryGuide({
+      step: "cat-question",
+      chapter: "餐盘上的声音",
+      speaker: "玩家",
+      message: "一张会说话的猫……？",
+      objective: "刚才那张橘猫牌，好像还在旁边喘气。",
+      progress: { current: 2, total: 11 },
+      can_continue: true,
+      continue_label: "看向橘猫",
+    });
+    return;
+  }
+  if (tutorial.first_meeting && !tutorial.cat_intro_acknowledged) {
+    ui.showStoryGuide({
+      step: "cat-intro",
+      chapter: "认识咔嚓",
+      speaker: "咔嚓",
+      message: "呼——我的九条命刚才差点少一条。我叫咔嚓。",
+      objective: "我是猫，也是你的向导——至少在你学会别把我塞进嘴里以前。这里不是所有东西都能吃。跟紧我，我们先想办法拿够分数。",
+      progress: { current: 3, total: 11 },
+      can_continue: true,
+      continue_label: "跟着咔嚓",
+    });
+    return;
+  }
   if (!tutorial.goal_intro_acknowledged) {
     ui.showStoryGuide({
       step: "goal",
@@ -235,9 +284,14 @@ function renderTutorial() {
   });
 }
 
-function startTutorial() {
+function startTutorial(options = {}) {
   Object.assign(tutorial, {
     active: true,
+    first_meeting: options.firstMeeting === true,
+    extended_progress: options.firstMeeting === true || options.extendedProgress === true,
+    cat_rescue_pending: options.firstMeeting === true && options.catRescued !== true,
+    cat_question_acknowledged: options.firstMeeting !== true,
+    cat_intro_acknowledged: options.firstMeeting !== true,
     goal_intro_acknowledged: false,
     goal_acknowledged: false,
     dragged_card: false,
@@ -251,7 +305,16 @@ function startTutorial() {
 
 function advanceTutorial() {
   if (!tutorial.active) return;
-  if (!tutorial.goal_intro_acknowledged) tutorial.goal_intro_acknowledged = true;
+  if (tutorial.first_meeting && tutorial.cat_rescue_pending) return;
+  if (tutorial.first_meeting && !tutorial.cat_question_acknowledged) tutorial.cat_question_acknowledged = true;
+  else if (tutorial.first_meeting && !tutorial.cat_intro_acknowledged) {
+    tutorial.cat_intro_acknowledged = true;
+    tutorial.first_meeting = false;
+    state.companion_first_meeting_stage = "introduced";
+    ui.finishFirstMeeting();
+    saveGame();
+  }
+  else if (!tutorial.goal_intro_acknowledged) tutorial.goal_intro_acknowledged = true;
   else if (!tutorial.goal_acknowledged) tutorial.goal_acknowledged = true;
   else if (tutorial.correct_eat && !tutorial.score_acknowledged) tutorial.score_acknowledged = true;
   else if (tutorial.correct_eat && tutorial.score_acknowledged && tutorial.postponed && tutorial.correct_discard) {
@@ -262,8 +325,13 @@ function advanceTutorial() {
 }
 
 function finishTutorial() {
+  const wasFirstMeeting = tutorial.first_meeting;
   tutorial.active = false;
   browserPlatform.save_tutorial_complete();
+  browserPlatform.save_mode_intro_seen(GAME_MODES.NORMAL);
+  if (wasFirstMeeting) ui.finishFirstMeeting();
+  delete state.companion_first_meeting_stage;
+  saveGame();
   ui.hideStoryGuide();
 }
 
@@ -731,13 +799,24 @@ function handleAction(action, card) {
     return;
   }
   const hitCount = updateStreak(action);
+  const rescuedKacha = tutorial.active
+    && tutorial.first_meeting
+    && tutorial.cat_rescue_pending
+    && action === "discard"
+    && card.id === "A001";
   state.round.live_elapsed_ms = state.round.started_at_ms
     ? Math.max(0, browserPlatform.now() - state.round.started_at_ms)
     : 0;
   const entry = engine.recordAction(state, action, card);
   if (tutorial.active) {
-    if (action === "eat" && card.edibility === "edible") tutorial.correct_eat = true;
-    if (action === "discard" && card.edibility === "inedible") tutorial.correct_discard = true;
+    if (rescuedKacha) {
+      tutorial.cat_rescue_pending = false;
+      state.companion_first_meeting_stage = "question";
+    }
+    else {
+      if (action === "eat" && card.edibility === "edible") tutorial.correct_eat = true;
+      if (action === "discard" && card.edibility === "inedible") tutorial.correct_discard = true;
+    }
   }
   state.round.draw_pile.pop();
   if (state.deck.some((item) => item.uuid === card.uuid)) state.round.spent_pile.push(card);
@@ -825,13 +904,15 @@ const gesture = createGestureController({
     }
   },
   onCommit: () => { actionLocked = true; },
-  canCommit: () => !actionLocked
+  canCommit: (action) => !actionLocked
     && state.phase === GAME_PHASES.PLAYING
     && !ui.hasBlockingOverlay()
-    && (!tutorial.active || tutorial.goal_acknowledged),
+    && (!tutorial.active
+      || (tutorial.first_meeting && tutorial.cat_rescue_pending && action === "discard")
+      || tutorial.goal_acknowledged),
 });
 
-function prepareRound() {
+function prepareRound(options = {}) {
   resetRoundState(state);
   state.round.mutation_face_down = isMutationMode(state) && state.mutation_id === MUTATION_IDS.DARKNESS;
   state.free_rerolls = state.mode === GAME_MODES.NORMAL
@@ -847,16 +928,25 @@ function prepareRound() {
     effect: card.effect ? { ...card.effect, keywords: [...(card.effect.keywords ?? [])] } : null,
   }));
   Object.assign(state.round, takeRoundDrawPile(roundDeck, state.plate_capacity, browserPlatform.random));
+  if (options.forceCatFirst) {
+    const catIndex = state.round.draw_pile.findIndex((card) => card.id === "A001");
+    if (catIndex >= 0) state.round.draw_pile.push(state.round.draw_pile.splice(catIndex, 1)[0]);
+  }
   roundStartMessages.push(...applyRoundItemDrawSetup(state, browserPlatform.random));
   streak = { action: null, count: 0 };
   actionLocked = true;
   refreshTable();
+  if (options.forceCatFirst) ui.beginFirstMeetingDeal();
   if (effectsEnabled) playSound("deal", state.round.draw_pile.length);
   ui.playDealAnimation(state.round.draw_pile.length, () => {
     state.round.started_at_ms = browserPlatform.now();
     state.round.elapsed_ms = 0;
     transitionPhase(state, GAME_PHASES.PLAYING, { round: state.current_round });
     actionLocked = false;
+    if (options.forceCatFirst) {
+      state.companion_first_meeting_stage = "rescue";
+      ui.beginFirstMeetingRescue();
+    }
     saveGame();
     ui.renderHud(state);
     if (roundStartMessages.length > 0) ui.showEffectFlash(roundStartMessages.join(" · "));
@@ -1033,6 +1123,14 @@ function restoreRun(saved) {
   if (state.phase === GAME_PHASES.PLAYING) {
     actionLocked = false;
     refreshTable();
+    if (!browserPlatform.load_tutorial_complete() && state.mode === GAME_MODES.NORMAL && state.difficulty === 0) {
+      const meetingStage = state.companion_first_meeting_stage;
+      if (meetingStage === "rescue" || meetingStage === "question") {
+        ui.beginFirstMeeting();
+        startTutorial({ firstMeeting: true, catRescued: meetingStage === "question" });
+        if (meetingStage === "rescue") ui.beginFirstMeetingRescue();
+      } else startTutorial({ extendedProgress: meetingStage === "introduced" });
+    }
     return;
   }
   if (state.phase === GAME_PHASES.SCORING && state.pending_summary) {
@@ -1066,7 +1164,9 @@ function restoreRun(saved) {
 
 function tryCommit(action) {
   if (actionLocked || state.phase !== GAME_PHASES.PLAYING || ui.hasBlockingOverlay()) return;
-  if (tutorial.active && !tutorial.goal_acknowledged) {
+  if (tutorial.active
+    && !tutorial.goal_acknowledged
+    && !(tutorial.first_meeting && tutorial.cat_rescue_pending && action === "discard")) {
     renderTutorial();
     return;
   }
@@ -1179,6 +1279,7 @@ const developerUnlocks = Object.freeze({
 const getCurrentUnlocks = () => developerMode ? developerUnlocks : browserPlatform.get_unlocks();
 const progression = browserPlatform.load_progression();
 const unlocks = getCurrentUnlocks();
+const companionNotice = getFirstUnseenUnlockedMode(unlocks, (mode) => browserPlatform.has_seen_mode_intro(mode));
 document.documentElement.dataset.developerMode = developerMode ? "true" : "false";
 ui.openWelcome({
   onNew: (mode, runOptions = {}) => {
@@ -1192,11 +1293,26 @@ ui.openWelcome({
     if (mutation) initializeMutationRun(state, mutation.id, { create_id: browserPlatform.create_id, random: browserPlatform.random });
     ui.hideWelcome();
     const launch = () => {
-      if (!browserPlatform.load_tutorial_complete() && mode === GAME_MODES.NORMAL && state.difficulty === 0) startTutorial();
       enterRoundStart();
     };
-    if (isShopMode(mode) && !browserPlatform.load_shop_tutorial_complete()) {
-      ui.openShopTutorial(mode, () => { browserPlatform.save_shop_tutorial_complete(); launch(); });
+    const firstMeeting = !browserPlatform.load_tutorial_complete()
+      && mode === GAME_MODES.NORMAL
+      && state.difficulty === 0;
+    if (firstMeeting) {
+      ui.beginFirstMeeting();
+      startTutorial({ firstMeeting: true });
+      ui.playCompanionSequence(FIRST_MEETING_PROLOGUE, () => prepareRound({ forceCatFirst: true }), { prologue: true });
+      return;
+    }
+    const intro = getModeCompanionIntro(state);
+    const shouldIntroduceMode = intro.length > 0
+      && (mode === GAME_MODES.MUTATION || !browserPlatform.has_seen_mode_intro(mode));
+    if (shouldIntroduceMode) {
+      ui.playCompanionSequence(intro, () => {
+        browserPlatform.save_mode_intro_seen(mode);
+        if (isShopMode(mode)) browserPlatform.save_shop_tutorial_complete();
+        launch();
+      }, { chapter: `${mode === GAME_MODES.MUTATION ? "MUTATION" : "MODE GUIDE"} · 咔嚓说明` });
     } else launch();
   },
   onContinue: () => {
@@ -1224,4 +1340,6 @@ ui.openWelcome({
   god: Boolean(progression.god),
   developer_mode: developerMode,
   statistics: browserPlatform.load_statistics(),
+  tutorial_complete: browserPlatform.load_tutorial_complete(),
+  companion_notice: companionNotice,
 });

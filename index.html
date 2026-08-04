@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#17121b" />
     <title>CardEater · 构筑你的餐盘</title>
     <link rel="icon" href="./assets/favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=51" />
+    <link rel="stylesheet" href="./styles.css?v=54" />
   </head>
   <body>
     <main class="app" id="app">
@@ -54,6 +54,11 @@
           <section class="welcome-panel home-panel">
             <div class="home-hero" aria-labelledby="welcomeTitle">
               <div class="home-logo" id="homeLogo"><span>CARD</span><span>EATER</span><i class="home-logo-flare" aria-hidden="true"></i><b class="god-badge" id="godBadge" hidden>GOD</b></div>
+              <button class="home-companion" id="homeCompanion" type="button" aria-label="和咔嚓说话">
+                <span class="home-companion-sprite game-sprite" style="--sprite-image:url('./assets/cards/v017/a001-v3.png?v=14');--sprite-x:50%;--sprite-y:50%;--sprite-size-x:100%;--sprite-size-y:100%;--sprite-scale:1;"></span>
+                <span class="home-companion-name">咔嚓</span>
+              </button>
+              <div class="home-companion-bubble" id="homeCompanionBubble" role="status" aria-live="polite" hidden><span id="homeCompanionMessage">你回来啦。</span></div>
               <div class="home-mode-sigils" id="homeModeSigils" aria-label="模式解锁与通关徽记"><i data-home-mode="normal" title="标准模式">◆</i><i data-home-mode="prep" title="备料模式">▣</i><i data-home-mode="shop" title="商店模式">$</i><i data-home-mode="contract_shop" title="条约商店">✦</i><i data-home-mode="mutation" title="异变模式">※</i><i data-home-mode="endless" title="无尽模式">∞</i></div>
               <h1 id="welcomeTitle">CardEater</h1>
             </div>
@@ -81,6 +86,16 @@
               <div class="home-card-statistics"><div class="home-statistics-section-title"><div><b id="homeCardStatisticsTitle">水果记录</b><small>每张卡牌分别统计吃牌与弃牌</small></div><span id="homeCardStatisticsTotal"></span></div><div class="home-statistics-type-tabs" id="homeStatisticsTypeTabs" role="group" aria-label="选择卡牌类别"></div><label class="home-statistics-type-select"><span>卡牌类别</span><select id="homeStatisticsTypeSelect" aria-label="选择卡牌类别"></select></label><div class="home-card-statistics-list" id="homeCardStatisticsList"></div></div>
             </section>
           </div>
+        </div>
+
+        <div class="companion-scene" id="companionScene" role="dialog" aria-modal="true" aria-labelledby="companionSceneMessage" data-visual="black" hidden>
+          <div class="companion-eyelids" aria-hidden="true"><i></i><i></i></div>
+          <div class="companion-scene-vignette" aria-hidden="true"></div>
+          <section class="companion-dialogue-panel">
+            <div class="companion-dialogue-avatar" id="companionSceneAvatar" aria-hidden="true"><span class="game-sprite" style="--sprite-image:url('./assets/cards/v017/a001-v3.png?v=14');--sprite-x:50%;--sprite-y:50%;--sprite-size-x:100%;--sprite-size-y:100%;--sprite-scale:1;"></span></div>
+            <div class="companion-dialogue-copy"><small id="companionSceneChapter">FIRST MEETING</small><strong id="companionSceneSpeaker">玩家</strong><p id="companionSceneMessage">……</p><em id="companionSceneDetail">耳边有很轻的呼噜声。</em></div>
+            <button class="companion-dialogue-next" id="companionSceneNext" type="button">……</button>
+          </section>
         </div>
 
         <div class="overlay difficulty-select-overlay" id="normalDifficultySelect" role="dialog" aria-modal="true" aria-labelledby="normalDifficultyTitle" aria-describedby="normalDifficultyLead">
@@ -232,6 +247,6 @@
         </div>
       </section>
     </main>
-    <script type="module" src="./js/main.js?v=50"></script>
+    <script type="module" src="./js/main.js?v=53"></script>
   </body>
 </html>

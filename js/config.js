@@ -70,6 +70,11 @@ export function normalizeStandardDifficulty(value = 0) {
   return Math.max(0, Math.min(STANDARD_DIFFICULTY_MAX, Math.trunc(Number(value) || 0)));
 }
 
+export function getVisibleStandardDifficultySteps(maxUnlocked = 0) {
+  const visibleMax = Math.min(STANDARD_DIFFICULTY_MAX, normalizeStandardDifficulty(maxUnlocked) + 1);
+  return STANDARD_DIFFICULTY_STEPS.filter((entry) => entry.level <= visibleMax);
+}
+
 export function getStandardDifficultyConfig(value = 0) {
   const level = normalizeStandardDifficulty(value);
   return {
