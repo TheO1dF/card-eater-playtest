@@ -22,6 +22,8 @@ import { createShopService } from "../js/shop.js";
 import { getRoundGoldSources, grantRoundGold, queueRoundGold, sumRoundGoldSources } from "../js/economy.js";
 import { SUMMARY_RAPID_CARD_THRESHOLD, getRoundGrade, getScoreHeat, getScoreImpact, getSummaryBeatDuration, getSummaryCardTiming } from "../js/round-presentation.js";
 import { mergeCompletedRun, observeRunGold } from "../js/statistics.js";
+import { EFFECT_LAYERS, createEffectProcessor, resolveLayeredValue } from "../js/effect-processor.js";
+import { changePermanentCard, multiplyFuturePointChanges } from "../js/permanent-points.js";
 import { RULE_LIBRARY, addActiveRule, settleActiveRules } from "../js/rules.js";
 import { GAME_PHASES, createInitialPlayerState, resetRoundState, transitionPhase } from "../js/state.js";
 import {
@@ -430,6 +432,126 @@ test("交替吃弃、弃水果和错误食性吃会分别显示并给出即时�
   assert.equal(wrongEat.flat_bonus, 2);
 });
 
+test("效果处理器按替代、设值、加法、倍率、触发与善后层稳定结算", () => {
+  const processor = createEffectProcessor();
+  const order = [];
+  processor.enqueue({ id: "trigger", layer: EFFECT_LAYERS.TRIGGERED, resolve(event, stack) {
+    order.push("trigger");
+    stack.enqueue({ id: "after", layer: EFFECT_LAYERS.AFTERMATH, resolve() { order.push("after"); } });
+  } });
+  processor.enqueue({ id: "replacement", layer: EFFECT_LAYERS.REPLACEMENT, resolve() { order.push("replacement"); } });
+  processor.enqueue({ id: "add", layer: EFFECT_LAYERS.ADDITIVE, resolve() { order.push("add"); } });
+  const resolution = processor.resolve({ type: "test" });
+  assert.deepEqual(order, ["replacement", "add", "trigger", "after"]);
+  assert.deepEqual(resolution.trace.map((entry) => entry.id), order);
+
+  const value = resolveLayeredValue(2, [
+    { id: "add-three", operation: "add", value: 3 },
+    { id: "times-four", operation: "multiply", value: 4 },
+    { id: "late-five", operation: "add", layer: EFFECT_LAYERS.AFTERMATH, value: 5 },
+  ]);
+  assert.equal(value.event.value, 25);
+});
+
+test("未写明上限的永久点数与连击不会再被隐藏边界截断", () => {
+  const engine = createRoundEngine({ random: () => 0 });
+  const fastFoodState = stateWith(["K002"]);
+  const noodle = fastFoodState.deck[0];
+  noodle.eat_points = -5;
+  noodle.discard_points = 12;
+  fastFoodState.round.draw_pile[0].eat_points = -5;
+  fastFoodState.round.draw_pile[0].discard_points = 12;
+  engine.recordAction(fastFoodState, "eat", fastFoodState.round.draw_pile[0]);
+  assert.equal(noodle.eat_points, -6);
+  assert.equal(noodle.discard_points, 13);
+
+  const dessertState = stateWith(["D001"]);
+  dessertState.deck[0].eat_points = 30;
+  dessertState.round.draw_pile[0].eat_points = 30;
+  engine.recordAction(dessertState, "discard", dessertState.round.draw_pile[0]);
+  assert.equal(dessertState.deck[0].eat_points, 32);
+
+  const cappedState = stateWith(["D004"]);
+  cappedState.deck[0].eat_points = 11;
+  cappedState.round.draw_pile[0].eat_points = 11;
+  engine.recordAction(cappedState, "discard", cappedState.round.draw_pile[0]);
+  assert.equal(cappedState.deck[0].eat_points, 12);
+
+  const fruitState = stateWith(["F001"]);
+  fruitState.round.fruit_combo = 99;
+  const apple = engine.recordAction(fruitState, "eat", fruitState.round.draw_pile[0]);
+  assert.equal(apple.effect_bonus, 100);
+});
+
+test("同名卡牌倍率与无尽道具按来源实例独立叠加", () => {
+  const engine = createRoundEngine({ random: () => 0 });
+  const sandwichState = stateWith(["K002", "K008", "K008"]);
+  const firstSandwich = getCurrentCard(sandwichState);
+  engine.recordAction(sandwichState, "discard", firstSandwich);
+  sandwichState.round.draw_pile.pop();
+  const secondSandwich = getCurrentCard(sandwichState);
+  engine.recordAction(sandwichState, "discard", secondSandwich);
+  sandwichState.round.draw_pile.pop();
+  const noodle = getCurrentCard(sandwichState);
+  const beforeEat = sandwichState.deck.find((card) => card.uuid === noodle.uuid).eat_points;
+  const beforeDiscard = sandwichState.deck.find((card) => card.uuid === noodle.uuid).discard_points;
+  engine.recordAction(sandwichState, "eat", noodle);
+  const permanentNoodle = sandwichState.deck.find((card) => card.uuid === noodle.uuid);
+  assert.equal(permanentNoodle.eat_points, beforeEat - 4);
+  assert.equal(permanentNoodle.discard_points, beforeDiscard + 4);
+
+  const itemState = stateWith(["A001", "B003"]);
+  itemState.mode = GAME_MODES.ENDLESS;
+  assert.equal(chooseItem(itemState, "C9").success, true);
+  assert.equal(chooseItem(itemState, "C9").success, true);
+  engine.recordAction(itemState, "eat", getCurrentCard(itemState));
+  assert.equal(itemState.round.buffs.filter((buff) => buff.value === 4).length, 3);
+
+  const copyState = stateWith(["F001"]);
+  copyState.mode = GAME_MODES.ENDLESS;
+  assert.equal(chooseItem(copyState, "C16").success, true);
+  assert.equal(chooseItem(copyState, "C16").success, true);
+  const generated = owned("F009", "stack-generated");
+  copyState.deck.push(generated);
+  maybeDuplicateGeneratedCard(copyState, generated);
+  assert.equal(copyState.deck.filter((card) => card.temporary && card.generated_from === "item:C16").length, 2);
+
+  const edgeState = stateWith(["F001", "K001"]);
+  edgeState.mode = GAME_MODES.ENDLESS;
+  assert.equal(chooseItem(edgeState, "C18").success, true);
+  assert.equal(chooseItem(edgeState, "C18").success, true);
+  edgeState.round.actions.push({ action: "eat" });
+  edgeState.round.draw_pile = [edgeState.deck[1]];
+  assert.equal(getItemActionOverrides(edgeState, "eat", edgeState.deck[1]).printed_multiplier, 4);
+});
+
+test("多件摧毁保护道具各自替代一次摧毁事件", () => {
+  const state = stateWith(["A001", "F013", "F013"]);
+  state.mode = GAME_MODES.ENDLESS;
+  assert.equal(chooseItem(state, "C2").success, true);
+  assert.equal(chooseItem(state, "C2").success, true);
+  const engine = createRoundEngine();
+  engine.recordAction(state, "eat", getCurrentCard(state));
+  state.round.draw_pile.pop();
+  engine.recordAction(state, "eat", getCurrentCard(state));
+  assert.equal(state.deck.length, 3);
+  assert.equal(state.round.destroyed_count, 0);
+});
+
+test("点数变化倍率按层乘算且显式上限最后生效", () => {
+  const state = stateWith(["K002"]);
+  const card = state.deck[0];
+  card.eat_points = 0;
+  state.round.draw_pile[0].eat_points = 0;
+  multiplyFuturePointChanges(state, [card.uuid], 2, "倍率一");
+  multiplyFuturePointChanges(state, [card.uuid], 2, "倍率二");
+  assert.equal(changePermanentCard(state, card, "eat_points", 3), 12);
+  card.eat_points = 10;
+  state.round.draw_pile[0].eat_points = 10;
+  assert.equal(changePermanentCard(state, card, "eat_points", 3, { max: 15 }), 5);
+  assert.equal(card.eat_points, 15);
+});
+
 test("新道具候选不再奖励牌组尺寸限制或额外餐盘扩容", () => {
   const pool = createItemPool();
   assert.ok(pool.length >= 12);
@@ -593,7 +715,7 @@ test("隔夜餐盒与辣鸡翅使用调整后的稀有度", () => {
   assert.equal(CARD_LIBRARY.K007.rarity, "罕见");
 });
 
-test("保温灯餐台不会用厌食边界覆盖隔夜餐盒的后置成长", () => {
+test("保温灯餐台会继续叠加隔夜餐盒成长且不再存在隐式厌食边界", () => {
   const engine = createRoundEngine();
   const fillers = Array.from({ length: 13 }, () => "F001");
   const state = stateWith([...fillers, "K010", "K011"]);
@@ -606,10 +728,10 @@ test("保温灯餐台不会用厌食边界覆盖隔夜餐盒的后置成长", ()
   assert.equal(permanentLunchbox.discard_points, 13);
 
   engine.recordAction(state, "eat", warmer);
-  assert.equal(permanentLunchbox.eat_points, -13);
-  assert.equal(permanentLunchbox.discard_points, 13);
-  assert.equal(lunchbox.eat_points, -13);
-  assert.equal(lunchbox.discard_points, 13);
+  assert.equal(permanentLunchbox.eat_points, -14);
+  assert.equal(permanentLunchbox.discard_points, 14);
+  assert.equal(lunchbox.eat_points, -14);
+  assert.equal(lunchbox.discard_points, 14);
 });
 
 test("餐盘数量、下一张、末牌和已后置目标按统一牌堆语义结算", () => {
@@ -912,7 +1034,7 @@ test("苹果与梨使用新的水果连击规则，商店道具池带回经济�
   assert.equal(getCardById("F009", { economy: true }).effect.shop_free_rerolls, 1);
   assert.ok(createCardPool()
     .filter((card) => card.effect?.kind === "fruit_combo")
-    .every((card) => card.effect.bonus_per_combo >= 1 && card.effect.max_bonus > 0), "所有水果连击牌都必须按当前连击数加分");
+    .every((card) => card.effect.bonus_per_combo >= 1), "所有水果连击牌都必须按当前连击数加分");
   const state = stateWith(["F001", "F001", "F009"]);
   const engine = createRoundEngine();
   const firstApple = engine.recordAction(state, "eat", state.deck[0]);

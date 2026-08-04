@@ -68,6 +68,8 @@ export function createRoundState() {
     fruit_combo_unbreakable: false,
     double_fast_food_anorexia: false,
     double_point_change_uuids: [],
+    point_change_multipliers: {},
+    point_change_multiplier_sources: {},
     wrong_edibility_count: 0,
     wrong_edibility_streak: 0,
     best_wrong_edibility_streak: 0,

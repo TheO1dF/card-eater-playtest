@@ -32,6 +32,14 @@ for (const card of cards) {
   }
   if (!card.effect) continue;
   if (!card.effect.description?.trim()) errors.push(`${label}: effect has no description`);
+  if (Number.isFinite(card.effect.max_bonus)
+    && !card.effect.description.includes(`最多 +${card.effect.max_bonus}`)) {
+    errors.push(`${label}: max_bonus=${card.effect.max_bonus} is not declared in player text`);
+  }
+  if (Number.isFinite(card.effect.max_eat_points)
+    && !new RegExp(`(?:最高|最多|上限)\\s*${card.effect.max_eat_points}`).test(card.effect.description)) {
+    errors.push(`${label}: max_eat_points=${card.effect.max_eat_points} is not declared in player text`);
+  }
   if (!CARD_EFFECT_CONTRACTS[card.effect.kind]) errors.push(`${label}: missing effect contract for ${card.effect.kind}`);
   if (!engineSource.includes(`\"${card.effect.kind}\"`)) errors.push(`${label}: no engine handler reference for ${card.effect.kind}`);
 }

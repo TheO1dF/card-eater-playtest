@@ -228,6 +228,8 @@ export function migrateRunState(state) {
       state.round.item_destroy_protected ??= false;
       state.round.item_generation_copied ??= false;
       state.round.pending_item_messages ??= [];
+      state.round.point_change_multipliers ??= {};
+      state.round.point_change_multiplier_sources ??= {};
     }
   }
   if (state.schema_version === 22) {
@@ -262,6 +264,8 @@ export function migrateRunState(state) {
     state.active_rules = Array.isArray(state.active_rules) ? state.active_rules : [];
     state.rule_history = Array.isArray(state.rule_history) ? state.rule_history : [];
     state.round.gold_sources ??= [];
+    state.round.point_change_multipliers ??= {};
+    state.round.point_change_multiplier_sources ??= {};
     state.round.postponed_uuids ??= [];
     state.round.postpone_counts ??= {};
     for (const uuid of state.round.postponed_uuids) {

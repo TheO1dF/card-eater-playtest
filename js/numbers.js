@@ -6,8 +6,9 @@ export function finiteNumber(value, fallback = 0) {
 }
 
 export function safeRound(value) {
-  const number = finiteNumber(value, value < 0 ? -GAME_CONFIG.max_score : GAME_CONFIG.max_score);
-  return Math.round(Math.max(-GAME_CONFIG.max_score, Math.min(GAME_CONFIG.max_score, number)));
+  const limit = GAME_CONFIG.numeric_safety_limit;
+  const number = finiteNumber(value, value < 0 ? -limit : limit);
+  return Math.round(Math.max(-limit, Math.min(limit, number)));
 }
 
 export function safeAdd(left, right) {
@@ -20,11 +21,12 @@ export function safeMultiply(left, right) {
 
 export function safeProduct(left, right) {
   const product = finiteNumber(left, 1) * finiteNumber(right, 1);
-  if (!Number.isFinite(product)) return GAME_CONFIG.max_score;
-  return Math.max(-GAME_CONFIG.max_score, Math.min(GAME_CONFIG.max_score, product));
+  const limit = GAME_CONFIG.numeric_safety_limit;
+  if (!Number.isFinite(product)) return product < 0 ? -limit : limit;
+  return Math.max(-limit, Math.min(limit, product));
 }
 
-export function safePositiveInteger(value, maximum = GAME_CONFIG.max_score) {
+export function safePositiveInteger(value, maximum = GAME_CONFIG.numeric_safety_limit) {
   return Math.max(0, Math.min(maximum, Math.floor(finiteNumber(value))));
 }
 

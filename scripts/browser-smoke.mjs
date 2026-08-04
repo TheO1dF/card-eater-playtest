@@ -217,7 +217,7 @@ for (const viewport of selectedViewports) {
   await capture(`${viewport.name}-tutorial-practice`);
   const cardsBeforePracticeDrag = await evaluate('document.querySelectorAll("#cardStack .game-card").length');
   const activeCardBeforePracticeDrag = await evaluate('document.querySelector(".game-card.is-active")?.dataset.cardUuid');
-  await dragElement(".game-card.is-active", 22, 0);
+  await dragElement(".game-card.is-active", 40, 0);
   await waitFor('document.querySelector("#storyGuide")?.dataset.step !== "drag"');
   const tutorialDrag = await evaluate(`(() => ({
     step: document.querySelector("#storyGuide")?.dataset.step,

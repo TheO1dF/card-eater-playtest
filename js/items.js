@@ -1,8 +1,10 @@
 import { GAME_CONFIG, GAME_MODES } from "./config.js";
 import { createShopCardPool, getCardById } from "./data.js";
-import { safeAdd } from "./numbers.js";
+import { safeAdd, safeProduct } from "./numbers.js";
 import { queueRoundGold } from "./economy.js";
 import { getRemainingCardCount } from "./round-pile.js";
+import { changePermanentCard } from "./permanent-points.js";
+import { EFFECT_LAYERS, createEffectProcessor } from "./effect-processor.js";
 
 const CARD_POOL_ITEMS = Object.freeze([
   ["A1", "果摊兑换券", "水果", "水果选牌"],
@@ -252,20 +254,30 @@ function addBonus(result, item, amount, detail = null) {
 
 export function getItemActionOverrides(state, action, card) {
   const bestSide = (state.items ?? []).some((item) => item.effect.kind === "best_side");
-  const edge = (state.items ?? []).find((item) => item.effect.kind === "edge_points");
+  const edgeItems = (state.items ?? []).filter((item) => item.effect.kind === "edge_points");
+  const isLast = state.round.actions.length > 0 && getRemainingCardCount(state) === 0;
   return {
     use_best_side: bestSide,
-    force_zero: Boolean(edge && state.round.actions.length === 0),
-    printed_multiplier: edge && state.round.actions.length > 0 && getRemainingCardCount(state) === 0 ? edge.effect.last_multiplier ?? 2 : 1,
+    force_zero: edgeItems.length > 0 && state.round.actions.length === 0,
+    printed_multiplier: isLast
+      ? edgeItems.reduce((product, item) => safeProduct(product, item.effect.last_multiplier ?? 2), 1)
+      : 1,
   };
 }
 
 export function resolveItemActionEffects(state, action, card) {
-  const result = { flat_bonus: 0, messages: [], markers: {} };
+  const result = { flat_bonus: 0, messages: [], markers: {}, effect_trace: [] };
   const wrong = !isCorrectAction(action, card);
   const previousAction = state.round.last_item_action;
-  for (const item of state.items ?? []) {
-    switch (item.effect.kind) {
+  const processor = createEffectProcessor();
+  (state.items ?? []).forEach((item, index) => {
+    processor.enqueue({
+      id: `item:${item.instance_id ?? item.id}:action`,
+      source: item.name,
+      layer: EFFECT_LAYERS.TRIGGERED,
+      timestamp: index,
+      resolve() {
+        switch (item.effect.kind) {
       case "wrong_eat_bonus":
         if (wrong && action === "eat") addBonus(result, item, item.effect.bonus ?? 1);
         break;
@@ -310,22 +322,14 @@ export function resolveItemActionEffects(state, action, card) {
         }
         break;
       }
-      default:
-        break;
-    }
-  }
+          default:
+            break;
+        }
+      },
+    });
+  });
+  result.effect_trace = processor.resolve({ type: "item_action", action, card_uuid: card.uuid }).trace;
   return result;
-}
-
-function changePermanent(state, card, stat, amount) {
-  const owned = state.deck.find((candidate) => candidate.uuid === card.uuid);
-  if (!owned || owned.stats_locked || owned.locked_stats?.includes(stat)) return 0;
-  owned[stat] = safeAdd(owned[stat] ?? 0, amount);
-  for (const copy of [...state.round.draw_pile, ...state.round.spent_pile, ...(state.round.reserve_cards ?? [])]) {
-    if (copy.uuid === card.uuid) copy[stat] = owned[stat];
-  }
-  state.round.grown_count = safeAdd(state.round.grown_count ?? 0, 1);
-  return amount;
 }
 
 function gasFireCard(state, item) {
@@ -355,34 +359,44 @@ function gasFireCard(state, item) {
 }
 
 export function resolveItemAfterActionEffects(state, action, card, entry, context = {}) {
-  const result = { score_bonus: 0, messages: [], item_events: [], point_changes: [] };
-  for (const item of state.items ?? []) {
-    if (item.effect.kind === "restore_growth") {
-      for (const restored of context.restored_stats ?? []) {
-        const target = state.deck.find((owned) => owned.uuid === restored.card_uuid);
-        if (!target) continue;
-        const amount = changePermanent(state, target, restored.stat, restored.amount);
-        if (amount > 0) {
-          result.point_changes.push({ card_name: target.name, stat: restored.stat, amount });
-          result.messages.push(`${item.name}：${target.name}${restored.stat === "eat_points" ? "吃分" : "弃分"}永久 +${amount}`);
+  const result = { score_bonus: 0, messages: [], item_events: [], point_changes: [], effect_trace: [] };
+  const processor = createEffectProcessor();
+  (state.items ?? []).forEach((item, index) => {
+    processor.enqueue({
+      id: `item:${item.instance_id ?? item.id}:after-action`,
+      source: item.name,
+      layer: EFFECT_LAYERS.AFTERMATH,
+      timestamp: index,
+      resolve() {
+        if (item.effect.kind === "restore_growth") {
+          for (const restored of context.restored_stats ?? []) {
+            const target = state.deck.find((owned) => owned.uuid === restored.card_uuid);
+            if (!target) continue;
+            const amount = changePermanentCard(state, target, restored.stat, restored.amount);
+            if (amount > 0) {
+              result.point_changes.push({ card_name: target.name, stat: restored.stat, amount });
+              result.messages.push(`${item.name}：${target.name}${restored.stat === "eat_points" ? "吃分" : "弃分"}永久 +${amount}`);
+            }
+          }
         }
-      }
-    }
-    if (item.effect.kind === "destroy_spawn_gas" && (context.destroyed_count ?? 0) > 0) {
-      const currentIndex = state.round.draw_pile.findIndex((candidate) => candidate.uuid === card.uuid);
-      const insertAt = currentIndex < 0 ? state.round.draw_pile.length : currentIndex;
-      const generated = Array.from({ length: context.destroyed_count }, () => gasFireCard(state, item));
-      state.round.draw_pile.splice(insertAt, 0, ...generated);
-      result.messages.push(`${item.name}：牌堆顶插入沼气火 ×${generated.length}`);
-    }
-    if (item.effect.kind === "dessert_discard_growth" && action === "discard" && card.type === "甜点") {
-      const amount = changePermanent(state, card, "eat_points", item.effect.bonus ?? 1);
-      if (amount > 0) {
-        result.point_changes.push({ card_name: card.name, stat: "eat_points", amount });
-        result.messages.push(`${item.name}：${card.name}吃分永久 +${amount}`);
-      }
-    }
-  }
+        if (item.effect.kind === "destroy_spawn_gas" && (context.destroyed_count ?? 0) > 0) {
+          const currentIndex = state.round.draw_pile.findIndex((candidate) => candidate.uuid === card.uuid);
+          const insertAt = currentIndex < 0 ? state.round.draw_pile.length : currentIndex;
+          const generated = Array.from({ length: context.destroyed_count }, () => gasFireCard(state, item));
+          state.round.draw_pile.splice(insertAt, 0, ...generated);
+          result.messages.push(`${item.name}：牌堆顶插入沼气火 ×${generated.length}`);
+        }
+        if (item.effect.kind === "dessert_discard_growth" && action === "discard" && card.type === "甜点") {
+          const amount = changePermanentCard(state, card, "eat_points", item.effect.bonus ?? 1);
+          if (amount > 0) {
+            result.point_changes.push({ card_name: card.name, stat: "eat_points", amount });
+            result.messages.push(`${item.name}：${card.name}吃分永久 +${amount}`);
+          }
+        }
+      },
+    });
+  });
+  result.effect_trace = processor.resolve({ type: "item_after_action", action, card_uuid: card.uuid, entry }).trace;
   state.round.last_item_action = action;
   return result;
 }
@@ -393,8 +407,14 @@ export function resolveItemPostponeEffects(state) {
 }
 
 export function protectFirstDestruction(state, cardUuid) {
-  const item = (state.items ?? []).find((entry) => entry.effect.kind === "protect_first_destroy");
-  if (!item || state.round.item_destroy_protected) return false;
+  const item = (state.items ?? []).find((entry) => {
+    if (entry.effect.kind !== "protect_first_destroy") return false;
+    const key = `item:${entry.instance_id ?? entry.id}:destroy-protection`;
+    return !state.round.effect_trigger_counts[key];
+  });
+  if (!item) return false;
+  const key = `item:${item.instance_id ?? item.id}:destroy-protection`;
+  state.round.effect_trigger_counts[key] = 1;
   state.round.item_destroy_protected = true;
   state.round.pending_item_messages ??= [];
   const card = state.deck.find((entry) => entry.uuid === cardUuid);
@@ -409,7 +429,12 @@ export function drainPendingItemMessages(state) {
 }
 
 export function shouldEchoDrinkEffect(state, card) {
-  return card?.type === "饮料" && Boolean(card.effect) && (state.items ?? []).some((item) => item.effect.kind === "double_drink_effect");
+  return getDrinkEffectRepeaters(state, card).length > 0;
+}
+
+export function getDrinkEffectRepeaters(state, card) {
+  if (card?.type !== "饮料" || !card.effect) return [];
+  return (state.items ?? []).filter((item) => item.effect.kind === "double_drink_effect");
 }
 
 export function getBananaGenerationCardId(state, fallback) {
@@ -417,27 +442,38 @@ export function getBananaGenerationCardId(state, fallback) {
 }
 
 export function maybeDuplicateGeneratedCard(state, generated) {
-  const item = (state.items ?? []).find((entry) => entry.effect.kind === "first_generation_copy");
-  if (!item || generated?.no_item_copy || state.round.item_generation_copied || state.deck.length >= GAME_CONFIG.max_deck_size) return null;
-  state.round.item_generation_copied = true;
-  state.item_serial = safeAdd(state.item_serial ?? 0, 1);
-  state.round.generated_count = safeAdd(state.round.generated_count ?? 0, 1);
-  const copy = {
-    ...generated,
-    effect: null,
-    synergy_tags: [...new Set([...(generated.synergy_tags ?? []), "临时", "复制"])],
-    status_keywords: [...new Set([...(generated.status_keywords ?? []).filter((tag) => tag !== "弱化"), "临时", "复制"])],
-    weakened: false,
-    temporary: true,
-    no_item_copy: true,
-    generated_from: `item:${item.id}`,
-    generated_label: item.name,
-    uuid: `${generated.id}-TEMP-COPY-${state.current_round}-${state.item_serial}`,
-  };
-  state.deck.push(copy);
-  state.round.pending_item_messages ??= [];
-  state.round.pending_item_messages.push(`${item.name}：额外生成临时「${copy.name}」`);
-  return copy;
+  if (generated?.no_item_copy || state.deck.length >= GAME_CONFIG.max_deck_size) return null;
+  const items = (state.items ?? []).filter((entry) => {
+    if (entry.effect.kind !== "first_generation_copy") return false;
+    const key = `item:${entry.instance_id ?? entry.id}:generation-copy`;
+    return !state.round.effect_trigger_counts[key];
+  });
+  const copies = [];
+  for (const item of items) {
+    if (state.deck.length >= GAME_CONFIG.max_deck_size) break;
+    const key = `item:${item.instance_id ?? item.id}:generation-copy`;
+    state.round.effect_trigger_counts[key] = 1;
+    state.round.item_generation_copied = true;
+    state.item_serial = safeAdd(state.item_serial ?? 0, 1);
+    state.round.generated_count = safeAdd(state.round.generated_count ?? 0, 1);
+    const copy = {
+      ...generated,
+      effect: null,
+      synergy_tags: [...new Set([...(generated.synergy_tags ?? []), "临时", "复制"])],
+      status_keywords: [...new Set([...(generated.status_keywords ?? []).filter((tag) => tag !== "弱化"), "临时", "复制"])],
+      weakened: false,
+      temporary: true,
+      no_item_copy: true,
+      generated_from: `item:${item.id}`,
+      generated_label: item.name,
+      uuid: `${generated.id}-TEMP-COPY-${state.current_round}-${state.item_serial}`,
+    };
+    state.deck.push(copy);
+    copies.push(copy);
+    state.round.pending_item_messages ??= [];
+    state.round.pending_item_messages.push(`${item.name}：额外生成临时「${copy.name}」`);
+  }
+  return copies[0] ?? null;
 }
 
 function returnExiledCards(state) {

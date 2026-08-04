@@ -24,7 +24,7 @@ export const GAME_CONFIG = Object.freeze({
   plate_upgrade_base_cost: 2,
   contract_time_limit_ms: 12_000,
   contract_fast_time_limit_ms: 8_000,
-  max_score: 9_000_000_000_000_000,
+  numeric_safety_limit: Number.MAX_SAFE_INTEGER,
 });
 
 export const GAME_MODES = Object.freeze({
