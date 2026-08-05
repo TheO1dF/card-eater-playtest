@@ -913,12 +913,15 @@ for (const viewport of selectedViewports) {
       inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
       reroll_tokens: document.querySelector("#draftRerollValue")?.textContent,
       card_choice_id: [...document.querySelectorAll(".item-draft-card")].find((card) => /^A[1-8]$/.test(card.dataset.itemId))?.dataset.itemId ?? null,
+      category_choice_id: document.querySelector('.item-draft-card[data-item-id="C19"]')?.dataset.itemId ?? null,
+      persistent_id: document.querySelector(".item-draft-card:not(.is-consumable)")?.dataset.itemId ?? null,
       has_category_choice: Boolean(document.querySelector('.item-draft-card[data-item-id="C19"]')),
       has_persistent: Boolean(document.querySelector(".item-draft-card:not(.is-consumable)")),
       new_art: [...document.querySelectorAll(".item-draft-icon")].every((icon) => getComputedStyle(icon).backgroundImage.includes("item-sprites/v024")),
     };
   })()`);
-  await clickElement(".item-draft-card");
+  itemDraft.selected_item_id = itemDraft.card_choice_id ?? itemDraft.category_choice_id ?? itemDraft.persistent_id ?? itemDraft.item_ids[0];
+  await clickElement(`.item-draft-card[data-item-id="${itemDraft.selected_item_id}"]`);
   await waitFor('document.querySelector("#itemCatalogDetail")?.classList.contains("show") && !document.querySelector("#itemCatalogDetailChoose")?.hidden');
   await wait(160);
   await capture(`${viewport.name}-item-draft-detail`);
@@ -928,13 +931,9 @@ for (const viewport of selectedViewports) {
     source_hidden: document.querySelector("#itemDraft")?.getAttribute("aria-hidden") === "true",
     image: getComputedStyle(document.querySelector("#itemCatalogDetailArt .meta-sprite")).backgroundImage,
   }))()`);
-  await clickElement("#itemCatalogDetailClose");
-  await waitFor('document.querySelector("#itemDraft")?.classList.contains("show") && !document.querySelector("#itemCatalogDetail")?.classList.contains("show")');
+  await clickElement("#itemCatalogDetailChoose");
   let itemChoice = { shown: false };
-  if (itemDraft.card_choice_id) {
-    await clickElement(`.item-draft-card[data-item-id="${itemDraft.card_choice_id}"]`);
-    await waitFor('document.querySelector("#itemCatalogDetail")?.classList.contains("show") && !document.querySelector("#itemCatalogDetailChoose")?.hidden');
-    await clickElement("#itemCatalogDetailChoose");
+  if (/^A[1-8]$/.test(itemDraft.selected_item_id)) {
     await waitFor('document.querySelector("#itemCardChoice")?.classList.contains("show") && document.querySelectorAll("#itemCardChoice .draft-card").length === 3');
     await wait(180);
     await capture(`${viewport.name}-item-card-choice`);
@@ -954,16 +953,9 @@ for (const viewport of selectedViewports) {
       };
     })()`);
     await clickElement("#itemCardChoice .draft-card");
-  } else if (itemDraft.has_category_choice) {
-    await clickElement('.item-draft-card[data-item-id="C19"]');
-    await waitFor('document.querySelector("#itemCatalogDetail")?.classList.contains("show") && !document.querySelector("#itemCatalogDetailChoose")?.hidden');
-    await clickElement("#itemCatalogDetailChoose");
+  } else if (itemDraft.selected_item_id === "C19") {
     await waitFor('document.querySelector("#itemCategoryChoice")?.classList.contains("show") && document.querySelectorAll("#itemCategoryChoice .item-category-button").length >= 1');
     await clickElement("#itemCategoryChoice .item-category-button");
-  } else {
-    await clickElement(itemDraft.has_persistent ? ".item-draft-card:not(.is-consumable)" : ".item-draft-card");
-    await waitFor('document.querySelector("#itemCatalogDetail")?.classList.contains("show") && !document.querySelector("#itemCatalogDetailChoose")?.hidden');
-    await clickElement("#itemCatalogDetailChoose");
   }
   await waitFor('document.querySelector("#phaseValue")?.textContent === "出牌中" && document.querySelector("#roundValue")?.textContent === "4/15"', 12000);
   const nextRound = await evaluate(`(() => ({
@@ -1075,7 +1067,7 @@ const failures = [
     entry.delete_layout.equal_actions ? null : `${entry.viewport.name}: delete buttons are unequal`,
     entry.save_home.continue_enabled && entry.save_home.save_exists ? null : `${entry.viewport.name}: autosave/continue failed`,
     entry.item_draft.count === 3 && entry.item_draft.equal_cards && entry.item_draft.new_art && entry.item_draft.item_ids.every((id) => /^(A[1-8]|B[1-3]|C(?:[1-9]|1\d|20|30))$/.test(id)) ? null : `${entry.viewport.name}: item draft or replacement art invalid`,
-    entry.item_draft.inspect_detail.return_label === "返回三选一" && entry.item_draft.inspect_detail.choose_label.includes("确认") && entry.item_draft.inspect_detail.source_hidden && entry.item_draft.inspect_detail.image.includes("item-sprites/v024") ? null : `${entry.viewport.name}: item draft detail inspection or confirmation is invalid`,
+    entry.item_draft.inspect_detail.return_label === "返回三选一" && entry.item_draft.inspect_detail.choose_label.includes("确认") && entry.item_draft.inspect_detail.source_hidden && entry.item_draft.inspect_detail.image.includes("item-sprites/v024") && entry.next_round.round === "4/15" ? null : `${entry.viewport.name}: first-open item detail inspection or confirmation is invalid`,
     JSON.stringify(entry.item_draft.item_slots) === JSON.stringify(["relevant", "bridge", "wild"]) ? null : `${entry.viewport.name}: item draft slots are not relevant/bridge/wild`,
     entry.item_draft.inside_viewport ? null : `${entry.viewport.name}: item draft outside viewport`,
     !entry.item_draft.card_choice_id || (entry.item_choice.shown && entry.item_choice.count === 3 && entry.item_choice.equal_cards && entry.item_choice.inside_viewport && entry.item_choice.point_rows_horizontal) ? null : `${entry.viewport.name}: consumable item card choice is invalid`,

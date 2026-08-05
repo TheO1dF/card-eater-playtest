@@ -436,9 +436,9 @@ function enterItemDraft() {
     return;
   }
   ui.openItemDraft(state, itemBuffer, (entry) => {
-    if (state.phase !== GAME_PHASES.ITEM_DRAFT || state.item_draft_resolved) return;
+    if (state.phase !== GAME_PHASES.ITEM_DRAFT || state.item_draft_resolved) return false;
     const result = chooseItem(state, entry);
-    if (!result.success) return;
+    if (!result.success) return false;
     if (result.resolution === "card_choice") {
       const offers = getItemCardOffers(result.card_type, 3, browserPlatform.random);
       state.pending_item_resolution = {
@@ -449,15 +449,16 @@ function enterItemDraft() {
       };
       saveGame();
       presentPendingItemResolution();
-      return;
+      return true;
     }
     if (result.resolution === "category_choice") {
       state.pending_item_resolution = { kind: "category_choice", item_id: entry.id };
       saveGame();
       presentPendingItemResolution();
-      return;
+      return true;
     }
     completeItemReward(result.message);
+    return true;
   }, () => {
     if (state.phase !== GAME_PHASES.ITEM_DRAFT || state.item_draft_resolved) return;
     state.item_history.push({ round: state.current_round, item_id: null, skipped: true });

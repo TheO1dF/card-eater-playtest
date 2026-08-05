@@ -1113,12 +1113,21 @@ export function createUI(root) {
     const choose = get("#itemCatalogDetailChoose");
     if (choose) {
       choose.hidden = itemDetailReturnLayer !== "draft";
+      choose.disabled = false;
+      choose.removeAttribute("aria-busy");
       choose.textContent = item.consumable ? `确认使用 · ${item.name}` : `确认领取 · ${item.name}`;
       choose.onclick = itemDetailReturnLayer !== "draft" ? null : () => {
+        if (choose.disabled) return;
         choose.disabled = true;
+        choose.setAttribute("aria-busy", "true");
+        const accepted = options.on_choose?.(item);
+        if (accepted === false) {
+          choose.disabled = false;
+          choose.removeAttribute("aria-busy");
+          return;
+        }
         nodes.itemCatalogDetail?.classList.remove("show");
         nodes.itemDraft?.removeAttribute("aria-hidden");
-        options.on_choose?.(item);
       };
     }
     nodes.itemCatalogDetail?.classList.add("show");
