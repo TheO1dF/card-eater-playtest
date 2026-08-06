@@ -479,6 +479,9 @@ export const COMMON_EN = Object.freeze({
   "卡牌效果与牌面已经结算。": "Printed values and card effects have been resolved.",
   "继续加热": "Keep Cooking",
   "解锁进度": "Unlock Progress",
+  "模式解锁与通关徽记": "Mode unlocks and clear sigils",
+  // Without an exact entry the phrase pass renders this as “GOD  Token”.
+  "GOD 标记": "GOD Token",
   "点击任意位置 · 跳过当前动画": "Click anywhere · Skip current animation",
   "点击任意位置 · 加速当前数字": "Click anywhere · Speed up current count",
   "选择一张新牌": "Draft a New Card",

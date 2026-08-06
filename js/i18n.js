@@ -156,6 +156,9 @@ const dynamicEnglish = Object.freeze([
     (_, cost, card) => `${translateCore(cost)} to delete “${translateCore(card)}”? This cannot be undone.`],
   [/^(\d+)\s*张牌洗牌并落入餐盘$/u, (_, count) => `${count} cards shuffled onto the plate`],
   [/^通关难度\s*(\d+)\s*解锁$/u, (_, level) => `Unlocked by clearing Difficulty ${level}`],
+  // Row labels in the mode-unlock panel. The ★/✓/◇ marker shares the text node
+  // with the label, so it is matched here rather than stripped by the caller.
+  [/^([★✓◇]\s*)?标准难度\s*(\d+)$/u, (_, mark, level) => `${mark ?? ""}Difficulty ${level}`],
   [/^(\d+)\/(\d+)\s*局$/u, (_, done, total) => `${done}/${total} runs`],
   [/^(\d+)\/(\d+)\s*次通关$/u, (_, done, total) => `${done}/${total} clears`],
   [/^(\d+)\/(\d+)\s*次商店通关$/u, (_, done, total) => `${done}/${total} Shop clears`],

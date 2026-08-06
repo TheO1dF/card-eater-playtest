@@ -1895,7 +1895,10 @@ html[data-font-size="large"] { --ui-copy-step: 6px; }
 .unlock-progress[open] > summary { margin-bottom: 7px; }
 .unlock-progress[open] > summary strong { transform: rotate(90deg); }
 .unlock-progress > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
-.unlock-progress span { display: flex; align-items: center; justify-content: space-between; gap: 7px; padding: 7px 8px; color: #8f8199; background: #211a2a; font-size: calc(7px + var(--ui-copy-step)); line-height: 1.4; }
+.unlock-progress span { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 7px; padding: 7px 8px; color: #8f8199; background: #211a2a; font-size: calc(7px + var(--ui-copy-step)); line-height: 1.4; }
+/* English labels are far longer than the Chinese source, so let the value drop
+   to its own line inside the row instead of squeezing the label. */
+.unlock-progress span > * { min-width: 0; }
 .unlock-progress span.is-unlocked { color: var(--eat); }
 .unlock-progress span.is-cleared { color: var(--gold); }
 .unlock-progress small { color: inherit; }

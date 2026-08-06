@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { LANGUAGES, getLocale, setLocale, translate } from "../js/i18n.js";
 import { getDefaultLanguage } from "../js/platform.js";
+import { STANDARD_DIFFICULTY_STEPS } from "../js/config.js";
 
 test("browser language detection falls back to English outside Chinese locales", () => {
   const chinese = ["zh", "zh-CN", "zh-TW", "zh-Hans-CN", "zh_HK", "ZH-hant", "cmn-Hans-CN", "yue-HK"];
@@ -96,6 +97,28 @@ test("English localization never leaves mixed Chinese in dynamic run panels", ()
   assert.deepEqual(failures, []);
   assert.equal(translate("罕见 · 硬吃 · 即时得分"), "Uncommon · Wrong edibility · Instant score");
   assert.equal(translate("ROUND SCOREBOARD · 本轮计分台"), "ROUND SCOREBOARD");
+});
+
+test("English localization covers the mode unlock progress panel", () => {
+  setLocale(LANGUAGES.EN);
+  const samples = ["模式解锁进度", "模式解锁与通关徽记", "已解锁", "已通关", "可挑战"];
+  for (const name of ["随机开局", "备料模式", "商店模式", "条约商店", "无尽 / 异变", "GOD 标记"]) {
+    // renderUnlockProgress puts the ✓/◇ marker in the same text node as the label.
+    samples.push(name, `✓ ${name}`, `◇ ${name}`);
+  }
+  for (const { level } of STANDARD_DIFFICULTY_STEPS) {
+    samples.push(`★ 标准难度 ${level}`, `✓ 标准难度 ${level}`, `◇ 标准难度 ${level}`);
+    if (level > 0) samples.push(`通关难度 ${level - 1} 解锁`);
+  }
+  samples.push("0/1 局", "2/2 局", "0/1 次通关", "1/1 次商店通关", "0/1 次无尽通关");
+  const failures = samples
+    .map((source) => ({ source, output: translate(source) }))
+    .filter(({ output }) => /[㐀-鿿]/u.test(output));
+  assert.deepEqual(failures, []);
+  // The marker survives, and the phrase pass no longer leaves a double space here.
+  assert.equal(translate("◇ GOD 标记"), "◇ GOD Token");
+  assert.equal(translate("★ 标准难度 7"), "★ Difficulty 7");
+  assert.equal(translate("通关难度 3 解锁"), "Unlocked by clearing Difficulty 3");
 });
 
 test("English localization covers the first-run tutorial end to end", () => {
