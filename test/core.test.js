@@ -462,6 +462,44 @@ test("额外后置、动物领队、12 秒倍率与临时复制按轮生效", ()
   assert.equal(maybeDuplicateGeneratedCard(state, generated), null);
 });
 
+test("双程传菜带的第二次后置在真实出牌顺序下可用，后置效果触发两次", () => {
+  const engine = createRoundEngine();
+  // draw_pile 的 0 号位最后结算、末位是当前牌，所以 B007「押分瓶」是当前牌。
+  const state = stateWith(["A001", "K001", "F001", "B007"]);
+  assert.equal(chooseItem(state, "C14").success, true);
+  assert.equal(getPostponeLimit(state), 2);
+
+  const target = getCurrentCard(state);
+  assert.equal(target.id, "B007");
+  assert.equal(postponeCurrentCard(state, { max_per_card: getPostponeLimit(state) }).success, true);
+  engine.recordPostpone(state, target);
+  assert.equal(state.round.postpone_bonus_score, 4);
+
+  // 后置会把牌送到餐盘末尾，按真实顺序结算完其余牌后，它是唯一剩下的当前牌。
+  while (state.round.draw_pile.length > 1) state.round.draw_pile.pop();
+  assert.equal(getCurrentCard(state).uuid, target.uuid);
+
+  // 回归点：这里过去会因为“餐盘只剩一张牌”被拒绝，额外后置永远用不掉，
+  // 后置效果也就只能触发一次。
+  const second = postponeCurrentCard(state, { max_per_card: getPostponeLimit(state) });
+  assert.equal(second.success, true);
+  assert.equal(second.postpone_count_for_card, 2);
+  engine.recordPostpone(state, target);
+  assert.equal(state.round.postpone_bonus_score, 8);
+
+  const permanent = state.deck.find((card) => card.id === "B007");
+  assert.equal(permanent.eat_points, -2);
+  assert.equal(permanent.discard_points, -2);
+
+  // 上限之外仍然拒绝，单张牌不会被无限后置刷分。
+  assert.equal(postponeCurrentCard(state, { max_per_card: getPostponeLimit(state) }).reason, "already_postponed");
+
+  // 没有额外后置时，只剩一张牌依旧不能后置。
+  const plain = stateWith(["A001", "F001"]);
+  plain.round.draw_pile.pop();
+  assert.equal(postponeCurrentCard(plain, { max_per_card: 1 }).reason, "not_enough_cards");
+});
+
 test("周期删牌、错误食性连击与三式打卡器在轮末结算", () => {
   const state = stateWith(["F009", "A001", "K001"]);
   state.current_round = 3;

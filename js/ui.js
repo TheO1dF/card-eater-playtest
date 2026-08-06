@@ -1478,7 +1478,10 @@ export function createUI(root) {
       const postponeLimit = getPostponeLimit(state);
       const usedPostpones = currentCard ? state.round.postpone_counts?.[currentCard.uuid] ?? 0 : 0;
       const alreadyPostponed = usedPostpones >= postponeLimit;
-      postponeButton.disabled = state.phase !== "Playing" || state.round.draw_pile.length < 2 || alreadyPostponed;
+      // Mirrors postponeCurrentCard: only the first postpone needs a card to swap
+      // with. An extra use an item granted stays available on a single-card plate.
+      const tooFewCards = state.round.draw_pile.length < 2 && usedPostpones === 0;
+      postponeButton.disabled = state.phase !== "Playing" || tooFewCards || alreadyPostponed;
       postponeButton.title = alreadyPostponed
         ? "这张牌本轮已经达到后置次数上限"
         : `侧滑或点击：把当前牌移动到餐盘末尾；每张最多 ${postponeLimit} 次`;

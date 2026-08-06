@@ -54,7 +54,7 @@ export function getPlateSummary(deckSize, plateCapacity) {
 
 export function postponeCurrentCard(state, options = {}) {
   const pile = state?.round?.draw_pile;
-  if (!Array.isArray(pile) || pile.length < 2) return { success: false, reason: "not_enough_cards" };
+  if (!Array.isArray(pile) || pile.length < 1) return { success: false, reason: "not_enough_cards" };
   const card = getCurrentCard(state);
   const requestedLimit = Number(options.max_per_card);
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.floor(requestedLimit)) : 1;
@@ -62,11 +62,17 @@ export function postponeCurrentCard(state, options = {}) {
   if (used >= limit) {
     return { success: false, reason: "already_postponed", card };
   }
+  // A postponed card goes to the back of the plate, so it comes back as the very
+  // last card. Requiring a partner to swap with would make every extra postpone
+  // an item grants unspendable, and the card's postpone effect could only ever
+  // fire once. The first postpone still needs a real swap; later uses may resolve
+  // on a single-card plate, where the card simply stays put and triggers again.
+  if (pile.length < 2 && used === 0) return { success: false, reason: "not_enough_cards", card };
   const postponeCount = incrementCardPostpone(state, card);
 
   let direction = "back";
   let revealedCard = null;
-  if ((state.round.reverse_postpone_charges ?? 0) > 0) {
+  if ((state.round.reverse_postpone_charges ?? 0) > 0 && pile.length >= 2) {
     pile.pop();
     revealedCard = pile.shift();
     pile.push(card, revealedCard);
