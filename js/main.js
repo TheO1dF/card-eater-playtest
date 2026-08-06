@@ -10,6 +10,7 @@ import { safeAdd } from "./numbers.js";
 import { getRoundGoldSources, sumRoundGoldSources } from "./economy.js";
 import { createUI } from "./ui.js";
 import { browserPlatform } from "./platform.js";
+import { setLocale, startLocalization } from "./i18n.js";
 import { playSound, setBGMTheme, toggleBGM, unlockAudio } from "./audio.js";
 import { postponeCurrentCard, takeRoundDrawPile } from "./plate.js";
 import { getCurrentCard } from "./round-pile.js";
@@ -41,6 +42,10 @@ import {
 
 browserPlatform.prepare_release();
 
+let settings = browserPlatform.load_settings();
+setLocale(settings.language);
+startLocalization(document);
+
 let state = createInitialPlayerState({ create_id: browserPlatform.create_id });
 const engine = createRoundEngine({ random: browserPlatform.random });
 const draftService = createDraftService({ random: browserPlatform.random, create_id: browserPlatform.create_id });
@@ -55,7 +60,6 @@ let shopThemeType = null;
 let shopItemBuffer = null;
 let actionLocked = true;
 let streak = { action: null, count: 0 };
-let settings = browserPlatform.load_settings();
 let musicEnabled = settings.music;
 let effectsEnabled = settings.effects;
 setBGMTheme(settings.home_theme, { immediate: true });
@@ -67,7 +71,7 @@ document.addEventListener("click", (event) => {
   if (!effectsEnabled && !enablingEffects) return;
   const sound = button.matches(".danger-action, #summaryContinueBtn, #shopContinue, #shopTutorialContinue")
     ? "ui-confirm"
-    : button.matches("summary, .setting-toggle, [data-font-size], [data-summary-speed], [data-home-theme]")
+    : button.matches("summary, .setting-toggle, [data-font-size], [data-summary-speed], [data-home-theme], [data-language], #languageToggle")
       ? "ui-toggle"
       : "ui-click";
   void unlockAudio().then(() => {
@@ -1207,6 +1211,11 @@ ui.bindMenu({
   onFontSize: (fontSize) => {
     settings = browserPlatform.save_settings({ ...settings, font_size: fontSize });
     ui.applyFontSize(fontSize);
+    ui.renderSettings(settings);
+  },
+  onLanguage: (language) => {
+    settings = browserPlatform.save_settings({ ...settings, language });
+    setLocale(settings.language);
     ui.renderSettings(settings);
   },
   onSummaryPause: (enabled) => {

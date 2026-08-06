@@ -1,5 +1,13 @@
 # Card Eater · 正式版
 
+> 中文 / English：游戏会在首次启动时按浏览器语言选择中文或英文，也可以随时在主界面右下角或游戏菜单中切换。语言设置会保存，切换语言不会重开对局或改变规则。
+
+## English quick start
+
+Card Eater is a 15-round deck-building roguelike about sorting a randomly served plate. Drag the top card down to **Eat**, up to **Discard**, or sideways to **Postpone** it. Build synergies through the round-end card draft, collect items every three rounds, and meet the cumulative score milestones on Rounds 5, 10, and 15.
+
+The first run includes Kacha's guided tutorial. Further runs unlock Prep, Shop, Contract Shop, Endless, and Mutation modes without permanent stat upgrades. The complete interface, tutorial, 89-card library, 39-item library, contracts, mutations, shops, and scoring presentation are available in English.
+
 标准模式继续保持“吃 / 弃 / 后置 + 轮末三选一”的轻量流程；完成对局后会逐步解锁备料、商店、条约商店、无尽与异变模式。解锁只增加玩法选择，不提供局外数值成长。
 
 ## 当前规则

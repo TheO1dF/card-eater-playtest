@@ -1832,7 +1832,7 @@ export function createUI(root) {
       closeItemCatalogDetail();
       nodes.gameMenu?.classList.add("show");
     },
-    bindMenu({ onMusic, onEffects, onFontSize, onSummaryPause, onSummarySpeed, onSummarySkip, onHome }) {
+    bindMenu({ onMusic, onEffects, onFontSize, onLanguage, onSummaryPause, onSummarySpeed, onSummarySkip, onHome }) {
       get("#gameMenuClose")?.addEventListener("click", () => {
         nodes.gameMenu?.classList.remove("show");
         if (!menuOpenedFromHome) resumeStoryAfterMenu();
@@ -1843,6 +1843,10 @@ export function createUI(root) {
       root.querySelectorAll("[data-font-size]").forEach((button) => {
         button.addEventListener("click", () => onFontSize(button.dataset.fontSize));
       });
+      root.querySelectorAll("[data-language]").forEach((button) => {
+        button.addEventListener("click", () => onLanguage(button.dataset.language));
+      });
+      get("#languageToggle")?.addEventListener("click", () => onLanguage(menuSettings?.language === "en" ? "zh" : "en"));
       get("#summaryPauseToggle")?.addEventListener("click", () => onSummaryPause(get("#summaryPauseToggle")?.getAttribute("aria-pressed") !== "true"));
       root.querySelectorAll("[data-summary-speed]").forEach((button) => {
         button.addEventListener("click", () => onSummarySpeed(button.dataset.summarySpeed));
@@ -1910,6 +1914,16 @@ export function createUI(root) {
         button.classList.toggle("is-selected", selected);
         button.setAttribute("aria-pressed", String(selected));
       });
+      root.querySelectorAll("[data-language]").forEach((button) => {
+        const selected = button.dataset.language === (currentSettings.language === "en" ? "en" : "zh");
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-pressed", String(selected));
+      });
+      const languageToggle = get("#languageToggle");
+      if (languageToggle) {
+        languageToggle.textContent = currentSettings.language === "en" ? "中文" : "EN";
+        languageToggle.setAttribute("aria-label", currentSettings.language === "en" ? "Switch to Chinese" : "切换为英文");
+      }
     },
     playReshuffleAnimation() {
       const stage = get(".deck-stage");

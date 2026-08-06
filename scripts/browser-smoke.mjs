@@ -160,7 +160,7 @@ for (const viewport of selectedViewports) {
   await evaluate(`(() => {
     localStorage.removeItem("cardeater.run-history.v1");
     localStorage.removeItem("cardeater.active-run.v2");
-    localStorage.removeItem("cardeater.settings.v1");
+    localStorage.setItem("cardeater.settings.v1", JSON.stringify({ language: "zh" }));
     localStorage.removeItem("cardeater.progression.v1");
     localStorage.removeItem("cardeater.story-tutorial.v1");
     localStorage.removeItem("cardeater.companion.v1");
@@ -264,8 +264,8 @@ for (const viewport of selectedViewports) {
   await capture(`${viewport.name}-tutorial-practice`);
   const cardsBeforePracticeDrag = await evaluate('document.querySelectorAll("#cardStack .game-card").length');
   const activeCardBeforePracticeDrag = await evaluate('document.querySelector(".game-card.is-active")?.dataset.cardUuid');
-  for (const distance of [24, 32, 40]) {
-    await dragElement(".game-card.is-active", 0, distance);
+  for (const [deltaX, deltaY] of [[24, 0], [0, 24], [0, 40], [0, 72]]) {
+    await dragElement(".game-card.is-active", deltaX, deltaY);
     await wait(360);
     if (await evaluate('document.querySelector("#storyGuide")?.dataset.step !== "drag"')) break;
   }
@@ -571,6 +571,7 @@ for (const viewport of selectedViewports) {
   await clickElement("#menuButton");
   await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
   await wait(220);
+  await wait(220);
   await evaluate('document.querySelector(\'[data-font-size="large"]\')?.click()');
   await waitFor('document.documentElement.dataset.fontSize === "large"');
   const summarySettingsDefaults = await evaluate(`(() => ({
@@ -633,6 +634,7 @@ for (const viewport of selectedViewports) {
   await clickElement("#cardCatalogButton");
   await waitFor('document.querySelector("#cardCatalog")?.classList.contains("show") && document.querySelectorAll("#catalogList .deck-status-card").length === 89');
   await wait(220);
+  await wait(220);
   await capture(`${viewport.name}-catalog`);
   const catalog = await evaluate(`(() => {
     const cards = [...document.querySelectorAll("#catalogList .deck-status-card")];
@@ -692,6 +694,7 @@ for (const viewport of selectedViewports) {
   await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
   await clickElement("#itemCatalogButton");
   await waitFor('document.querySelector("#itemCatalog")?.classList.contains("show") && document.querySelectorAll("#itemCatalogList .item-catalog-card").length === 39');
+  await wait(220);
   await wait(220);
   await capture(`${viewport.name}-item-catalog`);
   const itemCatalog = await evaluate(`(() => {
@@ -977,7 +980,106 @@ for (const viewport of selectedViewports) {
     return { total: cards.length, failed_ids: results.filter((result) => !result.ok).map((result) => result.id) };
   })()`);
 
-  reports.push({ viewport, difficulty_select: difficultySelect, prologue, cat_rescue: catRescue, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_statistics: homeStatistics, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, summary_settings: summarySettings, long_deck_timing: longDeckTiming, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, item_catalog: itemCatalog, summary_target: summaryTarget, summary_performance: summaryPerformance, summary_receipt: summaryReceipt, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt });
+  await evaluate(`(() => {
+    localStorage.removeItem("cardeater.active-run.v2");
+    localStorage.setItem("cardeater.story-tutorial.v1", "complete");
+    const saved = JSON.parse(localStorage.getItem("cardeater.settings.v1") || "{}");
+    localStorage.setItem("cardeater.settings.v1", JSON.stringify({ ...saved, language: "en" }));
+  })()`);
+  await send("Page.reload", { ignoreCache: true });
+  await waitFor('document.readyState === "complete" && document.documentElement.dataset.language === "en" && typeof document.querySelector("#newGameButton")?.onclick === "function"');
+  await clickElement("#newGameButton");
+  await waitFor('!document.querySelector("#modeChooser")?.hidden');
+  await wait(180);
+  const englishHome = await evaluate(`(() => {
+    const actions = [...document.querySelectorAll(".home-actions > button")].map((button) => button.querySelector("b")?.textContent?.trim());
+    const modes = [...document.querySelectorAll("#modeChooser .mode-button b")].map((label) => label.textContent?.trim());
+    const panel = document.querySelector(".home-panel")?.getBoundingClientRect();
+    const localizedCopy = (document.querySelector("#welcomeOverlay")?.innerText || "").replace("中文", "");
+    return {
+      language: document.documentElement.lang,
+      saved: JSON.parse(localStorage.getItem("cardeater.settings.v1") || "{}").language,
+      actions,
+      modes,
+      toggle: document.querySelector("#languageToggle")?.textContent?.trim(),
+      chinese_visible: /[\\u3400-\\u9fff]/u.test(localizedCopy),
+      chinese_lines: localizedCopy.split("\\n").filter((line) => /[\\u3400-\\u9fff]/u.test(line)).slice(0, 12),
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+      horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    };
+  })()`);
+  await capture(`${viewport.name}-english-home`);
+  await clickElement("#normalModeButton");
+  await waitFor('document.querySelector("#normalDifficultySelect")?.classList.contains("show")');
+  const englishDifficulty = await evaluate(`(() => ({
+    title: document.querySelector("#normalDifficultyTitle")?.textContent?.trim(),
+    cards: [...document.querySelectorAll("#normalDifficultyList .difficulty-option")].map((button) => button.innerText),
+    chinese_visible: /[\\u3400-\\u9fff]/u.test(document.querySelector("#normalDifficultySelect")?.innerText || ""),
+    horizontal_overflow: document.querySelector("#normalDifficultySelect")?.scrollWidth > document.querySelector("#normalDifficultySelect")?.clientWidth + 1,
+  }))()`);
+  await capture(`${viewport.name}-english-difficulty`);
+  await clickElement('[data-difficulty-level="0"]');
+  await waitFor('document.querySelector("#phaseValue")?.textContent === "Playing" && Boolean(document.querySelector(".game-card.is-active"))', 12000);
+  await wait(220);
+  const englishGameplay = await evaluate(`(() => {
+    const card = document.querySelector(".game-card.is-active");
+    const rect = card?.getBoundingClientRect();
+    return {
+      phase: document.querySelector("#phaseValue")?.textContent?.trim(),
+      card_name: card?.querySelector(".card-title strong")?.textContent?.trim(),
+      card_effect: card?.querySelector(".card-effect")?.textContent?.trim(),
+      chinese_visible: /[\\u3400-\\u9fff]/u.test(document.querySelector(".game-shell")?.innerText.replace("中文", "") || ""),
+      chinese_lines: (document.querySelector(".game-shell")?.innerText.replace("中文", "") || "").split("\\n").filter((line) => /[\\u3400-\\u9fff]/u.test(line)).slice(0, 12),
+      inside_viewport: Boolean(rect && rect.left >= -1 && rect.right <= innerWidth + 1 && rect.top >= -1 && rect.bottom <= innerHeight + 1),
+      horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    };
+  })()`);
+  await capture(`${viewport.name}-english-gameplay`);
+  await clickElement("#menuButton");
+  await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
+  await wait(220);
+  const englishMenu = await evaluate(`(() => {
+    const menu = document.querySelector("#gameMenu");
+    const copy = (menu?.innerText || "").replace("中文", "");
+    const panel = menu?.querySelector(".modal-panel")?.getBoundingClientRect();
+    return {
+      chinese_visible: /[\\u3400-\\u9fff]/u.test(copy),
+      chinese_lines: copy.split("\\n").filter((line) => /[\\u3400-\\u9fff]/u.test(line)).slice(0, 16),
+      inside_viewport: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+      horizontal_overflow: menu?.scrollWidth > menu?.clientWidth + 1,
+    };
+  })()`);
+  await capture(`${viewport.name}-english-menu`);
+  await clickElement("#cardCatalogButton");
+  await waitFor('document.querySelector("#cardCatalog")?.classList.contains("show") && document.querySelectorAll("#catalogList .deck-status-card").length === 89');
+  await wait(220);
+  const englishCatalog = await evaluate(`(() => {
+    const catalog = document.querySelector("#cardCatalog");
+    return {
+      count: document.querySelectorAll("#catalogList .deck-status-card").length,
+      chinese_visible: /[\\u3400-\\u9fff]/u.test(catalog?.innerText || ""),
+      chinese_lines: (catalog?.innerText || "").split("\\n").filter((line) => /[\\u3400-\\u9fff]/u.test(line)).slice(0, 16),
+      horizontal_overflow: catalog?.scrollWidth > catalog?.clientWidth + 1,
+    };
+  })()`);
+  await capture(`${viewport.name}-english-card-catalog`);
+  await clickElement("#cardCatalogClose");
+  await waitFor('document.querySelector("#gameMenu")?.classList.contains("show")');
+  await clickElement("#itemCatalogButton");
+  await waitFor('document.querySelector("#itemCatalog")?.classList.contains("show") && document.querySelectorAll("#itemCatalogList .item-catalog-card").length === 39');
+  await wait(220);
+  const englishItemCatalog = await evaluate(`(() => {
+    const catalog = document.querySelector("#itemCatalog");
+    return {
+      count: document.querySelectorAll("#itemCatalogList .item-catalog-card").length,
+      chinese_visible: /[\\u3400-\\u9fff]/u.test(catalog?.innerText || ""),
+      chinese_lines: (catalog?.innerText || "").split("\\n").filter((line) => /[\\u3400-\\u9fff]/u.test(line)).slice(0, 16),
+      horizontal_overflow: catalog?.scrollWidth > catalog?.clientWidth + 1,
+    };
+  })()`);
+  await capture(`${viewport.name}-english-item-catalog`);
+
+  reports.push({ viewport, difficulty_select: difficultySelect, prologue, cat_rescue: catRescue, tutorial_goal: tutorialGoal, tutorial_milestone: tutorialMilestone, tutorial_practice: tutorialPractice, tutorial_drag: tutorialDrag, home, home_statistics: homeStatistics, home_menu: homeMenu, overlay_layering: overlayLayering, home_theme: homeTheme, home_theme_audio: homeThemeAudio, home_progression: homeProgression, home_audio: homeAudio, reduced_motion: reducedMotion, unlock, dealing, playing, score_stress: scoreStress, menu, summary_settings: summarySettings, long_deck_timing: longDeckTiming, catalog, catalog_modes: catalogModes, catalog_detail: catalogDetail, item_catalog: itemCatalog, summary_target: summaryTarget, summary_performance: summaryPerformance, summary_receipt: summaryReceipt, draft, delete_layout: deleteLayout, save_home: saveHome, item_draft: itemDraft, item_choice: itemChoice, next_round: nextRound, card_art: cardArt, english_home: englishHome, english_difficulty: englishDifficulty, english_gameplay: englishGameplay, english_menu: englishMenu, english_catalog: englishCatalog, english_item_catalog: englishItemCatalog });
 }
 
 const report = { generated_at: new Date().toISOString(), url: gameUrl, reports, browser_errors: browserErrors };
@@ -1073,6 +1175,12 @@ const failures = [
     !entry.item_draft.card_choice_id || (entry.item_choice.shown && entry.item_choice.count === 3 && entry.item_choice.equal_cards && entry.item_choice.inside_viewport && entry.item_choice.point_rows_horizontal) ? null : `${entry.viewport.name}: consumable item card choice is invalid`,
     entry.next_round.round === "4/15" && entry.next_round.save_exists && entry.next_round.item_history >= 1 ? null : `${entry.viewport.name}: failed to reach saved round four with an item reward`,
     entry.card_art.failed_ids.length ? `${entry.viewport.name}: card art failed ${entry.card_art.failed_ids.join(",")}` : null,
+    entry.english_home.language === "en" && entry.english_home.saved === "en" && JSON.stringify(entry.english_home.actions) === JSON.stringify(["New Game", "Continue", "Menu"]) && entry.english_home.modes.includes("Standard Mode") && entry.english_home.toggle === "中文" && !entry.english_home.chinese_visible && entry.english_home.inside_viewport && !entry.english_home.horizontal_overflow ? null : `${entry.viewport.name}: English home localization or layout is incomplete`,
+    entry.english_difficulty.title === "Choose Standard Difficulty" && !entry.english_difficulty.chinese_visible && !entry.english_difficulty.horizontal_overflow ? null : `${entry.viewport.name}: English difficulty localization or layout is incomplete`,
+    entry.english_gameplay.phase === "Playing" && entry.english_gameplay.card_name && !entry.english_gameplay.chinese_visible && entry.english_gameplay.inside_viewport && !entry.english_gameplay.horizontal_overflow ? null : `${entry.viewport.name}: English gameplay localization or layout is incomplete`,
+    !entry.english_menu.chinese_visible && entry.english_menu.inside_viewport && !entry.english_menu.horizontal_overflow ? null : `${entry.viewport.name}: English menu localization or layout is incomplete`,
+    entry.english_catalog.count === 89 && !entry.english_catalog.chinese_visible && !entry.english_catalog.horizontal_overflow ? null : `${entry.viewport.name}: English card catalog localization or layout is incomplete`,
+    entry.english_item_catalog.count === 39 && !entry.english_item_catalog.chinese_visible && !entry.english_item_catalog.horizontal_overflow ? null : `${entry.viewport.name}: English item catalog localization or layout is incomplete`,
   ]).filter(Boolean),
 ];
 if (failures.length > 0) throw new Error(`Smoke failures:\n${failures.join("\n")}`);

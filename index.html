@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#17121b" />
     <title>CardEater · 构筑你的餐盘</title>
     <link rel="icon" href="./assets/favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=54" />
+    <link rel="stylesheet" href="./styles.css?v=55" />
   </head>
   <body>
     <main class="app" id="app">
@@ -77,7 +77,7 @@
               <button class="mode-button mutation-mode-button" id="mutationModeButton" type="button"><b>异变模式</b><small>通关后解锁 · 每局一条随机规则</small></button>
               <div class="developer-mode-notice" id="developerModeNotice" hidden>DEV MODE · 全模式已解锁</div>
             </div>
-            <div class="home-footer"><span>BEST <strong id="welcomeBestScore">--</strong></span><div class="home-footer-actions"><button class="home-theme-toggle" id="homeStatisticsButton" type="button" aria-haspopup="dialog">▦ 统计</button><button class="home-theme-toggle" id="homeThemeToggle" type="button" aria-label="切换主界面昼夜色调">☾ 夜间</button></div></div>
+            <div class="home-footer"><span>BEST <strong id="welcomeBestScore">--</strong></span><div class="home-footer-actions"><button class="home-theme-toggle language-toggle" id="languageToggle" type="button" aria-label="切换为英文">EN</button><button class="home-theme-toggle" id="homeStatisticsButton" type="button" aria-haspopup="dialog">▦ 统计</button><button class="home-theme-toggle" id="homeThemeToggle" type="button" aria-label="切换主界面昼夜色调">☾ 夜间</button></div></div>
           </section>
           <div class="home-statistics-overlay" id="homeStatisticsOverlay" role="dialog" aria-modal="true" aria-labelledby="homeStatisticsTitle" hidden>
             <section class="home-statistics-panel">
@@ -130,6 +130,7 @@
             <div class="eyebrow">PAUSE & REFERENCE</div><h1 id="gameMenuTitle">游戏菜单</h1><div class="menu-mode-label" id="menuModeLabel">15 轮试验模式</div>
             <div class="settings-grid"><button class="setting-toggle" id="musicToggle" type="button" aria-pressed="true"><span>音乐</span><b>开启</b></button><button class="setting-toggle" id="effectsToggle" type="button" aria-pressed="true"><span>音效</span><b>开启</b></button></div>
             <div class="font-size-setting"><span><b>界面字号</b></span><div role="group" aria-label="界面字号"><button type="button" data-font-size="small">小</button><button type="button" data-font-size="medium">标准</button><button type="button" data-font-size="large">大</button></div></div>
+            <div class="font-size-setting language-setting"><span><b>语言</b></span><div role="group" aria-label="语言"><button type="button" data-language="zh">中文</button><button type="button" data-language="en">English</button></div></div>
             <details class="summary-settings" id="summarySettings">
               <summary><span><b id="summarySettingsTitle">轮末演出</b><small>暂停、速度与跳过设置</small></span><strong aria-hidden="true">▸</strong></summary>
               <div class="summary-settings-body">
@@ -247,6 +248,6 @@
         </div>
       </section>
     </main>
-    <script type="module" src="./js/main.js?v=54"></script>
+    <script type="module" src="./js/main.js?v=55"></script>
   </body>
 </html>
