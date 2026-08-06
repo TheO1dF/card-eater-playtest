@@ -14,6 +14,7 @@ export const RELEASE_GENERATION = "1.0.0";
 const DEFAULT_SETTINGS = Object.freeze({
   music: true,
   effects: true,
+  language: "en",
   font_size: "medium",
   random_start: false,
   home_theme: "night",
@@ -21,6 +22,18 @@ const DEFAULT_SETTINGS = Object.freeze({
   summary_speed: "normal",
   summary_skip: false,
 });
+
+// Chinese macrolanguage tags, including the ones iOS/Android emit instead of "zh".
+const CHINESE_LANGUAGE_TAG = /^(zh|zho|cmn|yue)\b/i;
+
+// Only a Chinese browser starts in Chinese. Every other locale — and any
+// environment that reports no language at all — starts in English.
+// A language the player picked in Settings is stored and always wins over this.
+export function getDefaultLanguage(navigatorLike = globalThis.navigator) {
+  const tags = Array.isArray(navigatorLike?.languages) ? navigatorLike.languages : [];
+  const primary = [...tags, navigatorLike?.language].find((tag) => typeof tag === "string" && tag.trim());
+  return primary && CHINESE_LANGUAGE_TAG.test(primary.trim().replace(/_/g, "-")) ? "zh" : "en";
+}
 
 const EMPTY_PROGRESSION = Object.freeze({ runs_played: 0, victories: 0, shop_victories: 0, endless_victories: 0, god: false, mode_victories: Object.freeze({}), normal_difficulty_victories: Object.freeze({}), normal_difficulty_max_unlocked: 0 });
 
@@ -261,6 +274,7 @@ function loadSettings() {
     return {
       music: stored?.music !== false,
       effects: stored?.effects !== false,
+      language: ["zh", "en"].includes(stored?.language) ? stored.language : getDefaultLanguage(),
       font_size: fontSize,
       random_start: stored?.random_start === true,
       home_theme: ["day", "night"].includes(stored?.home_theme) ? stored.home_theme : "night",
@@ -269,7 +283,7 @@ function loadSettings() {
       summary_skip: stored?.summary_skip === true,
     };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, language: getDefaultLanguage() };
   }
 }
 
@@ -277,6 +291,7 @@ function saveSettings(settings = {}) {
   const safe = {
     music: settings.music !== false,
     effects: settings.effects !== false,
+    language: ["zh", "en"].includes(settings.language) ? settings.language : getDefaultLanguage(),
     font_size: ["small", "medium", "large"].includes(settings.font_size) ? settings.font_size : "medium",
     random_start: settings.random_start === true,
     home_theme: ["day", "night"].includes(settings.home_theme) ? settings.home_theme : "night",
