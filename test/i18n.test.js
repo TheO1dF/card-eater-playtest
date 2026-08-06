@@ -97,3 +97,52 @@ test("English localization never leaves mixed Chinese in dynamic run panels", ()
   assert.equal(translate("罕见 · 硬吃 · 即时得分"), "Uncommon · Wrong edibility · Instant score");
   assert.equal(translate("ROUND SCOREBOARD · 本轮计分台"), "ROUND SCOREBOARD");
 });
+
+test("English localization covers the first-run tutorial end to end", () => {
+  setLocale(LANGUAGES.EN);
+  const samples = [
+    // Kacha's lines, chapter titles and the progress counter.
+    "PROLOGUE · 会说话的牌",
+    "会说话的第一张牌",
+    "等、等一下！不要吃我喵！",
+    "向上拖我，或者按左下角“弃掉”。快一点——你看起来真的很饿！",
+    "不要吃我喵！",
+    "教学 1/11",
+    "教学 11/11",
+    "我会陪你完成这一轮。",
+    "跟着高亮提示操作。",
+    // Gesture legend.
+    "按住卡牌 · 轻拖 · 松手",
+    "向下拖 · 吃牌",
+    "向左或向右拖 · 后置",
+    "向上拖 · 弃牌",
+    "松手吃掉",
+    "松手弃掉",
+    "松手后置",
+    // Templated tutorial steps, in the shape the DOM receives them.
+    "第 5 轮 60 分，第 10 轮 180 分，第 15 轮 500 分。",
+    "任一门槛没达到，本局结束。现在先盯住：第 5 轮 60 分。",
+    "「苹果」可以吃。向下拖动它。",
+    "「橘猫」不能吃。向上拖动它。",
+    "「当前牌」不能吃。先左右拖动，把它后置。",
+    "右下角“吃 +2”是这张牌的基础吃分。",
+    "左下角“弃 -1”是这张牌的基础弃分。",
+    "先找一张标有“可食用”的牌。",
+    "这张牌可以吃。先后置，找一张不可食用牌。",
+    "找到不可食用牌，再练习向上弃牌。",
+    "条约商店模式教学",
+  ];
+  const failures = samples
+    .map((source) => ({ source, output: translate(source) }))
+    .filter(({ output }) => /[\u3400-\u9fff]/u.test(output));
+  assert.deepEqual(failures, []);
+});
+
+test("partial phrase substitution never produces half-translated text", () => {
+  setLocale(LANGUAGES.EN);
+  // "吃" is a registered phrase, so a naive substitution pass would turn an
+  // unregistered sentence containing it into "不要Eat我喵！". Untranslatable
+  // copy must stay Chinese so the gap is visible rather than looking broken.
+  const unregistered = "这句话没有任何登记的英文翻译，只是用来吃掉一个词。";
+  assert.equal(translate(unregistered), unregistered);
+});

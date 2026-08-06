@@ -20,6 +20,9 @@ import {
 
 export const LANGUAGES = Object.freeze({ ZH: "zh", EN: "en" });
 
+// Han characters, used to tell a fully translated string from a half-translated one.
+const HAS_CHINESE = /[㐀-鿿]/u;
+
 // The markup and every game string are authored in Chinese, so "zh" is the
 // source locale: translation is a no-op until setLocale switches it. The
 // player-facing default comes from getDefaultLanguage() in platform.js and is
@@ -106,7 +109,69 @@ function registerGameCopy() {
 registerGameCopy();
 
 const dynamicEnglish = Object.freeze([
+  // Tutorial copy. These are built from templates in main.js/ui.js, so they can
+  // only be matched by shape once rendered.
+  [/^教学\s*(\d+)\/(\d+)$/u, (_, current, total) => `Tutorial ${current}/${total}`],
+  [/^第\s*5\s*轮\s*([\d,]+)\s*分，第\s*10\s*轮\s*([\d,]+)\s*分，第\s*15\s*轮\s*([\d,]+)\s*分。$/u,
+    (_, first, second, third) => `Round 5: ${first}. Round 10: ${second}. Round 15: ${third}.`],
+  [/^任一门槛没达到，本局结束。现在先盯住：第\s*(\d+)\s*轮\s*([\d,]+)\s*分。$/u,
+    (_, round, target) => `Miss any threshold and the run ends. For now, focus on Round ${round}: ${target}.`],
+  [/^「(.+)」可以吃。向下拖动它。$/u, (_, card) => `“${translateCore(card)}” is edible. Drag it down.`],
+  [/^「(.+)」不能吃。向上拖动它。$/u, (_, card) => `“${translateCore(card)}” is inedible. Drag it up.`],
+  [/^「(.+)」不能吃。先左右拖动，把它后置。$/u,
+    (_, card) => `“${translateCore(card)}” is inedible. Drag sideways to postpone it.`],
+  [/^右下角“吃\s*([+−-]?\d+)”是这张牌的基础吃分。$/u,
+    (_, value) => `“Eat ${value}” at the lower right is this card's base eat score.`],
+  [/^左下角“弃\s*([+−-]?\d+)”是这张牌的基础弃分。$/u,
+    (_, value) => `“Discard ${value}” at the lower left is this card's base discard score.`],
   [/^第\s*(\d+)\s*轮赠礼$/u, (_, round) => `Round ${round} Gift`],
+  // Card gallery and item catalog labels.
+  [/^(.+)，吃牌\s*([+−-]?\d+)\s*分，弃牌\s*([+−-]?\d+)\s*分$/u,
+    (_, card, eat, discard) => `${translateCore(card)}, eat ${eat} score, discard ${discard} score`],
+  [/^商店中可能出售$/u, () => `Sold in the shop`],
+  [/^第\s*(\d+)\s*轮起可能出售$/u, (_, round) => `Sold from Round ${round}`],
+  [/^第\s*(\d+)\s*轮起至第\s*(\d+)\s*轮可能出售$/u, (_, from, to) => `Sold from Round ${from} to Round ${to}`],
+  [/^基础价格\s*(\d+)\s*金币$/u, (_, price) => `Base price ${price} Gold`],
+  [/^基础价格\s*随稀有度\s*金币$/u, () => `Base price varies by rarity`],
+  [/^第\s*(\d+)\s*轮起至第\s*(\d+)\s*轮$/u, (_, from, to) => `Round ${from} to Round ${to}`],
+  [/^第\s*(\d+)\s*轮起$/u, (_, round) => `From Round ${round}`],
+  [/^(.+)(任务|合约)$/u, (_, tier, kind) => `${translateCore(tier)} ${kind === "任务" ? "Quest" : "Contract"}`],
+  [/^(.+)：本轮可连续获得两张新牌。$/u, (_, name) => `${translateCore(name)}: draw two new cards in a row this round.`],
+  // Draft, fusion, shop and plate feedback built from templates in main.js/ui.js.
+  [/^融合完成\s*[·・]\s*「(.+)」加入牌组$/u, (_, card) => `Fusion complete · “${translateCore(card)}” joins your deck`],
+  [/^已选择「(.+)」\s*[·・]\s*再选一张完成融合$/u, (_, card) => `Selected “${translateCore(card)}” · Choose one more to fuse`],
+  [/^「(.+)」加入牌组$/u, (_, card) => `“${translateCore(card)}” joins your deck`],
+  [/^购入「(.+)」，已加入永久牌组。$/u, (_, card) => `Bought “${translateCore(card)}” — added to your permanent deck.`],
+  [/^购入道具「(.+)」。$/u, (_, item) => `Bought item “${translateCore(item)}”.`],
+  [/^末牌「(.+)」立即登场$/u, (_, card) => `Last card “${translateCore(card)}” enters play immediately`],
+  [/^后置「(.+)」$/u, (_, card) => `Postponed “${translateCore(card)}”`],
+  [/^餐盘上限提升至\s*(\d+)。$/u, (_, value) => `Plate capacity raised to ${value}.`],
+  [/^金币不足，刷新需要\s*(\d+)。$/u, (_, cost) => `Not enough Gold — a reroll costs ${cost}.`],
+  [/^支付\s*(\d+)\s*金币刷新。$/u, (_, cost) => `Paid ${cost} Gold to reroll.`],
+  [/^理牌托盘：后置\s*\+1（剩余\s*(\d+)\s*次）$/u, (_, left) => `Sorting Tray: Postpone +1 (${left} left)`],
+  [/^自动重洗\s*(\d+)\s*次\s*[·・]\s*后置标记不会清除$/u, (_, count) => `Auto Reshuffle ×${count} · Postpone marks are kept`],
+  [/^确认消耗\s*1\s*枚删牌标记删除「(.+)」？此操作不可撤销。$/u,
+    (_, card) => `Spend 1 Remove Token to delete “${translateCore(card)}”? This cannot be undone.`],
+  [/^(免费|支付\s*\d+\s*金币)删除「(.+)」？此操作不可撤销。$/u,
+    (_, cost, card) => `${translateCore(cost)} to delete “${translateCore(card)}”? This cannot be undone.`],
+  [/^(\d+)\s*张牌洗牌并落入餐盘$/u, (_, count) => `${count} cards shuffled onto the plate`],
+  [/^通关难度\s*(\d+)\s*解锁$/u, (_, level) => `Unlocked by clearing Difficulty ${level}`],
+  [/^(\d+)\/(\d+)\s*局$/u, (_, done, total) => `${done}/${total} runs`],
+  [/^(\d+)\/(\d+)\s*次通关$/u, (_, done, total) => `${done}/${total} clears`],
+  [/^(\d+)\/(\d+)\s*次商店通关$/u, (_, done, total) => `${done}/${total} Shop clears`],
+  [/^(\d+)\/(\d+)\s*次无尽通关$/u, (_, done, total) => `${done}/${total} Endless clears`],
+  [/^(.+)记录$/u, (_, type) => `${translateCore(type)} Records`],
+  [/^查看(.+)完整卡牌：(.+)$/u, (_, card, detail) => `View the full card for ${translateCore(card)}: ${translateCore(detail)}`],
+  [/^查看道具(.+)：(.+)$/u, (_, item, detail) => `View item ${translateCore(item)}: ${translateCore(detail)}`],
+  [/^查看道具（(\d+)\s*件）$/u, (_, count) => `View items (${count})`],
+  [/^(.+)，(吃牌|弃牌|后置)，加(\d+)分$/u, (_, card, action, value) => `${translateCore(card)}, ${translateCore(action)}, +${value} score`],
+  [/^(.+)，(吃牌|弃牌|后置)，减(\d+)分$/u, (_, card, action, value) => `${translateCore(card)}, ${translateCore(action)}, -${value} score`],
+  [/^▲(\d+)\s*[·・]\s*原\s*(\d+)$/u, (_, now, before) => `▲${now} · was ${before}`],
+  [/^▼(\d+)\s*[·・]\s*原\s*(\d+)$/u, (_, now, before) => `▼${now} · was ${before}`],
+  [/^当前\s*([\d,]+)\s*分\s*[·・]\s*继续构筑直到你主动离开$/u,
+    (_, score) => `Currently ${score} · Keep building until you choose to leave`],
+  [/^首要目标：尽量获得高分\s*[·・]\s*前 15 轮阶段目标\s*(.+)\s*[·・]\s*无尽第\s*(\d+)\s*轮累计\s*([\d,]+)\s*分$/u,
+    (_, targets, round, score) => `Main goal: score as high as possible · Round 1-15 targets: ${targets} · Endless Round ${round} total: ${score}`],
   [/^第\s*(\d+)\s*轮$/u, (_, round) => `Round ${round}`],
   [/^轮次\s*(\d+)\/(\d+)$/u, (_, round, total) => `Round ${round}/${total}`],
   [/^已解锁\s*(\d+)\s*\/\s*(\d+)$/u, (_, unlocked, total) => `Unlocked ${unlocked} / ${total}`],
@@ -298,7 +363,12 @@ function translateCore(source) {
   }
   let translated = core;
   for (const [from, to] of phraseEnglish) translated = translated.replaceAll(from, to);
-  return translated;
+  // Phrase substitution is a last resort and is only trustworthy when it clears
+  // the whole string. A partial hit produces half-translated text such as
+  // “不要Eat我喵！”, which reads as broken rather than as untranslated copy.
+  // Keeping the Chinese leaves the gap visible and lets the i18n coverage test
+  // point at the exact string that needs a COMMON_EN or dynamicEnglish entry.
+  return HAS_CHINESE.test(translated) ? core : translated;
 }
 
 export function translate(source) {
