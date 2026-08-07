@@ -18,11 +18,21 @@ const contentTypes = {
   ".png": "image/png",
   ".webp": "image/webp",
   ".svg": "image/svg+xml",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
 };
 
 const server = createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+    // Generated at build time, so serve it live here instead of writing a file
+    // into the working tree that could go stale during development.
+    if (pathname === "/asset-manifest.json") {
+      const { buildAssetManifest } = await import("./asset-manifest.mjs");
+      const body = JSON.stringify(await buildAssetManifest(), null, 2);
+      response.writeHead(200, { "Content-Type": contentTypes[".json"], "Cache-Control": "no-store" });
+      response.end(body);
+      return;
+    }
     let target = resolve(root, `.${pathname}`);
     if (target !== root && !target.startsWith(`${root}${sep}`)) throw new Error("Path outside root");
     if ((await stat(target)).isDirectory()) target = resolve(target, "index.html");

@@ -28,6 +28,7 @@ import {
   isMutationMode,
   pickRandomMutation,
 } from "./mutations.js";
+import { getOfflineState, startOfflineSupport } from "./offline.js";
 import {
   activateCategoryRoundItem,
   applyRoundItemDrawSetup,
@@ -102,6 +103,14 @@ const shuffle = (items) => {
   }
   return result;
 };
+
+/**
+ * True while the player is mid-run, so a staged update is never applied under
+ * them. See docs/PWA_OFFLINE.md for where an update notice can be surfaced.
+ */
+function isRunInProgress() {
+  return state.phase !== GAME_PHASES.INIT && state.phase !== GAME_PHASES.GAME_OVER;
+}
 
 function saveGame() {
   if (state.phase === GAME_PHASES.INIT || state.phase === GAME_PHASES.GAME_OVER) return false;
@@ -1353,3 +1362,9 @@ ui.openWelcome({
   tutorial_complete: browserPlatform.load_tutorial_complete(),
   companion_notice: companionNotice,
 });
+
+// Offline support is registered last and never awaited: the game is already
+// interactive by now, and a failed registration changes nothing.
+startOfflineSupport();
+// Read-only hooks for the offline UI documented in docs/PWA_OFFLINE.md.
+globalThis.cardEaterOffline = { getState: getOfflineState, isRunInProgress };

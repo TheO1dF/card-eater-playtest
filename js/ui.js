@@ -24,6 +24,7 @@ import {
   getSummaryBeatDuration,
   getSummaryCardTiming,
 } from "./round-presentation.js";
+import { cardArtUrl, cardSheetUrl, metaAtlasUrl, metaIconUrl } from "./asset-urls.js";
 
 const PHASE_LABELS = Object.freeze({
   Init: "准备中", Playing: "出牌中", Scoring: "结算中", CardDraft: "轮末选牌",
@@ -32,8 +33,6 @@ const PHASE_LABELS = Object.freeze({
 
 const RARITY_CLASS = Object.freeze({ "普通": "common", "罕见": "uncommon", "稀有": "rare", "传奇": "legendary", "诅咒": "curse" });
 const EDIBILITY_LABEL = Object.freeze({ edible: "可食用", inedible: "不可食用" });
-const CARD_ART_VERSION = 14;
-const CARD_ATLAS_VERSION = 10;
 const cardArtCache = new Map();
 const freshArtClass = (card) => card.art_file?.includes("-v2.") ? " art-outlined" : "";
 const signed = (value) => value > 0 ? `+${formatScore(value)}` : formatScore(value);
@@ -81,10 +80,6 @@ const EFFECT_PRESENTATION = Object.freeze({
   fruit: { icon: "◆", label: "FRUIT COMBO · 水果连击" },
   effect: { icon: "✦", label: "CARD EFFECT · 效果" },
 });
-const cardArtUrl = (card) => card.runtime_art_mode === "atlas"
-  ? `./assets/${card.runtime_atlas}?v=${CARD_ATLAS_VERSION}`
-  : `./assets/${card.art_file}?v=${CARD_ART_VERSION}`;
-
 function warmCardArt(cards) {
   const artCards = cards.flatMap((card) => card.runtime_art_mode === "fusion" ? card.fusion_parts ?? [] : [card]);
   const ready = artCards.map((card) => {
@@ -138,8 +133,7 @@ function spriteStyle(card) {
     : spriteY * (rows === 1 ? 0 : 100 / (rows - 1));
   const backgroundWidth = generatedSheet ? "450%" : `${columns * 100}%`;
   const backgroundHeight = generatedSheet ? "auto" : `${rows * 100}%`;
-  const sheet = card.sprite_sheet ?? "card-sprites.webp";
-  return `--sprite-image:url('./assets/${sheet}?v=3');--sprite-x:${x}%;--sprite-y:${y}%;--sprite-size-x:${backgroundWidth};--sprite-size-y:${backgroundHeight};--sprite-hue:${hue}deg;--sprite-scale:${scale};`;
+  return `--sprite-image:url('${cardSheetUrl(card)}');--sprite-x:${x}%;--sprite-y:${y}%;--sprite-size-x:${backgroundWidth};--sprite-size-y:${backgroundHeight};--sprite-hue:${hue}deg;--sprite-scale:${scale};`;
 }
 
 function setText(node, value) {
@@ -148,11 +142,11 @@ function setText(node, value) {
 
 function metaStyle(entry) {
   if (entry.icon_file) {
-    return `--meta-image:url('./assets/${entry.icon_file}?v=24');--meta-size-x:100%;--meta-size-y:100%;--meta-x:0%;--meta-y:0%;`;
+    return `--meta-image:url('${metaIconUrl(entry)}');--meta-size-x:100%;--meta-size-y:100%;--meta-x:0%;--meta-y:0%;`;
   }
   const x = entry.icon_x * 100 / Math.max(1, entry.icon_columns - 1);
   const y = entry.icon_y * 100 / Math.max(1, entry.icon_rows - 1);
-  return `--meta-image:url('./assets/${entry.icon_atlas}?v=14');--meta-size-x:${entry.icon_columns * 100}%;--meta-size-y:${entry.icon_rows * 100}%;--meta-x:${x}%;--meta-y:${y}%;`;
+  return `--meta-image:url('${metaAtlasUrl(entry)}');--meta-size-x:${entry.icon_columns * 100}%;--meta-size-y:${entry.icon_rows * 100}%;--meta-x:${x}%;--meta-y:${y}%;`;
 }
 
 function itemElement(entry) {

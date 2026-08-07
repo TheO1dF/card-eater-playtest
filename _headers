@@ -6,3 +6,24 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# The PWA icons have no ?v= revision, so they must stay revalidatable.
+/assets/icon-192.png
+  Cache-Control: public, max-age=3600, must-revalidate
+/assets/icon-512.png
+  Cache-Control: public, max-age=3600, must-revalidate
+/assets/icon-maskable-512.png
+  Cache-Control: public, max-age=3600, must-revalidate
+
+# These three decide whether a new release is discovered at all. Long-caching
+# them is how players get stranded on an old build.
+/sw.js
+  Cache-Control: no-cache
+  Service-Worker-Allowed: /
+/asset-manifest.json
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
