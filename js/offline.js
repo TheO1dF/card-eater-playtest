@@ -5,8 +5,9 @@
 // exactly as it did before. Nothing in this module touches gameplay state, and
 // nothing here reads or writes player saves — those stay in js/platform.js.
 //
-// UI wiring is deliberately left to the caller. See docs/PWA_OFFLINE.md for the
-// three connection points (offline download row, install button, update notice).
+// UI wiring: the offline download row is wired in js/main.js. The install
+// button and update notice are still connection points only — see
+// docs/PWA_OFFLINE.md.
 
 const SW_URL = "./sw.js";
 const isSupported = () => typeof navigator !== "undefined" && "serviceWorker" in navigator;
@@ -18,6 +19,7 @@ const state = {
   update_ready: false,
   installable: false,
   standalone: false,
+  persisted: false,
   status: null,
   progress: null,
 };
@@ -87,6 +89,20 @@ export async function refreshOfflineStatus() {
 }
 
 /**
+ * Asks the browser to keep this origin's storage. Best effort and advisory:
+ * Safari and Chrome grant it under different rules, and a refusal only means
+ * the cache may be evicted after a long idle period, not that anything fails.
+ */
+async function requestPersistentStorage() {
+  try {
+    if (await navigator.storage?.persisted?.()) return true;
+    return Boolean(await navigator.storage?.persist?.());
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Downloads every asset a full offline run needs (~10 MB) and verifies the
  * result against the cache. Safe to call repeatedly; already-cached files are
  * skipped. Wire this to a "Download for offline play" control.
@@ -94,7 +110,8 @@ export async function refreshOfflineStatus() {
 export async function downloadForOfflinePlay() {
   if (!isSupported()) return { ok: false, error: "unsupported" };
   await ready();
-  patch({ progress: { done: 0, total: state.status?.art_total ?? 0 } });
+  const persisted = await requestPersistentStorage();
+  patch({ persisted, progress: { done: 0, total: state.status?.art_total ?? 0 } });
   const result = await ask("offline-download");
   patch({ progress: null, status: result && !result.error ? result : state.status });
   return result ?? { ok: false, error: "no-worker" };
@@ -166,7 +183,17 @@ export function startOfflineSupport({ scriptUrl = SW_URL } = {}) {
           patch({ progress: { done: event.data.done, total: event.data.total } });
         }
       });
+      // On a first visit there is no active worker and no controller yet, so
+      // this first query answers null and the UI has no status to show. Ask
+      // again once the worker is really there, or the download control stays
+      // hidden for the whole session — the visit where it matters most.
       await refreshOfflineStatus();
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        void refreshOfflineStatus();
+      }, { once: true });
+      void navigator.serviceWorker.ready.then(() => refreshOfflineStatus()).catch(() => {
+        // Never resolves without an activation. Nothing to report if so.
+      });
       return current;
     })
     .catch((error) => {

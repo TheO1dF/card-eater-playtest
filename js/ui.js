@@ -90,7 +90,11 @@ function warmCardArt(cards) {
     image.decoding = "async";
     image.fetchPriority = "high";
     image.src = url;
-    const imageReady = image.decode().catch(() => undefined);
+    const imageReady = image.decode().catch(() => {
+      // A failed decode must not be remembered as finished, or the card stays
+      // blank until a full reload. Dropping it lets the next render retry.
+      cardArtCache.delete(url);
+    });
     cardArtCache.set(url, { image, ready: imageReady });
     return imageReady;
   });
@@ -1829,12 +1833,13 @@ export function createUI(root) {
       closeItemCatalogDetail();
       nodes.gameMenu?.classList.add("show");
     },
-    bindMenu({ onMusic, onEffects, onFontSize, onLanguage, onSummaryPause, onSummarySpeed, onSummarySkip, onHome }) {
+    bindMenu({ onMusic, onEffects, onFontSize, onLanguage, onSummaryPause, onSummarySpeed, onSummarySkip, onHome, onOfflineDownload }) {
       get("#gameMenuClose")?.addEventListener("click", () => {
         nodes.gameMenu?.classList.remove("show");
         if (!menuOpenedFromHome) resumeStoryAfterMenu();
       });
       get("#menuHomeButton")?.addEventListener("click", onHome);
+      get("#offlineDownloadButton")?.addEventListener("click", () => onOfflineDownload?.());
       get("#musicToggle")?.addEventListener("click", () => onMusic(get("#musicToggle")?.getAttribute("aria-pressed") !== "true"));
       get("#effectsToggle")?.addEventListener("click", () => onEffects(get("#effectsToggle")?.getAttribute("aria-pressed") !== "true"));
       root.querySelectorAll("[data-font-size]").forEach((button) => {
@@ -1921,6 +1926,27 @@ export function createUI(root) {
         languageToggle.textContent = currentSettings.language === "en" ? "中文" : "EN";
         languageToggle.setAttribute("aria-label", currentSettings.language === "en" ? "Switch to Chinese" : "切换为英文");
       }
+    },
+    /**
+     * Offline download row. Stays hidden unless the worker is actually
+     * registered and reporting, so browsers without service workers, private
+     * windows and `file://` never show a control that could not work.
+     */
+    renderOffline({ registered, status, progress, failed } = {}) {
+      const button = get("#offlineDownloadButton");
+      if (!button) return;
+      button.hidden = !(registered && status);
+      if (button.hidden) return;
+      const label = button.querySelector("[data-offline-state]");
+      const downloading = Boolean(progress);
+      button.disabled = downloading;
+      button.setAttribute("aria-busy", String(downloading));
+      if (!label) return;
+      // Counts carry no Chinese, so they pass through translation untouched.
+      if (downloading) label.textContent = `${progress.done}/${progress.total}`;
+      else if (status.offline_ready) label.textContent = "已就绪";
+      else if (failed) label.textContent = "下载失败";
+      else label.textContent = "未下载";
     },
     playReshuffleAnimation() {
       const stage = get(".deck-stage");

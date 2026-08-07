@@ -156,3 +156,47 @@ test("build and dev-server plumbing ship the offline files", async () => {
   }
   assert.match(await read("scripts/serve.mjs"), /"\.webmanifest"/u);
 });
+
+test("a failing cache write can never break the response it came from", async () => {
+  const worker = await read("sw.js");
+  // The defect this guards against: `await cache.put(...)` on the response path
+  // turns a full cache — routine on iOS — into a broken image or a dead module,
+  // because a rejected respondWith is a network error the browser never retries.
+  // It also puts a disk round-trip in front of every image decode.
+  for (const name of ["handleNavigation", "handleShell", "handleArt"]) {
+    const start = worker.indexOf(`async function ${name}`);
+    assert.ok(start > 0, `${name} is missing`);
+    const body = worker.slice(start, worker.indexOf("\n}", start));
+    assert.ok(!body.includes("await cache.put"), `${name} must not await a cache write`);
+  }
+  // Writes go through one helper that clones, defers and swallows failures.
+  const helper = worker.slice(worker.indexOf("function cacheInBackground"));
+  assert.match(helper.slice(0, 400), /event\.waitUntil\(cache\.put\(key, copy\)\.catch\(/u);
+});
+
+test("one unreachable image does not cost the player offline support", async () => {
+  const worker = await read("sw.js");
+  const install = worker.slice(worker.indexOf('addEventListener("install"'));
+  const body = install.slice(0, install.indexOf("\n});"));
+  // A single dropped request on a phone connection used to reject the whole
+  // install, which left the player with no offline support at all.
+  assert.match(body, /if \(failed\.length\) failed = await addAllChunked/u, "must retry failures once");
+  assert.match(body, /failed\.filter\(isCritical\)/u, "only code and markup may be fatal");
+  assert.match(worker, /const isCritical = .*\\.\(\?:js\|css\)/u);
+  // The art download reports a count, so the array return must be converted.
+  assert.match(worker, /failed: failed\.length, ok: failed\.length === 0/u);
+});
+
+test("the offline download row ships hidden and fully translated", async () => {
+  const html = await read("index.html");
+  const button = html.match(/<button[^>]*id="offlineDownloadButton"[^>]*>/u)?.[0] ?? "";
+  // Hidden until the worker reports in, so a browser that cannot support
+  // offline play never shows a control that would not work.
+  assert.match(button, /\shidden/u, "must ship hidden");
+  assert.match(html, /id="offlineDownloadButton"[\s\S]{0,120}data-offline-state/u);
+
+  const content = await read("js/i18n-content.js");
+  for (const source of ["离线下载", "未下载", "已就绪", "下载失败"]) {
+    assert.ok(content.includes(`"${source}":`), `${source} needs an English translation`);
+  }
+});

@@ -28,7 +28,7 @@ import {
   isMutationMode,
   pickRandomMutation,
 } from "./mutations.js";
-import { getOfflineState, startOfflineSupport } from "./offline.js";
+import { downloadForOfflinePlay, getOfflineState, onOfflineStateChange, startOfflineSupport } from "./offline.js";
 import {
   activateCategoryRoundItem,
   applyRoundItemDrawSetup,
@@ -1240,6 +1240,10 @@ ui.bindMenu({
     ui.renderSettings(settings);
   },
   onHome: goHome,
+  onOfflineDownload: async () => {
+    const result = await downloadForOfflinePlay();
+    ui.renderOffline({ ...getOfflineState(), failed: !result?.ok });
+  },
 });
 
 ui.bindTutorial({ onSkip: finishTutorial, onContinue: advanceTutorial, onReplay: startTutorial });
@@ -1366,5 +1370,8 @@ ui.openWelcome({
 // Offline support is registered last and never awaited: the game is already
 // interactive by now, and a failed registration changes nothing.
 startOfflineSupport();
+// The menu row appears only once the worker reports in, and follows download
+// progress from there. See docs/PWA_OFFLINE.md.
+onOfflineStateChange((offline) => ui.renderOffline(offline));
 // Read-only hooks for the offline UI documented in docs/PWA_OFFLINE.md.
 globalThis.cardEaterOffline = { getState: getOfflineState, isRunInProgress };

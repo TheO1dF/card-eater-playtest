@@ -36,12 +36,39 @@ decides which one a request gets, so no URL-path guessing is involved.
 Cache lookups pass `ignoreSearch: true` because every asset URL carries a
 hand-maintained `?v=N` revision.
 
+### Writes on the response path are never awaited
+
+Every strategy above stores its response through `cacheInBackground()`, which
+clones the response and hands `cache.put()` to `event.waitUntil()` with a
+`.catch()`. Nothing on the response path ever awaits a cache write.
+
+This is not a micro-optimisation. A rejected `respondWith()` promise is a
+**network error the browser does not retry**, so awaiting a write turns a full
+cache — routine on iOS — into a permanently broken asset rather than an uncached
+one. Because the app shell goes through the same path, an awaited write could
+kill a JS module outright, and `js/main.js` never evaluating means no input
+listeners, no audio unlock, and a title screen whose buttons do nothing while
+still looking correct. Awaiting also puts a disk round-trip in front of every
+image decode, which is invisible on a desktop and very visible on a phone.
+
+If you add a strategy, store through `cacheInBackground()`. Never
+`await cache.put(...)` before returning a response. A test enforces this against
+the source of `handleNavigation`, `handleShell` and `handleArt`.
+
 ## Offline preparation
 
-`downloadForOfflinePlay()` fetches the art list in batches of 6, reports
-progress, and then **verifies against the cache** rather than trusting the fetch
-results — it re-reads `cache.keys()` and only reports `ok: true` when every
-file is present. Re-running it skips what is already stored.
+`downloadForOfflinePlay()` first asks for persistent storage
+(`navigator.storage.persist()`), then fetches the art list in batches of 6,
+reports progress, and **verifies against the cache** rather than trusting the
+fetch results — it re-reads `cache.keys()` and only reports `ok: true` when every
+file is present. Re-running it skips what is already stored. The persistence
+request is advisory: Safari and Chrome grant it under different rules, and a
+refusal only means the cache may be evicted after a long idle period.
+
+Install precaching is deliberately forgiving. `addAllChunked()` returns the URLs
+it could not store, install retries that list once, and only js/css/`index.html`
+count as fatal (`isCritical`). One unreachable icon on a flaky phone connection
+must not cost the player offline support entirely.
 
 A launch with no network and no download shows the offline-not-ready state
 (`shell_ready: true, offline_ready: false`) instead of failing: the shell boots
@@ -52,25 +79,31 @@ art and the run continues, because `warmCardArt` swallows the decode error
 ([js/ui.js:93](../js/ui.js#L93)). That state is never surfaced during normal
 online play.
 
-## Wiring the UI
+## The UI
 
-The API is complete and unwired, per the "don't redesign menus" constraint.
-Three connection points, all inside the existing menu overlay
-([index.html:128-150](../index.html#L128-L150)):
+### Offline download — wired
 
-1. **Offline download** — add a row to `.settings-grid` in `#gameMenu`, styled
-   like the existing `musicToggle`/`effectsToggle` rows:
+One row in the existing menu overlay, using the same `menu-wide-button` styling
+as the catalog rows, so no new CSS and no menu redesign:
 
-   ```js
-   import { downloadForOfflinePlay, onOfflineStateChange } from "./offline.js";
-   onOfflineStateChange(({ status, progress }) => {
-     // progress: { done, total } while downloading, otherwise null
-     // status.offline_ready: true once all art is cached
-   });
-   button.addEventListener("click", () => downloadForOfflinePlay());
-   ```
+- [index.html:151](../index.html#L151) — `#offlineDownloadButton`, ships `hidden`.
+- [js/ui.js](../js/ui.js) — `renderOffline({ registered, status, progress, failed })`
+  unhides it and drives the label: `未下载` → `done/total` → `已就绪`, or
+  `下载失败`. Counts contain no Chinese, so they pass through runtime
+  translation untouched.
+- [js/main.js](../js/main.js) — `onOfflineDownload` calls
+  `downloadForOfflinePlay()`, and `onOfflineStateChange` feeds progress back.
 
-2. **Install App** — add a button to `.menu-catalog-buttons`, shown only when
+The row stays hidden until the worker has actually answered `offline-status`,
+which needs an *active* worker. On a first visit there is none — the worker is
+still installing and `navigator.serviceWorker.controller` is null — so
+`startOfflineSupport()` re-queries on `controllerchange` and on
+`navigator.serviceWorker.ready`. Without that the row never appeared until a
+second visit, which on iOS may never come.
+
+### Still connection points only
+
+1. **Install App** — add a button to `.menu-catalog-buttons`, shown only when
    `state.installable` is true (Chromium). On iOS it stays hidden; the platform
    has no equivalent API and Add to Home Screen is a browser menu action.
 
@@ -78,13 +111,14 @@ Three connection points, all inside the existing menu overlay
    import { promptInstall } from "./offline.js";
    ```
 
-3. **Update notice** — when `state.update_ready` is true, show
+2. **Update notice** — when `state.update_ready` is true, show
    "A new version is available. Restart to update." and call `applyUpdate()`
    from the button. Gate it on `globalThis.cardEaterOffline.isRunInProgress()`
    so an active run is never interrupted; the update stays staged until the
    player is back on the home screen.
 
 All strings must be added to `js/i18n-content.js` to stay translated.
+
 
 ## Updates
 
@@ -143,12 +177,14 @@ DevTools → Application → Cache Storage should show only `cardeater-shell-*`
 `installable` state via `promptInstall()`). Launch from the home screen; expect
 no browser chrome and a normal game. iOS Safari: Share → Add to Home Screen.
 
-**C. Installed, offline** — call `downloadForOfflinePlay()` and wait for
-`offline_ready: true`. Close the app, enable airplane mode, relaunch from the
-home screen. Start a new run and exercise several systems (draft, shop, items,
-contracts, round summary). All card and item art must render, localization must
-work, audio is procedural so it needs no network. Finish a round, close the app,
-relaunch still offline, and confirm the save resumed.
+**C. Installed, offline** — open the menu and tap **离线下载 / Offline Download**,
+then wait for the label to reach `已就绪 / Ready`. On iOS this must be done
+**from inside the installed app**, not from Safari (see platform limitations).
+Close the app, enable airplane mode, relaunch from the home screen. Start a new
+run and exercise several systems (draft, shop, items, contracts, round summary).
+All card and item art must render, localization must work, audio is procedural
+so it needs no network. Finish a round, close the app, relaunch still offline,
+and confirm the save resumed.
 
 **D. Reconnect** — from state C, disable airplane mode and relaunch. Expect
 normal online behavior, network-fetched navigations, and every save intact.
@@ -164,9 +200,16 @@ that saves are unchanged.
 
 - `beforeinstallprompt` is Chromium-only. iOS and Firefox have no install API;
   both still play and cache normally.
+- **An iOS Home Screen web app has its own storage container, separate from
+  Safari.** Preparing offline play in Safari does *not* prepare the installed
+  app, and vice versa — each needs its own download. This is the most common
+  reason an iOS player finds offline play "impossible after doing everything
+  right". Verify by checking `art_cached` in both contexts.
 - iOS caps total storage per site (roughly 50 MB in recent versions). The ~11 MB
   bundle fits, but iOS evicts data for apps unused for several weeks, so an
-  offline download may need repeating. Nothing breaks — the game re-downloads.
+  offline download may need repeating. `downloadForOfflinePlay()` asks for
+  persistent storage first, which reduces but does not eliminate this. Nothing
+  breaks — the game re-downloads.
 - iOS ignores `orientation` in the manifest.
 - `viewport-fit=cover` was added so the `env(safe-area-inset-*)` rules already
   in `styles.css` resolve. On notched iPhones this makes browser-mode layout

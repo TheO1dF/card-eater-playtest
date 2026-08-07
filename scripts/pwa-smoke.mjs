@@ -17,8 +17,13 @@ const VIEWPORTS = [
 ];
 
 const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
-const target = targets.find((entry) => entry.type === "page" && entry.webSocketDebuggerUrl);
-if (!target) throw new Error("No debuggable Edge page found.");
+const pages = targets.filter((entry) => entry.type === "page" && entry.webSocketDebuggerUrl);
+// Edge also exposes its own dialogs as page targets, and attaching to one of
+// those fails later with InvalidStateError on the first caches access. Prefer
+// a page already on the game's origin.
+const origin = new URL(gameUrl).host;
+const target = pages.find((entry) => entry.url.includes(origin)) ?? pages.find((entry) => !entry.url.startsWith("edge://"));
+if (!target) throw new Error(`No debuggable Edge page found on ${origin}.`);
 
 const socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((ok, fail) => {
