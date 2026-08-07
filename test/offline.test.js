@@ -124,10 +124,21 @@ test("the service worker keeps updates reachable and saves untouched", async () 
   assert.match(worker, /const BUILD = "__CARDEATER_BUILD__";/u);
   assert.match(worker, /const SHELL_CACHE = `cardeater-shell-\$\{VERSION\}`/u);
 
-  // Navigations must hit the network first or players get stuck on old HTML.
+  // A release must be served whole. Navigations used to be network-first while
+  // modules stayed cache-first, so a deployment handed the player new markup
+  // and the previous release's JavaScript — a deploy that visibly changed
+  // nothing, because the worker in charge could only answer from its own cache.
   const navigation = worker.slice(worker.indexOf("async function handleNavigation"));
-  assert.ok(navigation.indexOf("await fetch(request)") < navigation.indexOf("caches.match"),
-    "handleNavigation must try the network before the cache");
+  const body = navigation.slice(0, navigation.indexOf("\n}"));
+  assert.ok(body.indexOf("cache.match(INDEX_URL.href)") < body.indexOf("await fetch(request)"),
+    "handleNavigation must prefer this release's cached index.html");
+  assert.match(body, /if \(cached && !isDev\) return cached;/u);
+
+  // ...and the new release has to take over by itself. Nothing in the UI ever
+  // sent `apply-update`, so relying on it left every deployment in `waiting`.
+  const install = worker.slice(worker.indexOf('addEventListener("install"'));
+  assert.match(install.slice(0, install.indexOf("\n});")), /await self\.skipWaiting\(\)/u,
+    "install must activate the new release without waiting to be asked");
 
   // Cleanup may only ever delete caches, never storage. Comments are stripped
   // so the rule about save data does not trip the check for save data.
@@ -135,12 +146,35 @@ test("the service worker keeps updates reachable and saves untouched", async () 
   assert.ok(!/localStorage|indexedDB|sessionStorage/u.test(code),
     "the worker must never touch player save storage");
   assert.match(worker, /caches\.delete\(name\)/u);
-  assert.ok(!worker.includes("self.skipWaiting()\n"), "updates must be applied by the page, not unilaterally");
-  assert.match(worker, /if \(type === "apply-update"\) event\.waitUntil\(self\.skipWaiting\(\)\)/u);
 
   // Cache lookups must tolerate the ?v= revisions every asset URL carries.
   assert.ok(worker.includes("ignoreSearch: true"), "asset URLs carry ?v= query strings");
 });
+
+test("a running worker cannot delete the incoming release's precache", async () => {
+  const worker = await read("sw.js");
+  const start = worker.indexOf("async function pruneCaches");
+  const body = worker.slice(start, worker.indexOf("\n}", start));
+  // Observed on a real upgrade: the old worker's status-request prune deleted
+  // the shell cache the new release had just filled, so that release would have
+  // activated with nothing stored and no offline support.
+  assert.match(body, /releases \|\| !name\.startsWith\("cardeater-shell-"\)/u,
+    "only an activation may retire other releases' shell caches");
+  assert.match(worker, /pruneCaches\(\{ releases: true \}\)/u, "activate prunes releases");
+  assert.match(worker, /pruneCaches\(\{ releases: false \}\)/u, "a page request must not");
+});
+
+test("hidden menu rows are actually hidden", async () => {
+  const css = await read("styles.css");
+  // `.menu-wide-button { display: flex }` outranks the UA stylesheet's
+  // `[hidden] { display: none }`, so the offline row shipped visible and inert
+  // to every player, whatever the JavaScript did with the attribute.
+  const shown = css.indexOf(".setting-toggle, .menu-wide-button {");
+  const hiddenRule = css.search(/\.menu-wide-button\[hidden\][^{]*\{[^}]*display:\s*none/u);
+  assert.ok(shown > 0, "the shared wide-button rule is missing");
+  assert.ok(hiddenRule > shown, "a [hidden] rule must follow and override the display rule");
+});
+
 
 test("build and dev-server plumbing ship the offline files", async () => {
   const build = await read("scripts/build.mjs");

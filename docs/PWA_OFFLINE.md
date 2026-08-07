@@ -21,17 +21,17 @@ gameplay.
 Three request classes, three strategies. The `asset-manifest.json` `shell` list
 decides which one a request gets, so no URL-path guessing is involved.
 
-- **Navigations** — network first, cache fallback. This is what keeps players off
-  stale HTML: a fresh `index.html` is always preferred while online, and the
-  cached copy only appears when the network genuinely fails.
+- **Navigations** — this release's cached `index.html`, network only when there
+  is none (first visit) or in dev. Markup and modules therefore always come
+  from the same version-scoped cache. See [Updates](#updates) for why that
+  matters and how a new release still arrives promptly.
 - **App shell** (`index.html`, `styles.css`, all 33 JS modules, icons,
   `card-sprites.webp`, `meta-atlas.webp`) — cache first with a background
   revalidate. Precached on install, ~1.1 MB across 43 entries.
 - **Card and item art** (122 files, ~10 MB) — cache first, never precached. A
   miss goes to the network exactly as it always did, and the response is kept on
   the way past, so a normal online visitor stores only the cards they actually
-  saw and pays no extra request for it. The *full* set is downloaded only when
-  the player asks for it.
+  saw and pays no extra request for it.
 
 Cache lookups pass `ignoreSearch: true` because every asset URL carries a
 hand-maintained `?v=N` revision.
@@ -57,13 +57,22 @@ the source of `handleNavigation`, `handleShell` and `handleArt`.
 
 ## Offline preparation
 
-`downloadForOfflinePlay()` first asks for persistent storage
-(`navigator.storage.persist()`), then fetches the art list in batches of 6,
-reports progress, and **verifies against the cache** rather than trusting the
-fetch results — it re-reads `cache.keys()` and only reports `ok: true` when every
-file is present. Re-running it skips what is already stored. The persistence
-request is advisory: Safari and Chrome grant it under different rules, and a
-refusal only means the cache may be evicted after a long idle period.
+Preparation is automatic. `prepareOfflineInBackground()` runs on every load and,
+45 seconds in, downloads whatever art is still missing. The delay means someone
+who opens the page and leaves never pays for it; `navigator.connection.saveData`
+and a missing network are both respected, and it does nothing once the art is
+stored. It skips the persistent-storage request, because that prompts on some
+browsers and this path is meant to be silent. So offline play prepares itself
+for a player who stays a while and never finds the menu row.
+
+`downloadForOfflinePlay()` is the same job on demand, from the menu row. It asks
+for persistent storage (`navigator.storage.persist()`), fetches the art list in
+batches of 6, reports progress, and **verifies against the cache** rather than
+trusting the fetch results — it re-reads `cache.keys()` and only reports
+`ok: true` when every file is present. Re-running it skips what is already
+stored. The persistence request is advisory: Safari and Chrome grant it under
+different rules, and a refusal only means the cache may be evicted after a long
+idle period.
 
 Install precaching is deliberately forgiving. `addAllChunked()` returns the URLs
 it could not store, install retries that list once, and only js/css/`index.html`
@@ -94,6 +103,17 @@ as the catalog rows, so no new CSS and no menu redesign:
 - [js/main.js](../js/main.js) — `onOfflineDownload` calls
   `downloadForOfflinePlay()`, and `onOfflineStateChange` feeds progress back.
 
+Since preparation is automatic, the row is mostly a progress readout; tapping it
+just starts the download now instead of waiting.
+
+`hidden` needs a stylesheet rule to work here. `.menu-wide-button` sets
+`display: flex`, and an author `display` outranks the UA stylesheet's
+`[hidden] { display: none }` — so the row shipped permanently visible, showing
+its static markup label, whatever the JavaScript did with the attribute.
+[styles.css](../styles.css) now carries an explicit
+`.menu-wide-button[hidden] { display: none }`. Any new hidden-by-default control
+in this menu needs the same treatment, and a test enforces it.
+
 The row stays hidden until the worker has actually answered `offline-status`,
 which needs an *active* worker. On a first visit there is none — the worker is
 still installing and `navigator.serviceWorker.controller` is null — so
@@ -111,11 +131,9 @@ second visit, which on iOS may never come.
    import { promptInstall } from "./offline.js";
    ```
 
-2. **Update notice** — when `state.update_ready` is true, show
-   "A new version is available. Restart to update." and call `applyUpdate()`
-   from the button. Gate it on `globalThis.cardEaterOffline.isRunInProgress()`
-   so an active run is never interrupted; the update stays staged until the
-   player is back on the home screen.
+`state.update_ready` and `applyUpdate()` still exist, but nothing needs them:
+releases activate on their own. Do not gate updates behind a notice unless you
+wire the notice in the same change.
 
 All strings must be added to `js/i18n-content.js` to stay translated.
 
@@ -124,16 +142,40 @@ All strings must be added to `js/i18n-content.js` to stay translated.
 
 Each build hashes `index.html`, `styles.css`, `sw.js`, every JS module, and the
 asset list into a 12-character version, which names the shell cache
-(`cardeater-shell-<version>`). A new deployment therefore precaches into a fresh
-cache while the old one keeps serving, so a player never mixes `index.html` from
-release B with `main.js` from release A.
+(`cardeater-shell-<version>`).
 
-The worker never calls `skipWaiting()` on its own. It waits for the page to send
-`apply-update`, which only happens when the player chooses to restart.
+**A release is served whole.** Everything a load needs comes out of one
+version-scoped cache, which is immutable for that release — nothing refreshes
+entries in place. Writing newer markup into an older release's cache would
+recreate the exact defect this rule exists to prevent.
 
-Activation deletes only `cardeater-*` caches whose version is not current. The
-art cache (`cardeater-art`) is unversioned and deliberately kept across updates
-so a 10 MB download is not repeated for a code change.
+That defect is worth stating plainly, because it shipped. Navigations were
+network-first while modules were cache-first, so after a deployment the player
+received release B's `index.html` and release A's JavaScript: the worker still
+in charge could only answer from its own cache. The page looked new and behaved
+old — new markup rendered, none of the new code ran. It presented as a deploy
+that changed nothing at all.
+
+**A new release takes over by itself.** `install` precaches and then calls
+`skipWaiting()`. The browser re-fetches `sw.js` on navigation
+(`updateViaCache: "none"`), so the sequence is: visit → new worker installs and
+activates → the next load comes wholly from the new cache. A player is at most
+one load behind, never stranded.
+
+The worker used to wait for the page to send `apply-update` instead. Nothing in
+the UI ever sent it, so every deployment sat in `waiting` indefinitely. If you
+are tempted to reintroduce a staged-update gate, wire the notice that applies it
+in the same change — a gate nobody can open is indistinguishable from a broken
+deploy. `skipWaiting()` swaps which worker answers the *next* request; it does
+not reload the page, so an active run is never interrupted.
+
+Activation deletes `cardeater-*` caches that are not current. A page-triggered
+prune deliberately spares *other releases'* shell caches: sweeping those from a
+live worker deleted the incoming release's precache while it was still
+installing, which would have left that release to activate with nothing stored.
+Only an activation knows it is the current release, so only an activation
+retires the others. The art cache (`cardeater-art`) is unversioned and kept
+across updates so a 10 MB download is never repeated for a code change.
 
 ## Save data
 
@@ -152,6 +194,21 @@ network-first for everything, and `cache: "no-store"`, so a stale worker can
 never make a code change look like it did not take effect. The dev server
 generates `asset-manifest.json` on the fly and sends `Cache-Control: no-store`.
 
+**Dev mode also fires on `localhost` and `127.0.0.1`, whatever the build stamp
+says** (`DEV_HOSTS` in [sw.js](../sw.js)). That is deliberate, and it is a trap
+for verification: network-first serving means a caching bug simply cannot
+reproduce there. The release-mixing defect above survived a full smoke run for
+exactly this reason. **Verify caching and update behaviour on `127.0.0.2`** —
+still a loopback secure context, so service workers work, but not a dev host:
+
+```sh
+npm run build
+node scripts/serve.mjs 8771 dist 127.0.0.2
+node scripts/pwa-smoke.mjs 9231 http://127.0.0.2:8771 .artifacts/smoke-x prepare
+```
+
+Check `dev_mode: false` in the reported status before believing any result.
+
 To reset by hand:
 
 ```js
@@ -165,8 +222,9 @@ site data with **Local and session storage unchecked** to keep saves.
 
 ## Manual test procedure
 
-Run `npm run check`, then `npm run build` and serve `dist/` over HTTPS or
-`localhost` (service workers require a secure context).
+Run `npm run check`, then `npm run build` and serve `dist/` over HTTPS,
+`localhost`, or `127.0.0.2` (service workers require a secure context). Use
+`127.0.0.2` for anything touching caching or updates — see Development.
 
 **A. Normal player, no install** — open the site, play a round, refresh
 mid-game. Expect no install prompt, no offline UI, and unchanged behavior.
@@ -177,24 +235,31 @@ DevTools → Application → Cache Storage should show only `cardeater-shell-*`
 `installable` state via `promptInstall()`). Launch from the home screen; expect
 no browser chrome and a normal game. iOS Safari: Share → Add to Home Screen.
 
-**C. Installed, offline** — open the menu and tap **离线下载 / Offline Download**,
-then wait for the label to reach `已就绪 / Ready`. On iOS this must be done
-**from inside the installed app**, not from Safari (see platform limitations).
-Close the app, enable airplane mode, relaunch from the home screen. Start a new
-run and exercise several systems (draft, shop, items, contracts, round summary).
-All card and item art must render, localization must work, audio is procedural
-so it needs no network. Finish a round, close the app, relaunch still offline,
-and confirm the save resumed.
+**C. Installed, offline** — stay on the page for a minute and the art downloads
+by itself; to prepare immediately, open the menu and tap **离线下载 / Offline
+Download**. Either way wait for the label to reach `已就绪 / Ready`. On iOS this
+must happen **from inside the installed app**, not from Safari (see platform
+limitations). Close the app, enable airplane mode, relaunch from the home
+screen. Start a new run and exercise several systems (draft, shop, items,
+contracts, round summary). All card and item art must render, localization must
+work, audio is procedural so it needs no network. Finish a round, close the app,
+relaunch still offline, and confirm the save resumed.
 
 **D. Reconnect** — from state C, disable airplane mode and relaunch. Expect
 normal online behavior, network-fetched navigations, and every save intact.
 
 **E. Deployment update** — with release A installed and saves present, change a
-source file and rebuild (the version hash changes). Open the app online: the
-worker installs release B into a new cache and `update_ready` becomes true. Apply
-it, then confirm `dist/asset-manifest.json`'s version matches the active shell
-cache, that release A's shell cache is gone, that `cardeater-art` survived, and
-that saves are unchanged.
+source file and rebuild (the version hash changes). Open the app online and do
+nothing else: release B must install, activate, and be serving its own
+JavaScript **without any prompt or tap**. Confirm `dist/asset-manifest.json`'s
+version matches the active shell cache, that release A's shell cache is gone,
+that `cardeater-art` survived, and that saves are unchanged. Then confirm the
+page is running B's code and not just B's markup — a mixed release is the
+failure this test exists to catch, and it looks like a deploy that did nothing:
+
+```js
+(await (await fetch("./js/main.js")).text()).includes("<a symbol only B has>")
+```
 
 ## Platform limitations
 

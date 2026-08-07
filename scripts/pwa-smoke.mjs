@@ -122,46 +122,41 @@ for (const viewport of phaseViewports) {
   const checks = {};
 
   if (phase === "update") {
-    // Test E — release B is genuinely deployed by this point. Verify it stages
-    // without self-activating, then applies without losing art or saves.
+    // Test E — release B is genuinely deployed by this point. Verify it takes
+    // over on its own, without losing art or saves.
     //
     // Runs once, not per viewport: both viewports share one browser profile and
     // therefore one registration, so the first pass consumes the A -> B
     // transition and a second would find itself already on B.
     await setOffline(false);
     const before = await swState();
-    const staged = await evaluate(`(async () => {
-      const registration = await navigator.serviceWorker.getRegistration();
-      await registration.update();
-      for (let wait = 0; wait < 40 && !registration.waiting; wait += 1) {
-        await new Promise((ok) => setTimeout(ok, 500));
-      }
-      const { getOfflineState } = await import("./js/offline.js");
-      return {
-        waiting: Boolean(registration.waiting),
-        still_old_controller: navigator.serviceWorker.controller?.scriptURL ?? null,
-        update_ready: getOfflineState().update_ready,
-        caches: await caches.keys(),
-      };
-    })()`);
-    // The new release must sit staged, never swap itself in under a live run.
-    const notSelfActivated = staged.caches.includes(before.shell_cache);
     await evaluate(`(async () => {
       const registration = await navigator.serviceWorker.getRegistration();
-      registration.waiting?.postMessage({ type: "apply-update" });
+      await registration.update();
     })()`);
-    await wait(2000);
+    // Deliberately no page action here. The old build waited to be sent
+    // `apply-update`, which no UI ever sent, so every deployment stalled in
+    // `waiting` while the previous worker kept serving its own JavaScript —
+    // players got the new index.html and the old modules.
+    let activeVersion = null;
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      activeVersion = (await status())?.version;
+      if (activeVersion === expectedVersion) break;
+      await wait(500);
+    }
     await reload();
     await wait(1500);
     const after = await swState();
+    const tookOver = activeVersion === expectedVersion;
     checks.e_update = {
-      before_cache: before.shell_cache, staged, after,
+      before_cache: before.shell_cache, after,
+      took_over_unassisted: tookOver,
+      active_version: activeVersion,
       version_changed: after.shell_cache !== before.shell_cache,
       old_cache_cleaned: !after.caches.includes(before.shell_cache),
       art_cache_survived: after.art_entries === before.art_entries,
       save_intact: await evaluate(`localStorage.getItem("cardeater.pwa-smoke") === "offline-write"`),
-      staged_not_self_activated: notSelfActivated,
-      pass: staged.waiting && notSelfActivated && after.shell_cache !== before.shell_cache
+      pass: tookOver && after.shell_cache !== before.shell_cache
         && !after.caches.includes(before.shell_cache) && after.art_entries === before.art_entries
         && after.boot,
     };
@@ -245,14 +240,21 @@ for (const viewport of phaseViewports) {
   };
   await capture(`${viewport.name}-d-reconnect`);
 
-  // An orphaned cache must be swept even without a version change, so a cache
-  // left behind by an interrupted activation cannot survive indefinitely.
+  // Cache cleanup has to cut both ways. A stray non-release cache must still be
+  // swept on a page request, but another release's shell cache must survive one:
+  // sweeping those from a live worker deleted the incoming release's precache
+  // while it was still installing. Retiring those is an activation's job, and
+  // test E asserts it.
   checks.orphan_cleanup = await evaluate(`(async () => {
+    await caches.open("cardeater-legacy-orphan");
     await caches.open("cardeater-shell-orphan00000");
     const { refreshOfflineStatus } = await import("./js/offline.js");
     await refreshOfflineStatus();
     const names = await caches.keys();
-    return { names, pass: !names.includes("cardeater-shell-orphan00000") };
+    const swept = !names.includes("cardeater-legacy-orphan");
+    const spared = names.includes("cardeater-shell-orphan00000");
+    await caches.delete("cardeater-shell-orphan00000");
+    return { names, swept_stray_cache: swept, spared_other_release: spared, pass: swept && spared };
   })()`);
 
   // Mobile layout regression guard: safe-area padding and no page scroll.

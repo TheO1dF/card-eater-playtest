@@ -3,10 +3,10 @@
 // Design rules, in priority order:
 //  1. The site stays a normal web game. Installation is never required, and a
 //     failed or absent worker must never stop a page from loading.
-//  2. Navigations are network-first, so a new deployment is always discovered
-//     and nobody gets stranded on a stale index.html.
-//  3. Shell responses come from one version-scoped cache, so a client never
-//     mixes index.html from release B with js/engine.js from release A.
+//  2. A load is served wholly from one version-scoped cache, so a client can
+//     never mix index.html from release B with js/engine.js from release A.
+//  3. A new release installs, precaches, and takes over on its own, so a
+//     deployment always reaches players without asking them to do anything.
 //  4. Player saves live in localStorage and are untouched by everything here.
 //     Cache cleanup only ever deletes caches, never storage.
 
@@ -124,6 +124,14 @@ self.addEventListener("install", (event) => {
     if (failed.length) failed = await addAllChunked(cache, failed);
     const fatal = failed.filter(isCritical);
     if (fatal.length) throw new Error(`shell precache incomplete: ${fatal.join(", ")}`);
+    // Activate as soon as the new release is fully cached, instead of waiting
+    // for a page to ask. Nothing in the UI ever sent `apply-update`, so a
+    // deployed release used to sit in `waiting` forever while the previous
+    // worker kept serving its own cached JavaScript — players received the new
+    // index.html over the network and the old modules from cache, which looks
+    // exactly like a deploy that changed nothing. This does not reload anyone:
+    // it only decides which worker answers the *next* load.
+    await self.skipWaiting();
   })());
 });
 
@@ -131,14 +139,17 @@ self.addEventListener("install", (event) => {
  * Deletes caches this release does not use. Only ever touches `cardeater-*`
  * cache entries, so player saves in localStorage cannot be affected.
  *
- * Also runs on status requests, not just activation: a cache orphaned by an
- * interrupted activation would otherwise survive until some later release
- * happened to activate cleanly.
+ * `releases` is false for anything triggered by a page. A running worker that
+ * swept other releases' shell caches would delete the *incoming* release's
+ * precache while it was still installing, leaving that release to activate with
+ * an empty cache and no offline support at all. Only an activation knows it is
+ * the current release, so only an activation may retire the others.
  */
-async function pruneCaches() {
+async function pruneCaches({ releases = false } = {}) {
   const names = await caches.keys();
-  const obsolete = names
-    .filter((name) => name.startsWith("cardeater-") && name !== SHELL_CACHE && name !== ART_CACHE);
+  const obsolete = names.filter((name) => name.startsWith("cardeater-")
+    && name !== SHELL_CACHE && name !== ART_CACHE
+    && (releases || !name.startsWith("cardeater-shell-")));
   await Promise.all(obsolete.map((name) => caches.delete(name)));
 
   // Drop art this release no longer references. Art the player already
@@ -160,7 +171,7 @@ async function pruneCaches() {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
-    await pruneCaches();
+    await pruneCaches({ releases: true });
     await self.clients.claim();
   })());
 });
@@ -183,19 +194,36 @@ const offlineResponse = () => new Response(OFFLINE_FALLBACK, {
   headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
 });
 
-/** Navigations: network first, cached shell second, offline notice last. */
+/**
+ * Navigations: this release's cached index.html, network only when there is
+ * none (first visit) or in dev.
+ *
+ * Serving navigations from the network while serving modules from a
+ * version-scoped cache is what produced the "deploy that changed nothing" bug:
+ * the page got release B's markup and release A's JavaScript, because the
+ * worker still in charge could only answer from its own cache. Reading both
+ * from one immutable per-release cache is what makes a load internally
+ * consistent.
+ *
+ * Nothing refreshes this entry in place, deliberately — writing newer markup
+ * into an older release's cache would recreate exactly that mismatch. Updates
+ * arrive the one way that keeps a release whole: the browser re-fetches sw.js
+ * on navigation (`updateViaCache: "none"`), the new worker precaches itself and
+ * calls `skipWaiting()`, and the next load comes wholly from the new cache. So
+ * a player is at most one load behind, never stranded.
+ */
 async function handleNavigation(event, request) {
+  const cache = await caches.open(SHELL_CACHE);
+  const cached = await cache.match(INDEX_URL.href);
+  if (cached && !isDev) return cached;
   try {
     const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(SHELL_CACHE);
-      cacheInBackground(event, cache, INDEX_URL.href, response);
-    }
+    if (response.ok) cacheInBackground(event, cache, INDEX_URL.href, response);
     return response;
   } catch {
-    const cached = await caches.match(INDEX_URL.href, { cacheName: SHELL_CACHE })
-      ?? await caches.match(request, { cacheName: SHELL_CACHE, ignoreSearch: true });
-    return cached ?? offlineResponse();
+    return cached
+      ?? await caches.match(request, { cacheName: SHELL_CACHE, ignoreSearch: true })
+      ?? offlineResponse();
   }
 }
 
@@ -299,7 +327,7 @@ self.addEventListener("message", (event) => {
     if (!event.ports?.length) event.source?.postMessage({ type: `${type}-result`, ...payload });
   };
   if (type === "offline-status") {
-    event.waitUntil(pruneCaches()
+    event.waitUntil(pruneCaches({ releases: false })
       .catch(() => null)
       .then(offlineStatus)
       .then(reply, (error) => reply({ error: String(error) })));
@@ -313,7 +341,7 @@ self.addEventListener("message", (event) => {
     event.waitUntil(caches.delete(ART_CACHE).then(() => offlineStatus()).then(reply));
     return;
   }
-  // Applying an update is the page's call, never the worker's: the page decides
-  // it is safe to reload so an active run is not interrupted.
+  // Kept so a page that knows an update is staged can still hurry it along.
+  // Installs now call skipWaiting() themselves, so nothing depends on this.
   if (type === "apply-update") event.waitUntil(self.skipWaiting());
 });

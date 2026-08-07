@@ -5,9 +5,10 @@
 // exactly as it did before. Nothing in this module touches gameplay state, and
 // nothing here reads or writes player saves — those stay in js/platform.js.
 //
-// UI wiring: the offline download row is wired in js/main.js. The install
-// button and update notice are still connection points only — see
-// docs/PWA_OFFLINE.md.
+// UI wiring: the offline download row is wired in js/main.js, and preparation
+// also runs on its own via prepareOfflineInBackground(). The install button is
+// still a connection point only. Updates need no UI — the worker activates a
+// new release itself; see docs/PWA_OFFLINE.md.
 
 const SW_URL = "./sw.js";
 const isSupported = () => typeof navigator !== "undefined" && "serviceWorker" in navigator;
@@ -105,16 +106,39 @@ async function requestPersistentStorage() {
 /**
  * Downloads every asset a full offline run needs (~10 MB) and verifies the
  * result against the cache. Safe to call repeatedly; already-cached files are
- * skipped. Wire this to a "Download for offline play" control.
+ * skipped.
  */
-export async function downloadForOfflinePlay() {
+export async function downloadForOfflinePlay({ persist = true } = {}) {
   if (!isSupported()) return { ok: false, error: "unsupported" };
   await ready();
-  const persisted = await requestPersistentStorage();
-  patch({ persisted, progress: { done: 0, total: state.status?.art_total ?? 0 } });
+  if (persist) patch({ persisted: await requestPersistentStorage() });
+  patch({ progress: { done: 0, total: state.status?.art_total ?? 0 } });
   const result = await ask("offline-download");
   patch({ progress: null, status: result && !result.error ? result : state.status });
   return result ?? { ok: false, error: "no-worker" };
+}
+
+// Long enough that someone who opens the page and leaves never pays for it.
+const BACKGROUND_PREPARE_DELAY_MS = 45_000;
+
+/**
+ * Prepares offline play on its own, so the usual case needs no button at all.
+ *
+ * Deliberately unhurried and easy to opt out of: it waits until the player has
+ * actually stayed, does nothing on a metered connection or once the art is
+ * already stored, and skips the persistent-storage request because that is a
+ * prompt on some browsers and this path is meant to be silent. The menu row
+ * still shows progress, and still works as a manual trigger for anyone who
+ * wants to prepare right now.
+ */
+export async function prepareOfflineInBackground({ delayMs = BACKGROUND_PREPARE_DELAY_MS } = {}) {
+  if (!isSupported() || navigator.connection?.saveData) return null;
+  if (!(await ready())) return null;
+  await new Promise((done) => setTimeout(done, delayMs));
+  if (!navigator.onLine) return null;
+  const status = await refreshOfflineStatus();
+  if (!status || status.error || status.offline_ready) return status;
+  return downloadForOfflinePlay({ persist: false });
 }
 
 /** Frees the downloaded art cache. Never touches saves or the app shell. */
@@ -141,7 +165,8 @@ function watchUpdates(current) {
 
 /**
  * Applies a staged update by activating the new worker and reloading once.
- * The caller decides when this is safe — never call it during an active run.
+ * Nothing needs this any more — a new release activates itself — but it stays
+ * for a caller that wants to force the swap without a navigation.
  */
 export async function applyUpdate() {
   const waiting = registration?.waiting;

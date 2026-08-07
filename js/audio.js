@@ -111,21 +111,26 @@ export function initAudio() {
   return audioCtx;
 }
 
+/**
+ * Resumes the AudioContext. Safe to call on every gesture: it is cheap once the
+ * context is running, and each call gets its own attempt.
+ *
+ * The per-attempt promise matters. `resume()` called without user activation
+ * can stay pending indefinitely on iOS, and an earlier version cached that
+ * promise and returned it to every later caller — so one unlucky first tap left
+ * audio dead until the page was reloaded, which is why "save and return to the
+ * title" appeared to be the way to turn sound on.
+ */
 export function unlockAudio() {
   if (audioCtx?.state === "running") return Promise.resolve(audioCtx);
-  if (unlockPromise) return unlockPromise;
   const context = initAudio();
-  unlockPromise = context.resume()
-    .then(() => {
-      unlockPromise = null;
-      if (bgmRequested) toggleBGM(true);
-      return context;
-    })
-    .catch(() => {
-      unlockPromise = null;
-      return context;
-    });
-  return unlockPromise;
+  const attempt = context.resume().then(() => context, () => context);
+  unlockPromise = attempt;
+  void attempt.then(() => {
+    if (unlockPromise === attempt) unlockPromise = null;
+    if (context.state === "running" && bgmRequested) toggleBGM(true);
+  });
+  return attempt;
 }
 
 function routeWithPan(source, destination, pan = 0) {

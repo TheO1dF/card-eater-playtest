@@ -28,7 +28,7 @@ import {
   isMutationMode,
   pickRandomMutation,
 } from "./mutations.js";
-import { downloadForOfflinePlay, getOfflineState, onOfflineStateChange, startOfflineSupport } from "./offline.js";
+import { downloadForOfflinePlay, getOfflineState, onOfflineStateChange, prepareOfflineInBackground, startOfflineSupport } from "./offline.js";
 import {
   activateCategoryRoundItem,
   applyRoundItemDrawSetup,
@@ -1263,20 +1263,23 @@ ui.applyFontSize(settings.font_size);
 ui.renderSettings(settings);
 if (musicEnabled) toggleBGM(true);
 if (musicEnabled || effectsEnabled) {
-  let audioUnlockPending = false;
   let audioUnlocked = false;
   const unlockFromGesture = () => {
-    if (audioUnlocked || audioUnlockPending) return;
-    audioUnlockPending = true;
+    if (audioUnlocked) return;
     void unlockAudio().then((context) => {
-      audioUnlockPending = false;
       audioUnlocked = context.state === "running";
       if (audioUnlocked && musicEnabled) toggleBGM(true);
     });
   };
-  window.addEventListener("pointerdown", unlockFromGesture, { capture: true });
-  window.addEventListener("keydown", unlockFromGesture, { capture: true });
-  window.addEventListener("touchstart", unlockFromGesture, { capture: true, passive: true });
+  // `pointerup` and `touchend` are the events that grant user activation on a
+  // touchscreen: the spec only counts `pointerdown` when the pointer is a
+  // mouse, and `touchstart` never counts. Listening to the press alone meant a
+  // phone called resume() with no activation to spend, which is what left the
+  // game silent until it was reloaded. There is no "pending" guard on purpose —
+  // one attempt that never settles must not block every later tap.
+  for (const type of ["pointerup", "touchend", "click", "pointerdown", "keydown"]) {
+    window.addEventListener(type, unlockFromGesture, { capture: true, passive: true });
+  }
 }
 function tickTimer() {
   if (state.mode === GAME_MODES.CONTRACT_SHOP && state.phase === GAME_PHASES.PLAYING && state.round.started_at_ms) {
@@ -1373,5 +1376,9 @@ startOfflineSupport();
 // The menu row appears only once the worker reports in, and follows download
 // progress from there. See docs/PWA_OFFLINE.md.
 onOfflineStateChange((offline) => ui.renderOffline(offline));
+// Preparing offline play is automatic, so it does not depend on the player
+// finding the menu row. The row stays as a progress readout and a way to start
+// it immediately.
+void prepareOfflineInBackground();
 // Read-only hooks for the offline UI documented in docs/PWA_OFFLINE.md.
 globalThis.cardEaterOffline = { getState: getOfflineState, isRunInProgress };

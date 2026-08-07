@@ -1584,6 +1584,10 @@ body:has(#welcomeOverlay.show) .game-shell {
 .summary-speed-setting button { min-width: 66px; min-height: 34px; border: 1px solid #6e5b7a; color: #b9a8c3; background: #282031; cursor: pointer; }
 .summary-speed-setting button.is-selected { border-color: var(--gold); color: #2f2315; background: var(--gold); font-weight: 900; }
 .menu-wide-button { width: 100%; margin-top: 8px; flex-wrap: wrap; }
+/* An author `display` beats the UA stylesheet's `[hidden] { display: none }`,
+   so without this the rules above force every hidden wide button back on
+   screen — which is how the offline row shipped visible and inert. */
+.setting-toggle[hidden], .menu-wide-button[hidden] { display: none; }
 .menu-catalog-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .menu-catalog-buttons .menu-wide-button { align-content: center; align-items: flex-start; flex-direction: column; justify-content: center; margin-top: 0; }
 .menu-catalog-buttons .menu-wide-button b { color: var(--gold); }
