@@ -43,8 +43,23 @@ test("index.html links the manifest and keeps the iOS install metadata", async (
   // The existing safe-area CSS only resolves with viewport-fit=cover.
   assert.match(html, /name="viewport"[^>]*viewport-fit=cover/u);
   assert.equal(html.match(/name="viewport"/gu).length, 1);
-  // The page must not register the worker inline; js/offline.js owns that.
-  assert.ok(!html.includes("serviceWorker"), "registration belongs in js/offline.js");
+  // Registration must begin in <head>, before the large game module graph. A
+  // late registration lets a phone create a home-screen shortcut before the
+  // offline shell has even started caching.
+  const boot = html.indexOf("./js/pwa-boot.js?v=1");
+  const main = html.indexOf("./js/main.js?v=55");
+  assert.ok(boot > 0 && boot < main, "PWA boot must load before the game entry module");
+});
+
+test("the early PWA boot and installed-app preparation remove the first-launch race", async () => {
+  const boot = await read("js/pwa-boot.js");
+  const offline = await read("js/offline.js");
+  assert.match(boot, /navigator\.serviceWorker\.register\("\.\/sw\.js"/u);
+  assert.match(boot, /__cardEaterServiceWorkerRegistration/u);
+  assert.match(offline, /const STANDALONE_PREPARE_DELAY_MS = 0/u);
+  assert.match(offline, /standalone \? STANDALONE_PREPARE_DELAY_MS : BACKGROUND_PREPARE_DELAY_MS/u);
+  assert.match(offline, /globalThis\[EARLY_REGISTRATION_KEY\]/u,
+    "the full offline API must reuse the worker registration started in head");
 });
 
 test("generated PWA icons are valid PNGs at the declared sizes", async () => {
@@ -94,7 +109,7 @@ test("the version hash moves when only the service worker changes", async () => 
 test("the offline manifest includes the whole shell and excludes unused art", async () => {
   const manifest = await buildAssetManifest();
   const shell = new Set(manifest.shell);
-  for (const required of ["./", "./index.html", "./manifest.webmanifest", "./js/offline.js", "./js/asset-urls.js"]) {
+  for (const required of ["./", "./index.html", "./manifest.webmanifest", "./js/pwa-boot.js?v=1", "./js/offline.js", "./js/asset-urls.js"]) {
     assert.ok(shell.has(required), `shell is missing ${required}`);
   }
   // Query strings must match what the browser actually requests.
@@ -123,6 +138,8 @@ test("the service worker keeps updates reachable and saves untouched", async () 
   // The build stamps this, which is what gives each release its own cache.
   assert.match(worker, /const BUILD = "__CARDEATER_BUILD__";/u);
   assert.match(worker, /const SHELL_CACHE = `cardeater-shell-\$\{VERSION\}`/u);
+  assert.match(worker, /const isDev = VERSION === "dev";/u,
+    "a stamped dist build must keep release caching on localhost for verification");
 
   // A release must be served whole. Navigations used to be network-first while
   // modules stayed cache-first, so a deployment handed the player new markup

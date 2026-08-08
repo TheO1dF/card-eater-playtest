@@ -9,11 +9,9 @@ if (root !== repositoryRoot && !root.startsWith(`${repositoryRoot}${sep}`)) {
   throw new Error("Static root must stay inside the repository");
 }
 const port = Number(process.argv[2] ?? process.env.PORT ?? 8080);
-// The worker treats localhost and 127.0.0.1 as dev hosts and serves everything
-// network-first there, which makes caching and update bugs impossible to
-// reproduce. 127.0.0.2 is still a loopback secure context, so service workers
-// work, but it is not a dev host — bind it to test release behaviour.
-// See docs/PWA_OFFLINE.md.
+// Source sw.js contains an unstamped dev build marker and stays network-first;
+// dist/sw.js is stamped and uses release caching even on localhost. See
+// docs/PWA_OFFLINE.md.
 const host = process.argv[4] ?? process.env.HOST ?? "127.0.0.1";
 const contentTypes = {
   ".html": "text/html; charset=utf-8",

@@ -11,6 +11,7 @@
 // new release itself; see docs/PWA_OFFLINE.md.
 
 const SW_URL = "./sw.js";
+const EARLY_REGISTRATION_KEY = "__cardEaterServiceWorkerRegistration";
 const isSupported = () => typeof navigator !== "undefined" && "serviceWorker" in navigator;
 
 const listeners = new Set();
@@ -118,8 +119,12 @@ export async function downloadForOfflinePlay({ persist = true } = {}) {
   return result ?? { ok: false, error: "no-worker" };
 }
 
-// Long enough that someone who opens the page and leaves never pays for it.
-const BACKGROUND_PREPARE_DELAY_MS = 45_000;
+// A regular browser tab waits until first paint has comfortably settled. An
+// installed home-screen app uses its own storage container on iOS, so its first
+// online launch must prepare immediately instead of asking the player to keep
+// it open for 45 seconds and discover a hidden menu control.
+const BACKGROUND_PREPARE_DELAY_MS = 8_000;
+const STANDALONE_PREPARE_DELAY_MS = 0;
 
 /**
  * Prepares offline play on its own, so the usual case needs no button at all.
@@ -131,14 +136,27 @@ const BACKGROUND_PREPARE_DELAY_MS = 45_000;
  * still shows progress, and still works as a manual trigger for anyone who
  * wants to prepare right now.
  */
-export async function prepareOfflineInBackground({ delayMs = BACKGROUND_PREPARE_DELAY_MS } = {}) {
-  if (!isSupported() || navigator.connection?.saveData) return null;
+export async function prepareOfflineInBackground({ delayMs = null } = {}) {
+  const standalone = isStandaloneDisplay();
+  if (!isSupported() || (!standalone && navigator.connection?.saveData)) return null;
   if (!(await ready())) return null;
-  await new Promise((done) => setTimeout(done, delayMs));
+  const delay = delayMs ?? (standalone ? STANDALONE_PREPARE_DELAY_MS : BACKGROUND_PREPARE_DELAY_MS);
+  if (delay > 0) await new Promise((done) => setTimeout(done, delay));
   if (!navigator.onLine) return null;
-  const status = await refreshOfflineStatus();
+  let status = await refreshOfflineStatus();
   if (!status || status.error || status.offline_ready) return status;
-  return downloadForOfflinePlay({ persist: false });
+
+  // A flaky mobile connection may lose one request while the app is being
+  // installed. The worker already skips cached files, so short retries are
+  // cheap and turn a partial bundle into a complete one without redownloading.
+  for (const retryDelay of [0, 2_000, 6_000]) {
+    if (retryDelay > 0) await new Promise((done) => setTimeout(done, retryDelay));
+    if (!navigator.onLine) return status;
+    const result = await downloadForOfflinePlay({ persist: false });
+    status = result && !result.error ? result : status;
+    if (status?.offline_ready) return status;
+  }
+  return status;
 }
 
 /** Frees the downloaded art cache. Never touches saves or the app shell. */
@@ -198,7 +216,9 @@ export function startOfflineSupport({ scriptUrl = SW_URL } = {}) {
   watchInstallPrompt();
   if (!isSupported() || window.location.protocol === "file:") return Promise.resolve(null);
 
-  readyPromise ??= navigator.serviceWorker.register(scriptUrl, { scope: "./", updateViaCache: "none" })
+  const earlyRegistration = scriptUrl === SW_URL ? globalThis[EARLY_REGISTRATION_KEY] : null;
+  readyPromise ??= (earlyRegistration
+    ?? navigator.serviceWorker.register(scriptUrl, { scope: "./", updateViaCache: "none" }))
     .then(async (current) => {
       registration = current;
       patch({ registered: true });

@@ -19,11 +19,10 @@ const ART_CACHE = "cardeater-art";
 const MANIFEST_URL = new URL("./asset-manifest.json", self.location);
 const INDEX_URL = new URL("./index.html", self.location);
 
-// On localhost the code under test changes constantly, so shell requests go to
-// the network first. Stale worker state must never make a code change look
-// like it did not take effect.
-const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-const isDev = VERSION === "dev" || DEV_HOSTS.has(self.location.hostname);
+// The unstamped source worker is development mode and stays network-first.
+// A stamped dist/ build keeps release behaviour even on localhost, which lets
+// the real cache-first/offline path be tested without DNS, proxies or TLS.
+const isDev = VERSION === "dev";
 
 let manifestPromise = null;
 

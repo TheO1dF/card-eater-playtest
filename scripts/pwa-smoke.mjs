@@ -1,5 +1,6 @@
 // Drives headless Edge over CDP to verify the PWA tests from docs/PWA_OFFLINE.md:
-// A (normal visit), C (offline launch), D (reconnect), E (update discovery).
+// A (normal visit), B (shell-only offline interaction), C (installed-app
+// automatic preparation and offline launch), D (reconnect), E (update).
 //
 //   node scripts/pwa-smoke.mjs [debugPort] [url] [outputDir]
 import { mkdir, writeFile } from "node:fs/promises";
@@ -46,7 +47,11 @@ const send = (method, params = {}) => new Promise((resolve, reject) => {
   const id = ++messageId;
   pending.set(id, { resolve, reject });
   socket.send(JSON.stringify({ id, method, params }));
-  setTimeout(() => pending.has(id) && (pending.delete(id), reject(new Error(`${method} timed out`))), 180_000);
+  const timer = setTimeout(() => pending.has(id) && (pending.delete(id), reject(new Error(`${method} timed out`))), 180_000);
+  // Completed CDP calls leave these defensive timers behind. They must not keep
+  // the smoke-test Node process alive for three minutes after its report is
+  // already written.
+  timer.unref?.();
 });
 
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
@@ -209,12 +214,51 @@ for (const viewport of phaseViewports) {
   };
   await capture(`${viewport.name}-a-normal-visit`);
 
-  // Test C — explicit offline download, then a cold offline launch.
-  const download = await evaluate(`(async () => {
-    const offline = await import("./js/offline.js");
-    const result = await offline.downloadForOfflinePlay();
-    return { ok: result?.ok ?? false, cached: result?.art_cached ?? 0, total: result?.art_total ?? 0, failed: result?.failed ?? null, ready: result?.offline_ready ?? false };
+  // Test B — the shell alone must cold-launch offline and, crucially, have its
+  // event listeners. A broken install can still paint cached HTML/CSS while the
+  // main module is missing; that looks normal but every title button is dead.
+  // This is the Android home-screen failure that a simple `#app` check misses.
+  await setOffline(true);
+  await reload();
+  const shellOffline = await swState();
+  const interactive = await evaluate(`(() => {
+    const menuButton = document.querySelector("#homeMenuButton");
+    const menu = document.querySelector("#gameMenu");
+    if (!menuButton || !menu) return false;
+    menuButton.click();
+    return menu.classList.contains("show");
   })()`);
+  checks.b_shell_offline = {
+    launch: shellOffline,
+    title_menu_interactive: interactive,
+    pass: shellOffline.boot && shellOffline.controlled && shellOffline.shell_entries > 30 && interactive,
+  };
+  await capture(`${viewport.name}-b-shell-offline`);
+  await setOffline(false);
+
+  // Test C — emulate an iOS home-screen launch. Do not call the manual
+  // download API: main.js must notice standalone mode and prepare everything
+  // on its own. Safari and its installed app have separate storage containers,
+  // so this exact path is the difference between "installed" and "offline".
+  const standaloneScript = await send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `Object.defineProperty(navigator, "standalone", { configurable: true, get: () => true });`,
+  });
+  await evaluate(`caches.delete("cardeater-art")`);
+  await reload();
+  let automaticStatus = null;
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    automaticStatus = await status();
+    if (automaticStatus?.offline_ready) break;
+    await wait(500);
+  }
+  const download = {
+    automatic: true,
+    ok: automaticStatus?.offline_ready ?? false,
+    cached: automaticStatus?.art_cached ?? 0,
+    total: automaticStatus?.art_total ?? 0,
+    failed: automaticStatus?.offline_ready ? 0 : null,
+    ready: automaticStatus?.offline_ready ?? false,
+  };
   await setOffline(true);
   await reload();
   const offlineLaunch = await swState();
@@ -228,6 +272,7 @@ for (const viewport of phaseViewports) {
       && offlineLaunch.card_art_ok && offlineAgain.boot,
   };
   await capture(`${viewport.name}-c-offline-launch`);
+  await send("Page.removeScriptToEvaluateOnNewDocument", { identifier: standaloneScript.identifier });
 
   // Test D — reconnect returns to normal network behavior with saves intact.
   await setOffline(false);
@@ -273,7 +318,7 @@ for (const viewport of phaseViewports) {
   })()`);
 
   report.viewports.push({ viewport: viewport.name, checks });
-  console.log(`${viewport.name}: A=${checks.a_normal_visit.pass} C=${checks.c_offline.pass} D=${checks.d_reconnect.pass} orphan=${checks.orphan_cleanup.pass}`);
+  console.log(`${viewport.name}: A=${checks.a_normal_visit.pass} B=${checks.b_shell_offline.pass} C=${checks.c_offline.pass} D=${checks.d_reconnect.pass} orphan=${checks.orphan_cleanup.pass}`);
 }
 
 await send("Emulation.clearDeviceMetricsOverride");

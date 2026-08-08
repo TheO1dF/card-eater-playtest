@@ -10,6 +10,7 @@ gameplay.
 | --- | --- |
 | `manifest.webmanifest` | Install metadata. Relative `start_url`/`scope` so it survives any deploy path. |
 | `sw.js` | Service worker. `__CARDEATER_BUILD__` is stamped with a content hash at build time. |
+| `js/pwa-boot.js` | Tiny head script that starts shell installation before the game modules load. |
 | `js/offline.js` | Page-side API: registration, offline download, install prompt, update state. |
 | `js/asset-urls.js` | Single source of truth for asset URLs, shared by `js/ui.js` and the build. |
 | `scripts/asset-manifest.mjs` | Generates the offline file list from the real data modules. |
@@ -57,13 +58,16 @@ the source of `handleNavigation`, `handleShell` and `handleArt`.
 
 ## Offline preparation
 
-Preparation is automatic. `prepareOfflineInBackground()` runs on every load and,
-45 seconds in, downloads whatever art is still missing. The delay means someone
-who opens the page and leaves never pays for it; `navigator.connection.saveData`
-and a missing network are both respected, and it does nothing once the art is
-stored. It skips the persistent-storage request, because that prompts on some
-browsers and this path is meant to be silent. So offline play prepares itself
-for a player who stays a while and never finds the menu row.
+Preparation is automatic. `pwa-boot.js` starts the shell install from `<head>`,
+before the main module graph, so quickly adding the game to the home screen and
+closing the browser cannot leave behind static markup with no input code. Once
+the game is running, `prepareOfflineInBackground()` downloads whatever art is
+still missing. A normal browser tab waits 8 seconds; an installed standalone
+app starts immediately because iOS gives it a storage container separate from
+Safari. Save-data mode is respected in a browser tab but not in an app the
+player explicitly installed for offline use. It skips the persistent-storage
+request because that can prompt on some browsers. Partial mobile downloads are
+retried, and already cached files are never fetched twice.
 
 `downloadForOfflinePlay()` is the same job on demand, from the menu row. It asks
 for persistent storage (`navigator.storage.persist()`), fetches the art list in
@@ -194,17 +198,16 @@ network-first for everything, and `cache: "no-store"`, so a stale worker can
 never make a code change look like it did not take effect. The dev server
 generates `asset-manifest.json` on the fly and sends `Cache-Control: no-store`.
 
-**Dev mode also fires on `localhost` and `127.0.0.1`, whatever the build stamp
-says** (`DEV_HOSTS` in [sw.js](../sw.js)). That is deliberate, and it is a trap
-for verification: network-first serving means a caching bug simply cannot
-reproduce there. The release-mixing defect above survived a full smoke run for
-exactly this reason. **Verify caching and update behaviour on `127.0.0.2`** —
-still a loopback secure context, so service workers work, but not a dev host:
+Dev mode is selected by the unstamped `__CARDEATER_BUILD__` placeholder, not by
+the hostname. Serving the repository root therefore stays network-first, while
+serving the stamped `dist/` directory on localhost exercises the real
+cache-first release path. This avoids proxy and DNS differences around other
+loopback addresses while keeping development changes visible:
 
 ```sh
 npm run build
-node scripts/serve.mjs 8771 dist 127.0.0.2
-node scripts/pwa-smoke.mjs 9231 http://127.0.0.2:8771 .artifacts/smoke-x prepare
+node scripts/serve.mjs 8771 dist 127.0.0.1
+node scripts/pwa-smoke.mjs 9231 http://127.0.0.1:8771 .artifacts/smoke-x prepare
 ```
 
 Check `dev_mode: false` in the reported status before believing any result.
@@ -222,9 +225,9 @@ site data with **Local and session storage unchecked** to keep saves.
 
 ## Manual test procedure
 
-Run `npm run check`, then `npm run build` and serve `dist/` over HTTPS,
-`localhost`, or `127.0.0.2` (service workers require a secure context). Use
-`127.0.0.2` for anything touching caching or updates — see Development.
+Run `npm run check`, then `npm run build` and serve `dist/` over HTTPS or
+localhost (service workers require a secure context). The stamped worker in
+`dist/` automatically uses release behaviour — see Development.
 
 **A. Normal player, no install** — open the site, play a round, refresh
 mid-game. Expect no install prompt, no offline UI, and unchanged behavior.
@@ -235,11 +238,12 @@ DevTools → Application → Cache Storage should show only `cardeater-shell-*`
 `installable` state via `promptInstall()`). Launch from the home screen; expect
 no browser chrome and a normal game. iOS Safari: Share → Add to Home Screen.
 
-**C. Installed, offline** — stay on the page for a minute and the art downloads
-by itself; to prepare immediately, open the menu and tap **离线下载 / Offline
-Download**. Either way wait for the label to reach `已就绪 / Ready`. On iOS this
-must happen **from inside the installed app**, not from Safari (see platform
-limitations). Close the app, enable airplane mode, relaunch from the home
+**C. Installed, offline** — launch the installed app online once. Its separate
+storage container starts the full offline preparation immediately; the menu's
+**离线下载 / Offline Download** row shows progress and eventually reaches
+`已就绪 / Ready`. On iOS this first online launch must happen **inside the
+installed app**, not only in Safari (see platform limitations). Close the app,
+enable airplane mode, relaunch from the home
 screen. Start a new run and exercise several systems (draft, shop, items,
 contracts, round summary). All card and item art must render, localization must
 work, audio is procedural so it needs no network. Finish a round, close the app,
