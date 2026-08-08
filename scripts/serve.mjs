@@ -28,6 +28,14 @@ const contentTypes = {
 const server = createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+    // Match Cloudflare Pages' canonical document behaviour in release-mode
+    // smoke tests. This redirect previously produced a cached
+    // Response.redirected=true that Chromium refused on the next navigation.
+    if (root !== repositoryRoot && pathname === "/index.html") {
+      response.writeHead(308, { Location: "/", "Cache-Control": "no-cache" });
+      response.end();
+      return;
+    }
     // Generated at build time, so serve it live here instead of writing a file
     // into the working tree that could go stale during development.
     if (pathname === "/asset-manifest.json") {

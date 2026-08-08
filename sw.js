@@ -17,7 +17,11 @@ const SHELL_CACHE = `cardeater-shell-${VERSION}`;
 // are pruned by URL instead of being re-downloaded on every deployment.
 const ART_CACHE = "cardeater-art";
 const MANIFEST_URL = new URL("./asset-manifest.json", self.location);
-const INDEX_URL = new URL("./index.html", self.location);
+// Cloudflare Pages canonicalises /index.html to / with a 308. A followed
+// redirect retains Response.redirected=true even after it is cached, and
+// Chromium refuses that response when a service worker uses it for a top-level
+// navigation. Cache and serve the canonical directory URL instead.
+const INDEX_URL = new URL("./", self.location);
 
 // The unstamped source worker is development mode and stays network-first.
 // A stamped dist/ build keeps release behaviour even on localhost, which lets
@@ -59,6 +63,10 @@ const absolute = (url) => new URL(url, self.location).href;
  * visible on a phone.
  */
 function cacheInBackground(event, cache, key, response) {
+  // Redirect-followed responses cannot safely be replayed for navigations.
+  // Every runtime asset has a canonical URL, so skipping such a cache write is
+  // safer than persisting a response the browser may later reject.
+  if (response.redirected) return;
   const copy = response.clone();
   event.waitUntil(cache.put(key, copy).catch(() => {
     // Out of quota, or storage denied in private browsing. Play continues.
@@ -77,7 +85,7 @@ async function storeOne(cache, url) {
   for (const init of [{ cache: "reload", credentials: "same-origin" }, { credentials: "same-origin" }]) {
     try {
       const response = await fetch(new Request(url, init));
-      if (!response.ok) continue;
+      if (!response.ok || response.redirected) continue;
       await cache.put(url, response);
       return true;
     } catch {
@@ -214,14 +222,18 @@ const offlineResponse = () => new Response(OFFLINE_FALLBACK, {
 async function handleNavigation(event, request) {
   const cache = await caches.open(SHELL_CACHE);
   const cached = await cache.match(INDEX_URL.href);
-  if (cached && !isDev) return cached;
+  if (cached && !cached.redirected && !isDev) return cached;
   try {
-    const response = await fetch(request);
+    // Fetch the canonical app entry rather than the requested alias. Pages
+    // redirects /index.html to /, and a redirected Response returned through
+    // respondWith() is rejected by Chromium mobile.
+    const response = await fetch(INDEX_URL.href, { cache: isDev ? "no-store" : "default" });
     if (response.ok) cacheInBackground(event, cache, INDEX_URL.href, response);
     return response;
   } catch {
-    return cached
-      ?? await caches.match(request, { cacheName: SHELL_CACHE, ignoreSearch: true })
+    const requestCached = await caches.match(request, { cacheName: SHELL_CACHE, ignoreSearch: true });
+    return (!cached?.redirected ? cached : null)
+      ?? (!requestCached?.redirected ? requestCached : null)
       ?? offlineResponse();
   }
 }

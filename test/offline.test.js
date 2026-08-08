@@ -109,9 +109,10 @@ test("the version hash moves when only the service worker changes", async () => 
 test("the offline manifest includes the whole shell and excludes unused art", async () => {
   const manifest = await buildAssetManifest();
   const shell = new Set(manifest.shell);
-  for (const required of ["./", "./index.html", "./manifest.webmanifest", "./js/pwa-boot.js?v=1", "./js/offline.js", "./js/asset-urls.js"]) {
+  for (const required of ["./", "./manifest.webmanifest", "./js/pwa-boot.js?v=1", "./js/offline.js", "./js/asset-urls.js"]) {
     assert.ok(shell.has(required), `shell is missing ${required}`);
   }
+  assert.ok(!shell.has("./index.html"), "Pages redirects /index.html; only the canonical / document may be cached");
   // Query strings must match what the browser actually requests.
   assert.ok(shell.has("./js/main.js?v=55"), "entry module must keep its ?v= string");
   assert.ok(shell.has("./styles.css?v=55"), "stylesheet must keep its ?v= string");
@@ -140,6 +141,10 @@ test("the service worker keeps updates reachable and saves untouched", async () 
   assert.match(worker, /const SHELL_CACHE = `cardeater-shell-\$\{VERSION\}`/u);
   assert.match(worker, /const isDev = VERSION === "dev";/u,
     "a stamped dist build must keep release caching on localhost for verification");
+  assert.match(worker, /const INDEX_URL = new URL\("\.\/", self\.location\);/u,
+    "the cached app entry must be Pages' canonical directory URL");
+  assert.match(worker, /!response\.ok \|\| response\.redirected/u,
+    "redirect-followed responses must never enter the precache");
 
   // A release must be served whole. Navigations used to be network-first while
   // modules stayed cache-first, so a deployment handed the player new markup
@@ -147,9 +152,11 @@ test("the service worker keeps updates reachable and saves untouched", async () 
   // nothing, because the worker in charge could only answer from its own cache.
   const navigation = worker.slice(worker.indexOf("async function handleNavigation"));
   const body = navigation.slice(0, navigation.indexOf("\n}"));
-  assert.ok(body.indexOf("cache.match(INDEX_URL.href)") < body.indexOf("await fetch(request)"),
-    "handleNavigation must prefer this release's cached index.html");
-  assert.match(body, /if \(cached && !isDev\) return cached;/u);
+  assert.ok(body.indexOf("cache.match(INDEX_URL.href)") < body.indexOf("await fetch(INDEX_URL.href"),
+    "handleNavigation must prefer this release's cached canonical document");
+  assert.match(body, /if \(cached && !cached\.redirected && !isDev\) return cached;/u);
+  assert.doesNotMatch(body, /fetch\(request\)/u,
+    "navigation must not follow and replay Pages' /index.html redirect");
 
   // ...and the new release has to take over by itself. Nothing in the UI ever
   // sent `apply-update`, so relying on it left every deployment in `waiting`.
@@ -209,6 +216,8 @@ test("build and dev-server plumbing ship the offline files", async () => {
   assert.match(pkg.scripts.deploy, /wrangler pages deploy dist/u);
   assert.match(pkg.scripts.preview, /wrangler pages dev dist/u);
   assert.match(pkg.scripts["verify:pwa:live"], /verify-pwa-deployment\.mjs/u);
+  assert.match(await read("scripts/verify-pwa-deployment.mjs"), /redirect: "manual"/u,
+    "deployment verification must expose redirecting precache URLs");
 
   const headers = await read("_headers");
   // A long-cached worker or manifest is how a release becomes undiscoverable.
@@ -216,7 +225,10 @@ test("build and dev-server plumbing ship the offline files", async () => {
     const block = headers.slice(headers.indexOf(`${path}\n`));
     assert.match(block.slice(0, 120), /Cache-Control: no-cache/u, `${path} must not be long-cached`);
   }
-  assert.match(await read("scripts/serve.mjs"), /"\.webmanifest"/u);
+  const server = await read("scripts/serve.mjs");
+  assert.match(server, /"\.webmanifest"/u);
+  assert.match(server, /pathname === "\/index\.html"[\s\S]{0,180}writeHead\(308/u,
+    "release smoke tests must reproduce Pages' canonical index redirect");
 });
 
 test("a failing cache write can never break the response it came from", async () => {
@@ -233,6 +245,7 @@ test("a failing cache write can never break the response it came from", async ()
   }
   // Writes go through one helper that clones, defers and swallows failures.
   const helper = worker.slice(worker.indexOf("function cacheInBackground"));
+  assert.match(helper.slice(0, 500), /if \(response\.redirected\) return;/u);
   assert.match(helper.slice(0, 400), /event\.waitUntil\(cache\.put\(key, copy\)\.catch\(/u);
 });
 

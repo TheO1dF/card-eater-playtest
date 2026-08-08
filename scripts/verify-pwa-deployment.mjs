@@ -47,12 +47,19 @@ if (manifest) {
   const workers = Array.from({ length: Math.min(12, pending.length) }, async () => {
     for (let path = pending.shift(); path !== undefined; path = pending.shift()) {
       const url = new URL(path, baseUrl);
-      const response = await fetch(url, { method: "HEAD", cache: "no-store", redirect: "follow" }).catch(() => null);
+      // A followed redirect can look like a healthy 200 here but becomes an
+      // unusable Response.redirected entry in Cache Storage. Inspect the first
+      // response exactly as the worker's precache URL addresses it.
+      const response = await fetch(url, { method: "HEAD", cache: "no-store", redirect: "manual" }).catch(() => null);
       const type = response?.headers.get("content-type") ?? "";
       const pathname = new URL(url).pathname;
       const isDocument = pathname.endsWith("/") || pathname.endsWith("/index.html");
       const isHtmlFallback = type.includes("text/html") && !isDocument;
-      if (!response?.ok || isHtmlFallback) missing.push(`${path} (${response?.status ?? "network"}, ${type || "no type"})`);
+      const isRedirect = Boolean(response && response.status >= 300 && response.status < 400);
+      if (!response?.ok || isHtmlFallback || isRedirect) {
+        const location = response?.headers.get("location");
+        missing.push(`${path} (${response?.status ?? "network"}, ${type || "no type"}${location ? `, redirects to ${location}` : ""})`);
+      }
     }
   });
   await Promise.all(workers);

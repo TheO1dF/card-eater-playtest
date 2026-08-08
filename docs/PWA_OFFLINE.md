@@ -25,6 +25,15 @@ impossible. `wrangler.jsonc` declares `pages_build_output_dir: "./dist"`, and
 `npm run verify:pwa:live` verifies the deployed worker, manifest and every
 listed offline asset after a release.
 
+Cloudflare Pages responds to `/index.html` with a `308` redirect to `/`.
+Redirect-followed `Response` objects retain `redirected: true` after entering
+Cache Storage, and Chromium refuses them when a service worker later uses them
+for a top-level navigation (`Response served by service worker has
+redirects`). For that reason the shell manifest contains only the canonical
+`./` document, `INDEX_URL` also points to `./`, and every cache write rejects
+redirect-followed responses. The release-mode local server deliberately
+reproduces the Pages redirect so the Edge PWA smoke test covers this behaviour.
+
 ## Caching strategy
 
 Three request classes, three strategies. The `asset-manifest.json` `shell` list

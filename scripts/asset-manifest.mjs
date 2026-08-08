@@ -55,7 +55,10 @@ async function buildShellUrls() {
   const css = await readFile(resolve(root, "styles.css"), "utf8");
   const htmlRefs = await readHtmlReferences(html);
 
-  const urls = new Set(["./", "./index.html", "./manifest.webmanifest"]);
+  // Cloudflare Pages redirects /index.html to /. Only cache the canonical
+  // document URL: Chromium rejects redirect-followed cached responses when a
+  // service worker later returns them for a top-level navigation.
+  const urls = new Set(["./", "./manifest.webmanifest"]);
   // Stylesheet and entry module keep whatever query string index.html uses.
   for (const url of htmlRefs) {
     if (url.endsWith(".svg") || url.endsWith(".png")) continue;
