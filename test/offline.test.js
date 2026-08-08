@@ -198,6 +198,17 @@ test("build and dev-server plumbing ship the offline files", async () => {
   assert.match(build, /manifest\.webmanifest/u);
   assert.match(build, /asset-manifest\.json/u);
   assert.match(build, /__CARDEATER_BUILD__/u);
+  assert.match(build, /process\.env\.CF_PAGES/u, "Pages builds need a safe root-output fallback");
+  assert.match(build, /writeFile\(resolve\(root, "asset-manifest\.json"\)/u);
+
+  const wrangler = JSON.parse(await read("wrangler.jsonc"));
+  assert.equal(wrangler.pages_build_output_dir, "./dist");
+  assert.equal(wrangler.assets, undefined, "this is a Pages project, not a Workers static-assets deploy");
+
+  const pkg = JSON.parse(await read("package.json"));
+  assert.match(pkg.scripts.deploy, /wrangler pages deploy dist/u);
+  assert.match(pkg.scripts.preview, /wrangler pages dev dist/u);
+  assert.match(pkg.scripts["verify:pwa:live"], /verify-pwa-deployment\.mjs/u);
 
   const headers = await read("_headers");
   // A long-cached worker or manifest is how a release becomes undiscoverable.

@@ -7,7 +7,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const debugPort = Number(process.argv[2] ?? 9223);
-const gameUrl = process.argv[3] ?? "http://127.0.0.1:8765";
+const gameUrl = (process.argv[3] ?? "http://127.0.0.1:8765").replace(/\/+$/u, "");
 const outputDir = resolve(process.argv[4] ?? ".artifacts/smoke-pwa");
 // "prepare" runs A/C/D and leaves the art cache and a save key in place.
 // "update" runs E and must be called after a genuinely rebuilt dist/.

@@ -33,11 +33,29 @@ await Promise.all([
 // The offline asset list is generated from the real data modules, and the build
 // hash is stamped into the worker so every deployment gets its own shell cache.
 const assetManifest = await buildAssetManifest();
-await writeFile(resolve(dist, "asset-manifest.json"), `${JSON.stringify(assetManifest, null, 2)}\n`);
+const manifestJson = `${JSON.stringify(assetManifest, null, 2)}\n`;
+await writeFile(resolve(dist, "asset-manifest.json"), manifestJson);
 
 const worker = await readFile(resolve(root, "sw.js"), "utf8");
 if (!worker.includes("__CARDEATER_BUILD__")) throw new Error("sw.js is missing the build placeholder");
-await writeFile(resolve(dist, "sw.js"), worker.replaceAll("__CARDEATER_BUILD__", assetManifest.version));
+const stampedWorker = worker.replaceAll("__CARDEATER_BUILD__", assetManifest.version);
+await writeFile(resolve(dist, "sw.js"), stampedWorker);
+
+// Pages must publish dist/. The production project was once configured to
+// publish the repository root instead: index.html still worked, but
+// asset-manifest.json became the SPA fallback and sw.js kept its development
+// placeholder, so no phone could complete an offline install. The Wrangler
+// config now declares dist/; this CI-only fallback also makes a stale dashboard
+// setting safe by materialising the two generated PWA files in the root that it
+// is about to upload. Local builds never touch tracked source files.
+const buildingOnCloudflarePages = process.env.CF_PAGES === "1" || Boolean(process.env.CF_PAGES_URL);
+if (buildingOnCloudflarePages) {
+  await Promise.all([
+    writeFile(resolve(root, "asset-manifest.json"), manifestJson),
+    writeFile(resolve(root, "sw.js"), stampedWorker),
+  ]);
+  console.log("Cloudflare Pages root-output fallback: generated stamped PWA files");
+}
 
 console.log(`Built static site: ${dist}`);
 console.log(`Offline manifest: build ${assetManifest.version} · ${assetManifest.shell.length} shell · ${assetManifest.art.length} art`);

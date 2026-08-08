@@ -10,7 +10,8 @@
     "simulate": "node scripts/simulate-run.mjs",
     "test": "node --test --test-isolation=none",
     "check": "node --check js/main.js && node scripts/audit-cards.mjs && node --test --test-isolation=none && node scripts/build.mjs",
-    "deploy": "npm run build && npx wrangler deploy",
-    "preview": "npm run build && npx wrangler dev"
+    "deploy": "npm run build && npx wrangler pages deploy dist --project-name=card-eater-playtest",
+    "preview": "npm run build && npx wrangler pages dev dist",
+    "verify:pwa:live": "node scripts/verify-pwa-deployment.mjs https://card-eater-playtest.pages.dev/"
   }
 }

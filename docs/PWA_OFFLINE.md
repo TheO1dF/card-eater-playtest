@@ -17,6 +17,14 @@ gameplay.
 | `scripts/generate-icons.mjs` | Dependency-free PNG icon generator. |
 | `dist/asset-manifest.json` | Build output. The worker fetches this to learn what to cache. |
 
+Cloudflare Pages must publish `dist/`, not the repository root. The root is a
+development server input: its worker deliberately remains unstamped and its
+offline manifest does not exist until the build runs. Publishing the root can
+therefore look completely healthy online while making offline installation
+impossible. `wrangler.jsonc` declares `pages_build_output_dir: "./dist"`, and
+`npm run verify:pwa:live` verifies the deployed worker, manifest and every
+listed offline asset after a release.
+
 ## Caching strategy
 
 Three request classes, three strategies. The `asset-manifest.json` `shell` list
